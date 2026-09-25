@@ -151,6 +151,19 @@ export interface KindRules {
    *  its reference-only members' `memberOfExtension` edges to flag data-loss.
    *  Optional so existing single-arg drop rules stay type-compatible. */
   drop(fact: Fact, view?: FactView): ActionSpec;
+  /** Facts this kind's create AND drop statements destroy as a side effect
+   *  although they are not its descendants — e.g. an object-level acl's
+   *  `REVOKE ALL ON <rel> FROM <role>` also revokes that role's column acls on
+   *  the relation. Collected across BOTH views: desired-side ids are what the
+   *  plan must (re)grant after the wipe, source-side ids what the statement
+   *  actually removes. The emitter attaches them to the producing create and to
+   *  the drop (`destroys`), so the graph orders their re-creation after the
+   *  wipe; replacement expansion recreates the survivors among them. */
+  implicitlyDestroys?: (
+    fact: Fact,
+    view: FactView,
+    sourceView?: FactView,
+  ) => StableId[];
   /** rename support (stage 9): render the in-place rename from the old
    *  fact to the new id. Kinds without this member never become rename
    *  candidates (their changes stay drop+create). */

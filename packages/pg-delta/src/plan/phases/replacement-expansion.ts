@@ -15,8 +15,10 @@ import { cascadesToChildren, isRebuildable } from "../rule-flags.ts";
 import type { RulesForId } from "../rules.ts";
 
 export interface ReplacementExpansionInput {
-  /** removed facts keyed by encoded id (ordinary rename cancellation applied) */
+  /** removed / added facts keyed by encoded id (ordinary rename cancellation
+   *  applied) */
   removed: ReadonlyMap<string, Fact>;
+  added: ReadonlyMap<string, Fact>;
   /** set-deltas grouped by encoded fact id */
   setsByFact: ReadonlyMap<string, Extract<Delta, { verb: "set" }>[]>;
   /** resolved source / desired views */
@@ -41,7 +43,7 @@ export interface ReplacementExpansion {
 export function expandReplacements(
   input: ReplacementExpansionInput,
 ): ReplacementExpansion {
-  const { removed, setsByFact, source, desired, rulesForId } = input;
+  const { removed, added, setsByFact, source, desired, rulesForId } = input;
 
   // ── classify set-deltas: in-place alter vs replace ────────────────────
   const replaceIds = new Set<string>();
@@ -188,6 +190,29 @@ export function expandReplacements(
         fullDestroy.add(fromKey);
         targets.add(fromKey);
         worklist.push(fromKey);
+      }
+    }
+    // ── survivors implicitly destroyed by a create / drop of this plan ─────
+    // A kind may declare facts its statements wipe as a side effect although
+    // they are not its descendants (`implicitlyDestroys`: an object-level
+    // `REVOKE ALL ON <rel> FROM <role>` also revokes that role's column acls).
+    // Every added / removed / replaced fact of such a kind emits that
+    // statement, so a survivor among the wiped facts must be recreated after
+    // it — the emitter's destroy edge orders the recreate. One with its own
+    // add / replace already recreates itself.
+    for (const key of [...added.keys(), ...removed.keys(), ...replaceIds]) {
+      const fact = desired.getByEncoded(key) ?? source.getByEncoded(key);
+      if (fact === undefined) continue;
+      const wiped = rulesForId(fact.id).implicitlyDestroys?.(
+        fact,
+        desired,
+        source,
+      );
+      for (const id of wiped ?? []) {
+        const wipedKey = encodeId(id);
+        if (added.has(wipedKey) || replaceIds.has(wipedKey)) continue;
+        if (!source.has(id) || !desired.has(id)) continue;
+        replaceIds.add(wipedKey);
       }
     }
     // descendants of replaced facts are handled by the ancestor's subtree

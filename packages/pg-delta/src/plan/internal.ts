@@ -769,12 +769,15 @@ export function compactColumnFolds(
  * special-cased per kind in the planner (correctness first, prettify later).
  *
  * Purely cosmetic + provably safe via LOCAL checks (no graph walk): remove a
- * `drop` D destroying a single id I when a `create` P re-produces I with the
- * SAME sql, and removing D cannot lose an ordering constraint —
+ * `drop` D whose subject id I a `create` P re-produces with the SAME sql, when
+ * removing D cannot lose an ordering constraint —
+ *   - every OTHER id D destroys (an object-level acl REVOKE also wipes the
+ *     grantee's column acls, `alsoDestroys`) is destroyed by P too, so P
+ *     carries the same destroy-before-reproduce / teardown edges;
  *   - D.consumes ⊆ P.consumes, so every producer that had to precede D also has
  *     to precede P (which remains);
- *   - nothing `releases` I (a releaser would order before D's destruction);
- *   - I has no children, so no child-teardown is ordered before D.
+ *   - nothing `releases` a destroyed id (a releaser would order before D);
+ *   - no destroyed id has children, so no child-teardown is ordered before D.
  * Those exhaust the edge kinds that can point INTO a drop, so P inherits all of
  * D's predecessors and the byte-identical statement reproduces D's effect.
  */
@@ -782,10 +785,10 @@ export function elideRedundantDrops(
   actions: readonly Action[],
   source: FactBase,
 ): Action[] {
-  // first create that produces each id, with its sql + consume set
+  // first create that produces each id, with its sql + consume/destroy sets
   const producerOf = new Map<
     string,
-    { index: number; sql: string; consumes: Set<string> }
+    { index: number; sql: string; consumes: Set<string>; destroys: Set<string> }
   >();
   actions.forEach((action, index) => {
     if (action.verb !== "create") return;
@@ -796,6 +799,7 @@ export function elideRedundantDrops(
           index,
           sql: action.sql,
           consumes: new Set(action.consumes.map(encodeId)),
+          destroys: new Set(action.destroys.map(encodeId)),
         });
       }
     }
@@ -806,14 +810,18 @@ export function elideRedundantDrops(
 
   const remove = new Set<number>();
   actions.forEach((action, index) => {
-    if (action.verb !== "drop" || action.destroys.length !== 1) return;
+    if (action.verb !== "drop" || action.destroys.length === 0) return;
     const id = action.destroys[0] as StableId;
     const key = encodeId(id);
     const producer = producerOf.get(key);
     if (producer === undefined || producer.index === index) return;
     if (producer.sql !== action.sql) return; // not a byte-identical reproduce
-    if (releasedIds.has(key)) return; // a releaser is ordered before this drop
-    if (source.childrenOf(id).length > 0) return; // child-teardown precedes it
+    for (const destroyed of action.destroys) {
+      const destroyedKey = encodeId(destroyed);
+      if (destroyedKey !== key && !producer.destroys.has(destroyedKey)) return; // P does not carry D's other destroy edges
+      if (releasedIds.has(destroyedKey)) return; // a releaser is ordered before this drop
+      if (source.childrenOf(destroyed).length > 0) return; // child-teardown precedes it
+    }
     if (!action.consumes.every((c) => producer.consumes.has(encodeId(c))))
       return; // P would not inherit all of D's producer-predecessors
     remove.add(index);
@@ -1384,6 +1392,8 @@ export function mergeCoTargetRevokes(actions: readonly Action[]): Action[] {
     if (aclId !== undefined) {
       if (aclId.column !== undefined) return undefined;
       if (aclIdsWithGrant.has(encodeId(aclId))) return undefined;
+      // a leader that also wipes column acls keeps its own destroy edges
+      if (action.destroys.length > 0) return undefined;
       if (action.sql !== renderRevokeAllSql(aclId.target, [aclId.grantee]))
         return undefined;
       return { target: aclId.target, grantee: aclId.grantee };

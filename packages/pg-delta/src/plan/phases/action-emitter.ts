@@ -34,6 +34,7 @@ import {
   type RulesForId,
 } from "../rules.ts";
 import {
+  columnAclIdsFor,
   defaultPrivilegeCreateActions,
   renderRevokeAllSql,
 } from "../rules/helpers.ts";
@@ -201,6 +202,14 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const redirectedOnto = (rootKey: string): readonly StableId[] =>
     redirectedOntoByRoot.get(rootKey) ?? [];
 
+  // facts a statement of this fact's kind wipes as a side effect (rule-declared
+  // `implicitlyDestroys`, e.g. an object-level REVOKE ALL and the grantee's
+  // column acls). Attached to the producing create and to the drop, so their
+  // re-creation is ordered after the wipe by the destroy-before-reproduce edge.
+  const implicitlyDestroyed = (fact: Fact): StableId[] =>
+    rulesForId(fact.id).implicitlyDestroys?.(fact, projectedDesired, source) ??
+    [];
+
   const emitCreate = (fact: Fact, base: FactBase): void => {
     let specs = rulesForId(fact.id).create(fact, base, paramsFor(fact), source);
     // Overlay dest may hold a SUPERSET of this ADP. GRANT is additive — wipe first.
@@ -216,6 +225,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         ...specs,
       ];
     }
+    const wiped = implicitlyDestroyed(fact);
     specs.forEach((spec, i) => {
       pushAction("create", spec, {
         produces: i === 0 ? [fact.id] : [],
@@ -223,6 +233,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           ...(i === 0 ? [] : [fact.id]),
           ...(fact.parent !== undefined ? [fact.parent] : []),
         ],
+        destroys: i === 0 ? wiped : [],
       });
     });
   };
@@ -296,7 +307,11 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // drop. Without this the bare DROP SERVER fails on its surviving dependents.
     const emitReplaceDrop = (rootFact: Fact): void => {
       const rootKey = encodeId(rootFact.id);
-      const destroys: StableId[] = [rootFact.id, ...redirectedOnto(rootKey)];
+      const destroys: StableId[] = [
+        rootFact.id,
+        ...redirectedOnto(rootKey),
+        ...implicitlyDestroyed(rootFact),
+      ];
       const walk = (fact: Fact): void => {
         for (const child of source.childrenOf(fact.id)) {
           if (cascadesToChildren(fact.id.kind)) {
@@ -493,6 +508,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       };
       if (projectedDesired.has(aclId)) return;
       revoked.add(grantee);
+      // the wipe also revokes this grantee's desired column grants on the
+      // object: declare them destroyed so their GRANT is ordered after it
+      const wiped = columnAclIdsFor(aclId, projectedDesired);
       pushAction(
         "alter",
         {
@@ -501,6 +519,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
             grantee === "PUBLIC"
               ? []
               : [{ kind: "role", name: grantee } as StableId],
+          ...(wiped.length > 0 ? { alsoDestroys: wiped } : {}),
         },
         { consumes: [fact.id] },
       );
@@ -551,6 +570,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     for (const id of [
       ...(destroysByRoot.get(key) ?? []),
       ...redirectedOnto(key),
+      ...implicitlyDestroyed(fact),
     ]) {
       const idKey = encodeId(id);
       if (seen.has(idKey)) continue;
