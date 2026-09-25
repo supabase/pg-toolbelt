@@ -24,6 +24,9 @@ export interface ReplacementExpansionInput {
   /** resolved source / desired views */
   source: FactBase;
   desired: FactBase;
+  /** desired with policy-excluded deltas kept in their source form — the
+   *  state the plan converges to and the emitter recreates from */
+  projectedDesired: FactBase;
   /** id-keyed rule resolver (schema kinds + `extensionIntent`) */
   rulesForId: RulesForId;
 }
@@ -43,7 +46,15 @@ export interface ReplacementExpansion {
 export function expandReplacements(
   input: ReplacementExpansionInput,
 ): ReplacementExpansion {
-  const { removed, added, setsByFact, source, desired, rulesForId } = input;
+  const {
+    removed,
+    added,
+    setsByFact,
+    source,
+    desired,
+    projectedDesired,
+    rulesForId,
+  } = input;
 
   // ── classify set-deltas: in-place alter vs replace ────────────────────
   const replaceIds = new Set<string>();
@@ -194,20 +205,22 @@ export function expandReplacements(
     }
     // ── survivors wiped as a side effect of a create / drop of this plan ───
     // (`implicitlyDestroys`, e.g. an object-level REVOKE ALL and the grantee's
-    // column acls): a wiped fact that survives unchanged must be recreated;
-    // one with its own add / replace already recreates itself.
+    // column acls): a wiped fact that survives unchanged into the projected
+    // target (including one a policy kept) must be recreated; one with its own
+    // add / replace already recreates itself.
     for (const key of [...added.keys(), ...removed.keys(), ...replaceIds]) {
-      const fact = desired.getByEncoded(key) ?? source.getByEncoded(key);
+      const fact =
+        projectedDesired.getByEncoded(key) ?? source.getByEncoded(key);
       if (fact === undefined) continue;
       const wiped = rulesForId(fact.id).implicitlyDestroys?.(
         fact,
-        desired,
+        projectedDesired,
         source,
       );
       for (const id of wiped ?? []) {
         const wipedKey = encodeId(id);
         if (added.has(wipedKey) || replaceIds.has(wipedKey)) continue;
-        if (!source.has(id) || !desired.has(id)) continue;
+        if (!source.has(id) || !projectedDesired.has(id)) continue;
         replaceIds.add(wipedKey);
       }
     }

@@ -729,6 +729,7 @@ export function plan(
     setsByFact,
     source,
     desired,
+    projectedDesired,
     rulesForId,
   });
 
