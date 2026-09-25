@@ -780,9 +780,9 @@ export function compactColumnFolds(
  * Purely cosmetic + provably safe via LOCAL checks (no graph walk): remove a
  * `drop` D whose subject id I a `create` P re-produces with the SAME sql, when
  * removing D cannot lose an ordering constraint —
- *   - every OTHER id D destroys (an object-level acl REVOKE also wipes the
- *     grantee's column acls, `alsoDestroys`) is destroyed by P too, so P
- *     carries the same destroy-before-reproduce / teardown edges;
+ *   - every OTHER id D destroys (side-effect wipes: an object-level acl REVOKE
+ *     also wipes the grantee's column acls) is destroyed by P too, so P carries
+ *     the same reproduce-only ordering for them;
  *   - D.consumes ⊆ P.consumes, so every producer that had to precede D also has
  *     to precede P (which remains);
  *   - nothing `releases` a destroyed id (a releaser would order before D);
