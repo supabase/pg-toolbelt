@@ -110,9 +110,9 @@ export function capabilityExcludedRoots(
  * Unlike an FDW ACL (a leaf fact that projects out cleanly), an owner cannot be
  * silently skipped: leaving an object applier-owned ripples into its
  * acldefault-normalized ACL (which is owner-relative), so the state can't
- * converge. So an owner action the applier can't run is a FAIL-FAST at plan
- * time (the planner throws a clear, actionable error) rather than a silent
- * projection — surfaced before any statement is applied.
+ * converge. So plan() still emits an owner action the applier can't run and
+ * flags it with a `capability.owner` warning (a read-only diff still renders);
+ * apply() refuses a flagged plan before any statement runs.
  */
 export function canSetOwner(cap: ApplierCapability, roleName: string): boolean {
   return cap.isSuperuser || cap.memberOf.includes(roleName);

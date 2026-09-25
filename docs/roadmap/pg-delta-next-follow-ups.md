@@ -1787,3 +1787,20 @@ Deferred from the same review (not blocking):
   Supabase auto-expose injectee. Keep the revoke for overlay matches only if
   we start modeling grant options on the tuples.
 
+
+## `capability.owner` — owner check precision (SUPABASE-API-8RT)
+
+The owner check moved from a `plan()` throw to a `capability.owner` warning that
+`apply()` refuses. `canSetOwner` itself was left as is; two known imprecisions
+remain:
+
+- **Plan-created memberships are ignored.** The check reads the applier's
+  memberships probed on the SOURCE. When the desired state creates the owner
+  role and grants it to the applier (`GRANT r TO postgres`), the planned grant
+  would make the `ALTER … OWNER TO r` runnable, but the check still flags it.
+  Fixing it also needs the owner ALTER ordered after that membership action.
+- **PG16+ needs SET, not just MEMBER.** `probeApplierCapability` lists roles via
+  `pg_has_role(…, 'MEMBER')`, but PG16+ `ALTER … OWNER` requires the SET option
+  (`must be able to SET ROLE`). A CREATEROLE creator's implicit ADMIN-only grant
+  counts as MEMBER, so the check passes and the ALTER fails at apply
+  (reproduced on `postgres:17-alpine`).

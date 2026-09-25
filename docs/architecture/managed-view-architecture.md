@@ -148,8 +148,9 @@ cleanly:
 - **Ownership** (`ALTER … OWNER TO R` needs superuser or membership in R) **can
   NOT** be silently skipped: leaving an object applier-owned ripples into its
   acldefault-normalized ACL (owner-relative), so the state would not converge.
-  So an owner action the applier can't run is a **fail-fast at plan time**
-  (`canSetOwner` → a clear, actionable error), surfaced before any apply.
+  So an owner action the applier can't run is still planned but flagged with a
+  `capability.owner` warning (`canSetOwner`); `apply()` refuses a flagged plan
+  before any statement runs, while a read-only diff still renders.
 
 For a pure file-to-file diff with no applier connection, capability defaults to
 "unrestricted" — the corpus/CI path is a no-op.
@@ -291,7 +292,7 @@ replaced in place.
 6. ✅ **`ApplierCapability`**: probe role / superuser / memberships
    (`probeApplierCapability`); thread `capability` through plan()/prove(). FDW
    ACLs (leaf) are projected out for a non-superuser; ownership (rippling) is a
-   plan-time **fail-fast** (`canSetOwner`). Additive + gated (default
+   plan-time warning + apply-time **fail-fast** (`canSetOwner`). Additive + gated (default
    unrestricted → corpus no-op). (shipped `5f6841d` + follow-up 1)
 7. **Cleanup** (remaining): `KNOWN_PARAMS = { concurrentIndexes }` ✅ (move 4);
    update `COVERAGE.md` + the Supabase policy comment block. NOTE: Rules 5
@@ -339,15 +340,18 @@ hand-composed helpers. Status by concern:
 
 ## Follow-ups (post-move-7)
 
-### Follow-up 1 — owner residue → fail-fast (shipped `2179e37`)
+### Follow-up 1 — owner residue → fail-fast at apply (shipped `2179e37`)
 
 `ALTER … OWNER TO R` needs superuser or membership in R. Unlike an FDW ACL (a
 leaf that projects cleanly), an owner can't be silently skipped — leaving the
 object applier-owned ripples into its acldefault-normalized ACL, so the state
 won't converge (a synthetic skip produced 58 drift deltas). So when a
 capability is supplied and the applier can't set an owner an owner-link delta
-requires, `plan()` fail-fasts with an actionable error (`canSetOwner`) before
-any apply. Gated (only fires for a non-superuser capability) → corpus no-op.
+requires, `plan()` emits the ALTER with a `capability.owner` warning
+(`canSetOwner`) and `apply()` refuses the plan before any statement runs. It
+used to throw inside `plan()`, which also broke read-only diffs once
+`resolveProfile` started probing capability by default. Gated (only fires for a
+non-superuser capability) → corpus no-op.
 
 ### Follow-up 2 — capability vs Supabase Rule 9: parity finding (Rule 9 KEPT)
 

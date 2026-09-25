@@ -24,6 +24,7 @@ import { extract } from "../extract/extract.ts";
 import { assertPlanId } from "../plan/artifact.ts";
 import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
+import { CAPABILITY_OWNER } from "../policy/capability.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import { buildApplyPreamble } from "./apply-preamble.ts";
 import {
@@ -264,6 +265,17 @@ export async function apply(
     thePlan.acceptedRenames,
     "apply",
   );
+  const ownerBlocked = (thePlan.diagnostics ?? []).filter(
+    (d) => d.code === CAPABILITY_OWNER,
+  );
+  const [firstOwnerBlocked] = ownerBlocked;
+  if (firstOwnerBlocked !== undefined) {
+    const more =
+      ownerBlocked.length > 1 ? ` (+${ownerBlocked.length - 1} more)` : "";
+    throw new Error(
+      `apply: ${firstOwnerBlocked.message}${more}. To apply as a more privileged role, re-plan without the applier restriction (restrictToApplier: false / --no-restrict-to-applier)`,
+    );
+  }
   if (options?.fingerprintGate !== false) {
     // Gate against the SAME managed view the plan was produced from (P0-2).
     // plan() fingerprints the resolveView'd source (extension-member + policy +

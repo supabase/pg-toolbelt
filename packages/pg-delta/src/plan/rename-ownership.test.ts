@@ -329,16 +329,15 @@ describe("role-only rename carries ownership on a stable object (review P1)", ()
     expect(p.actions.filter((a) => a.sql.includes("OWNER TO"))).toHaveLength(0);
   });
 
-  test("a restrictive capability does not falsely fail (no owner action to authorize)", () => {
+  test("a restrictive capability does not falsely flag (no owner action to authorize)", () => {
     // applier cannot set owner r2; but no ALTER … OWNER TO is required, so plan
-    // must not throw the capability error.
-    expect(() =>
-      plan(source, desired, {
-        renames: "auto",
-        compact: false,
-        capability: { role: "applier", isSuperuser: false, memberOf: [] },
-      }),
-    ).not.toThrow();
+    // must not flag an owner capability problem.
+    const p = plan(source, desired, {
+      renames: "auto",
+      compact: false,
+      capability: { role: "applier", isSuperuser: false, memberOf: [] },
+    });
+    expect(p.diagnostics).toBeUndefined();
   });
 });
 

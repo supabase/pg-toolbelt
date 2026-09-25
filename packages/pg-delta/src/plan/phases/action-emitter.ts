@@ -8,10 +8,12 @@
  * replaces (drop + recreate), in-place alters, and owner-edge ALTERs. Enforces
  * the create-produces-its-fact invariant at the phase boundary.
  */
+import type { Diagnostic } from "../../core/diagnostic.ts";
 import type { Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import {
+  CAPABILITY_OWNER,
   canSetOwner,
   type ApplierCapability,
 } from "../../policy/capability.ts";
@@ -85,6 +87,22 @@ export interface ActionEmitterOutput {
   foldHints: Array<FoldHint | undefined>;
   acceptsFolds: boolean[];
   renameActionIndices: Set<number>;
+  /** `capability.owner` warnings: owner ALTERs the applier cannot run */
+  diagnostics: Diagnostic[];
+}
+
+function ownerCapabilityDiagnostic(
+  objId: StableId,
+  roleName: string,
+  applier: string,
+): Diagnostic {
+  return {
+    code: CAPABILITY_OWNER,
+    severity: "warning",
+    subject: objId,
+    message: `cannot set owner of ${encodeId(objId)} to role "${roleName}" — applier "${applier}" is not a superuser or a member of that role; grant membership or apply as a member/superuser`,
+    context: { role: roleName, applier },
+  };
 }
 
 /**
@@ -234,6 +252,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // RENAME), so owner edges on the renamed subtree must not drive graph ordering
   // through the rename (review P1 #2: rename/rename cycle).
   const renameActionIndices = new Set<number>();
+  const diagnostics: Diagnostic[] = [];
   for (const { from, to, sourceSubtree, desiredSubtree } of acceptedRenames) {
     const rename = rulesForId(from.id).rename;
     if (rename === undefined) {
@@ -652,15 +671,13 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       // changed; renamedOwner maps it through any role rename) — no action
       if (renamedOwner.get(objKey) === roleName) continue;
       // Owner residue (move 6): `ALTER … OWNER TO R` requires the applier to be
-      // a superuser or a member of R. If a capability is supplied and the
-      // applier cannot, fail fast at plan time with an actionable message —
-      // surfaced before any statement runs, and avoiding a non-converging
-      // "leave it applier-owned" (the owner is acldefault-relative). Unset only
-      // for owner CHANGES/creates (this is an owner link delta), not pre-existing
-      // unchanged ownership.
+      // a superuser or a member of R. Leaving the object applier-owned would not
+      // converge (the ACL is acldefault-relative), so the ALTER is still emitted
+      // and flagged; apply() refuses a flagged plan before any statement runs,
+      // while a read-only diff still renders.
       if (capability !== undefined && !canSetOwner(capability, roleName)) {
-        throw new Error(
-          `capability: cannot set owner of ${encodeId(objId)} to role "${roleName}" — applier "${capability.role}" is not a superuser or a member of that role; grant membership or apply as a member/superuser`,
+        diagnostics.push(
+          ownerCapabilityDiagnostic(objId, roleName, capability.role),
         );
       }
       // for an accepted rename the source-side owner unlink is keyed by the OLD
@@ -701,10 +718,8 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       if (ownerEdge?.to.kind !== "role") continue;
       const roleName = (ownerEdge.to as { kind: "role"; name: string }).name;
       if (capability !== undefined && !canSetOwner(capability, roleName)) {
-        throw new Error(
-          `capability: cannot set owner of ${key} to role "${roleName}" — ` +
-            `applier "${capability.role}" is not a superuser or a member of that role; ` +
-            `grant membership or apply as a member/superuser`,
+        diagnostics.push(
+          ownerCapabilityDiagnostic(fact.id, roleName, capability.role),
         );
       }
       pushAction(
@@ -725,5 +740,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     foldHints,
     acceptsFolds,
     renameActionIndices,
+    diagnostics,
   };
 }
