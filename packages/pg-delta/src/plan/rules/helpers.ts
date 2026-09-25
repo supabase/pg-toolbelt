@@ -654,16 +654,14 @@ export function renderRevokeAllSql(
 }
 
 /** Column-level acl ids of the same (target, grantee) as an object-level acl,
- *  collected across the given views. PostgreSQL revokes a role's column
- *  privileges on a relation together with any table-level REVOKE from it
- *  (REVOKE docs), so every `REVOKE ALL ON <rel> FROM <role>` implicitly
- *  destroys these facts — the acl rule's `implicitlyDestroys` and the emitter's
- *  hygiene REVOKE declare them so the graph orders their re-grant after the
- *  wipe. Column acls hang off the column fact (tables) or off the relation
- *  itself (views / materialized views). */
+ *  collected across the given views — what `REVOKE ALL ON <rel> FROM <role>`
+ *  wipes along with the object-level grant
+ *  (https://www.postgresql.org/docs/current/sql-revoke.html). Column acls
+ *  hang off the column fact (tables) or off the relation itself (views /
+ *  materialized views). */
 export function columnAclIdsFor(
   id: { target: StableId; grantee: string },
-  ...views: Array<FactView | undefined>
+  ...views: FactView[]
 ): StableId[] {
   const out: StableId[] = [];
   const seen = new Set<string>();
@@ -679,7 +677,6 @@ export function columnAclIdsFor(
     out.push(cid);
   };
   for (const view of views) {
-    if (view === undefined) continue;
     for (const child of view.childrenOf(id.target)) {
       take(child);
       if (child.id.kind === "column") {

@@ -192,14 +192,10 @@ export function expandReplacements(
         worklist.push(fromKey);
       }
     }
-    // ── survivors implicitly destroyed by a create / drop of this plan ─────
-    // A kind may declare facts its statements wipe as a side effect although
-    // they are not its descendants (`implicitlyDestroys`: an object-level
-    // `REVOKE ALL ON <rel> FROM <role>` also revokes that role's column acls).
-    // Every added / removed / replaced fact of such a kind emits that
-    // statement, so a survivor among the wiped facts must be recreated after
-    // it — the emitter's destroy edge orders the recreate. One with its own
-    // add / replace already recreates itself.
+    // ── survivors wiped as a side effect of a create / drop of this plan ───
+    // (`implicitlyDestroys`, e.g. an object-level REVOKE ALL and the grantee's
+    // column acls): a wiped fact that survives unchanged must be recreated;
+    // one with its own add / replace already recreates itself.
     for (const key of [...added.keys(), ...removed.keys(), ...replaceIds]) {
       const fact = desired.getByEncoded(key) ?? source.getByEncoded(key);
       if (fact === undefined) continue;

@@ -250,13 +250,19 @@ describe("column grants survive a same-grantee object-level REVOKE", () => {
       ],
       [],
     );
+    // compacted: the co-create REVOKE leader is cosmetic here and elided; both
+    // grants land after the re-CREATE
     const list = sqls(plan(source, desired));
     expectAfter(
       list,
-      `CREATE VIEW "app"."v" AS SELECT 10 AS a, 20 AS b;`,
-      OBJ_REVOKE_V,
+      `CREATE VIEW "app"."v" AS  SELECT 10 AS a, 20 AS b;`,
+      COL_GRANT_V,
     );
-    expectAfter(list, OBJ_REVOKE_V, COL_GRANT_V);
+    expect(list).toContain(`GRANT SELECT ON TABLE "app"."v" TO "r"`);
+    // uncompacted: the leader survives and the column GRANT follows it
+    const raw = sqls(plan(source, desired, { compact: false }));
+    expectAfter(raw, `DROP VIEW "app"."v"`, OBJ_REVOKE_V);
+    expectAfter(raw, OBJ_REVOKE_V, COL_GRANT_V);
   });
 
   test("table rebuild (partition key change): both grants are re-granted, the column GRANT after the REVOKE", () => {
@@ -278,8 +284,15 @@ describe("column grants survive a same-grantee object-level REVOKE", () => {
       [],
     );
     const list = sqls(plan(source, desired));
-    expectAfter(list, `DROP TABLE "app"."t"`, OBJ_REVOKE_T);
-    expectAfter(list, OBJ_REVOKE_T, COL_GRANT_T);
+    expectAfter(
+      list,
+      `CREATE TABLE "app"."t" ("name" text) PARTITION BY LIST (name)`,
+      COL_GRANT_T,
+    );
+    expect(list).toContain(`GRANT SELECT ON TABLE "app"."t" TO "r"`);
+    const raw = sqls(plan(source, desired, { compact: false }));
+    expectAfter(raw, `DROP TABLE "app"."t"`, OBJ_REVOKE_T);
+    expectAfter(raw, OBJ_REVOKE_T, COL_GRANT_T);
   });
 
   test("view rebuild under default privileges with a column-only grant: the hygiene REVOKE precedes the re-granted column GRANT", () => {
@@ -308,10 +321,12 @@ describe("column grants survive a same-grantee object-level REVOKE", () => {
       ],
       owner,
     );
+    // the hygiene REVOKE is load-bearing (the default would grant ALL), so it
+    // survives compaction and must precede the re-granted column privilege
     const list = sqls(plan(source, desired));
     expectAfter(
       list,
-      `CREATE VIEW "app"."v" AS SELECT 10 AS a, 20 AS b;`,
+      `CREATE VIEW "app"."v" AS  SELECT 10 AS a, 20 AS b;`,
       OBJ_REVOKE_V,
     );
     expectAfter(list, OBJ_REVOKE_V, COL_GRANT_V);

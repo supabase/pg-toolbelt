@@ -41,6 +41,9 @@ export interface FinalizeInput {
   source: FactBase;
   desired: FactBase;
   renameActionIndices: ReadonlySet<number>;
+  /** action index → encoded `destroys` ids that are side-effect wipes (see
+   *  ActionEmitterOutput.implicitDestroys). */
+  implicitDestroys: ReadonlyMap<number, ReadonlySet<string>>;
   /** per-action compaction metadata captured during emission (never persisted). */
   foldHints: ReadonlyArray<FoldHint | undefined>;
   acceptsFolds: readonly boolean[];
@@ -101,6 +104,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     source,
     desired,
     renameActionIndices,
+    implicitDestroys,
     foldHints,
     acceptsFolds,
     assumedRoleNames,
@@ -142,6 +146,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     assumedSchemaNames,
     assumedPresentIds,
     evaluatorActions,
+    implicitDestroys,
   );
 
   // Order a table's ADD COLUMN creates by declared column position

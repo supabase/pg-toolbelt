@@ -119,6 +119,13 @@ export function buildActionGraph(
   // Collected here rather than in a second pass so it rides the edge walk this
   // function already performs.
   evaluatorActions?: Set<number>,
+  // action index → encoded `destroys` ids the statement removes only as a SIDE
+  // EFFECT of acting on its own subject (an object-level `REVOKE ALL` wiping
+  // the grantee's column acls). They yield the destroy-before-reproduce edge
+  // ONLY — no teardown edges: a recreated acl leader that wipes a column acl of
+  // the relation being rebuilt must not be pinned before that relation's DROP
+  // (it consumes the re-CREATE, so DROP → CREATE → leader → DROP would cycle).
+  implicitDestroys: ReadonlyMap<number, ReadonlySet<string>> = new Map(),
 ): Array<[number, number]> {
   const edges: Array<[number, number]> = [];
 
@@ -487,6 +494,8 @@ export function buildActionGraph(
       const reproducer = producerOf.get(key);
       if (reproducer !== undefined && reproducer !== index)
         edges.push([index, reproducer]);
+      // a side-effect wipe tears nothing down: reproduce edge only
+      if (implicitDestroys.get(index)?.has(key) === true) continue;
       if (!source.has(id)) continue;
       // `incomingEdgesByEncoded` IS the reverse index of this filter: an edge is
       // indexed under its `to` endpoint exactly when that endpoint is present

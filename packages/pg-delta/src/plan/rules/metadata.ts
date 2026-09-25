@@ -130,10 +130,8 @@ export const metadataRules: Record<string, KindRules> = {
     weight: 21,
     metadata: true,
     create: (fact) => grantActions(fact, "grant"),
-    // An object-level acl's every statement leads with `REVOKE ALL ON <rel>
-    // FROM <role>`, which also revokes that role's column privileges on the
-    // relation — the same-grantee column acls (source AND desired side) are
-    // wiped, so their re-grant must follow it.
+    // every object-level acl statement leads with `REVOKE ALL ON <rel> FROM
+    // <role>`, which also revokes that role's column privileges on the relation
     implicitlyDestroys: (fact, view, sourceView) => {
       const id = fact.id as {
         target: StableId;
