@@ -1800,13 +1800,16 @@ Deferred from the review (not blocking):
 - **Comment on a domain NOT NULL constraint.** `COMMENT ON CONSTRAINT
   <domain>_not_null ON DOMAIN d` (PG 17+ only) lives on the skipped row, so
   it is neither diffed nor exported and a load of the export converges to
-  the comment-less state. Before #484 the same domain could not be created
-  at all from a PG 17+ source (`constraint … already exists`), so this is a
-  narrowing, not a regression. The constraint's name is not modeled either
-  (deliberate: PG 14–16 cannot replay `ADD CONSTRAINT name NOT NULL`), so a
-  faithful comment would need a `notNullComment` domain attribute rendered
-  against the auto-generated name on PG 17+ only. Pick up if a user reports
-  it.
+  the comment-less state. This is a narrow PG 17+ regression for a NOT NULL
+  domain that exists on both sides: a comment-only change on that row used
+  to plan `COMMENT ON CONSTRAINT …` and now plans nothing. (Creating such a
+  domain from a PG 17+ source failed outright before #484, so the create
+  path only narrowed.) The loss is not silent: extract emits an info
+  `domain_not_null_comment_skipped` diagnostic for a commented `n` row. The
+  constraint's name is not modeled either (deliberate: PG 14–16 cannot
+  replay `ADD CONSTRAINT name NOT NULL`), so a faithful comment would need a
+  `notNullComment` domain attribute rendered against the auto-generated name
+  on PG 17+ only. Pick up if a user reports it.
 - **PG 18 `NOT ENFORCED` on domain NOT NULL.** Not reachable: PG 18 rejects
   `specifying constraint enforceability not supported for domains` for every
   domain constraint form, and `NOT NULL constraints cannot be marked NOT
