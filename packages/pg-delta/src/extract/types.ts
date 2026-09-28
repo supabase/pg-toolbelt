@@ -44,8 +44,11 @@ const DOMAIN_CONSTRAINTS_SQL = `
     -- second constraint fact (CREATE DOMAIN would render NOT NULL twice and
     -- PG 14-16 have no such row, so hashes would differ per version). A
     -- user-chosen name for it (CONSTRAINT foo NOT NULL) is deliberately not
-    -- preserved; dependencies.ts skips the same rows.
-    WHERE con.contypid <> 0 AND con.contype <> 'n' AND ${USER_SCHEMA_FILTER}
+    -- preserved; dependencies.ts skips the same rows. A commented 'n' row is
+    -- still fetched so apply() can report the dropped comment.
+    WHERE con.contypid <> 0
+      AND (con.contype <> 'n' OR obj_description(con.oid, 'pg_constraint') IS NOT NULL)
+      AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_type", "t.oid")}
     ORDER BY n.nspname, t.typname, con.conname`;
 
@@ -53,7 +56,7 @@ export const domainsFamily: CatalogFamily = {
   name: "domains",
   statements: () => [DOMAINS_SQL, DOMAIN_CONSTRAINTS_SQL],
   apply: (ctx, rowSets) => {
-    const { pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    const { pushWithMeta, pushMemberEdge, pushOwnerEdge, diagnostics } = ctx;
     for (const row of rowSets[0]!) {
       const id: StableId = {
         kind: "domain",
@@ -82,19 +85,30 @@ export const domainsFamily: CatalogFamily = {
       pushOwnerEdge(id, row["owner"]);
     }
     for (const row of rowSets[1]!) {
+      const schema = String(row["schema"]);
+      const domainName = String(row["domain"]);
+      const domain: StableId = { kind: "domain", schema, name: domainName };
+      if (row["type"] === "n") {
+        diagnostics.push({
+          code: "domain_not_null_comment_skipped",
+          severity: "info",
+          subject: domain,
+          message:
+            `domain ${schema}.${domainName}: the comment on its NOT NULL constraint ` +
+            `${String(row["name"])} is not modeled (NOT NULL is the domain's notNull attribute; ` +
+            `the constraint row exists only on PG 17+) and will not be diffed or exported.`,
+        });
+        continue;
+      }
       pushWithMeta(
         {
           id: {
             kind: "constraint",
-            schema: String(row["schema"]),
-            table: String(row["domain"]),
+            schema,
+            table: domainName,
             name: String(row["name"]),
           },
-          parent: {
-            kind: "domain",
-            schema: String(row["schema"]),
-            name: String(row["domain"]),
-          },
+          parent: domain,
           payload: {
             def: String(row["def"]),
             type: String(row["type"]),

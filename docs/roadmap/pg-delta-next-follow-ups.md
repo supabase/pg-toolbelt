@@ -1800,13 +1800,16 @@ Deferred from the review (not blocking):
 - **Comment on a domain NOT NULL constraint.** `COMMENT ON CONSTRAINT
   <domain>_not_null ON DOMAIN d` (PG 17+ only) lives on the skipped row, so
   it is neither diffed nor exported and a load of the export converges to
-  the comment-less state. Before #484 the same domain could not be created
-  at all from a PG 17+ source (`constraint … already exists`), so this is a
-  narrowing, not a regression. The constraint's name is not modeled either
-  (deliberate: PG 14–16 cannot replay `ADD CONSTRAINT name NOT NULL`), so a
-  faithful comment would need a `notNullComment` domain attribute rendered
-  against the auto-generated name on PG 17+ only. Pick up if a user reports
-  it.
+  the comment-less state. This is a narrow PG 17+ regression for a NOT NULL
+  domain that exists on both sides: a comment-only change on that row used
+  to plan `COMMENT ON CONSTRAINT …` and now plans nothing. (Creating such a
+  domain from a PG 17+ source failed outright before #484, so the create
+  path only narrowed.) The loss is not silent: extract emits an info
+  `domain_not_null_comment_skipped` diagnostic for a commented `n` row. The
+  constraint's name is not modeled either (deliberate: PG 14–16 cannot
+  replay `ADD CONSTRAINT name NOT NULL`), so a faithful comment would need a
+  `notNullComment` domain attribute rendered against the auto-generated name
+  on PG 17+ only. Pick up if a user reports it.
 - **PG 18 `NOT ENFORCED` on domain NOT NULL.** Not reachable: PG 18 rejects
   `specifying constraint enforceability not supported for domains` for every
   domain constraint form, and `NOT NULL constraints cannot be marked NOT
@@ -1824,6 +1827,26 @@ Deferred from the review (not blocking):
   tolerated rather than rejected (`cli/profile.ts`). The durable fix is
   general: an extractor-version stamp on snapshots that `drift`/`plan` check
   and refuse with recapture guidance, not a per-kind normalizer for this row.
+
+## Issue #487 follow-up — enum retype through an indirect enum source
+
+Retyping a column away from an enum now casts through `text` / `text[]`,
+keyed on the column's released edge landing on an enum `type` fact.
+Deferred:
+
+- **Domain over an enum, or an extension-member enum, as the source type.**
+  The released edge resolves to the `domain` / `extension` fact (no
+  `variant`), so a retype to another enum still emits the direct cast and
+  fails with 42846. Resolving it needs the domain's base type or the
+  member's variant at plan time.
+- **User-defined enum → enum cast (PR #490 Codex, round 2).** The text
+  hop applies to every enum → enum retype, so an explicit
+  `CREATE CAST (a_enum AS b_enum)` is bypassed. Casts are unmodeled
+  (`extract/unmodeled.ts` reports them; no fact reaches the planner), so
+  honouring one needs cast facts in the plan-time view. Deferred: before
+  #490 every enum → enum retype without such a cast failed outright, and
+  the case needs a hand-written cross-enum cast. Enum → non-enum already
+  keeps the direct cast.
 
 ## Issue #483 review triage — table NOT NULL dangling edges on PG 18
 
