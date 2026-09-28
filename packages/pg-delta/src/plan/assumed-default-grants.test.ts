@@ -109,9 +109,12 @@ describe("assumedDefaultGrants overlay", () => {
     expect(sql).toContain(
       `REVOKE ALL ON FUNCTION "public"."get_account"() FROM PUBLIC, "anon"`,
     );
+    // the owner's full default (`_ownerDefault`) on the co-created function is
+    // implicit and elided; only the third-party grantees are granted
     expect(sql).toContain(
-      `GRANT EXECUTE ON FUNCTION "public"."get_account"() TO "authenticated", "postgres", "service_role"`,
+      `GRANT EXECUTE ON FUNCTION "public"."get_account"() TO "authenticated", "service_role"`,
     );
+    expect(sql).not.toMatch(/TO "authenticated", "postgres"/);
     expect(sql).not.toMatch(
       /REVOKE ALL ON FUNCTION "public"\."get_account"\(\) FROM "authenticated"/,
     );

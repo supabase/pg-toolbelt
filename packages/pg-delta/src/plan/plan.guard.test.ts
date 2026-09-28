@@ -49,7 +49,9 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // hygiene consumes the column, which is not a grant target).
   // 38 → 42: the co-create elisions count an identity sequence's acl as
   // co-created with its column (sequence target, column parent, table owner).
-  "internal.ts": 42,
+  // 42 → 41: both passes share isOwnerGrant (one role-edge narrowing).
+  // 41 → 40: both passes share materializedObjects (one acl exclusion).
+  "internal.ts": 40,
   "locks.ts": 18,
   // 10 → 11: the extension-replace satellite replay guards on
   // `oldFact.id.kind === "extension"` so a plan with no extension replace
@@ -60,7 +62,8 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // 14 → 16: default-privilege hygiene for an identity column's backing
   // sequence keys off the column fact and narrows the sequence id.
   // 16 → 18: the same hygiene for an in-place ADD IDENTITY.
-  "phases/action-emitter.ts": 18,
+  // 18 → 19: ADD IDENTITY replays the column's surviving sequence acl children.
+  "phases/action-emitter.ts": 19,
   "phases/action-graph.ts": 1,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,

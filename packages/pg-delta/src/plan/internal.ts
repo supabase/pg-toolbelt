@@ -1012,6 +1012,31 @@ function adpCustomizesObjtype(adp: AdpIndex, target: StableId): boolean {
 }
 
 /**
+ * Objects this plan brings into existence (acl satellites excluded): whatever a
+ * create produces, plus a non-fact id an alter materializes without destroying
+ * anything (an ADD IDENTITY's backing sequence). An alter that also destroys
+ * (an identity-sequence rename) keeps the renamed object's ACL, so it stays out.
+ */
+function materializedObjects(
+  actions: readonly Action[],
+  desired: FactBase,
+): Set<string> {
+  const created = new Set<string>();
+  for (const action of actions) {
+    const fresh =
+      action.verb === "create" ||
+      (action.verb === "alter" && action.destroys.length === 0);
+    if (!fresh) continue;
+    for (const id of action.produces) {
+      if (id.kind === "acl") continue;
+      if (action.verb === "alter" && desired.has(id)) continue;
+      created.add(encodeId(id));
+    }
+  }
+  return created;
+}
+
+/**
  * An identity column's backing sequence is not a fact: its acl satellites hang
  * off the column and target the sequence. The column's CREATE materializes the
  * sequence, so such an acl counts as co-created when the column is.
@@ -1024,6 +1049,28 @@ function identitySequenceColumn(
   if (fact.parent === undefined || fact.parent.kind !== "column")
     return undefined;
   return fact.parent;
+}
+
+/**
+ * Whether `grantee` owns the object: the owner edge names it, or the acl row
+ * carries `_ownerDefault`, which extract writes only on the owner's row (the
+ * edge is absent when database scope prunes it to the implicit default owner).
+ */
+function isOwnerGrant(
+  desired: FactBase,
+  ownerOf: StableId,
+  grantee: string,
+  payload: Fact["payload"],
+): boolean {
+  if (payload["_ownerDefault"] !== undefined) return true;
+  const ownerEdge = desired
+    .outgoingEdges(ownerOf)
+    .find((e) => e.kind === "owner");
+  return (
+    ownerEdge !== undefined &&
+    ownerEdge.to.kind === "role" &&
+    ownerEdge.to.name === grantee
+  );
 }
 
 function tableOf(column: StableId): StableId {
@@ -1070,14 +1117,7 @@ export function elideDefaultAclCreates(
   // large catalog.
   const adp = buildAdpIndex(desired, capability);
 
-  // ids of the objects actually created in this plan (acl satellites excluded).
-  const createdObjects = new Set<string>();
-  for (const action of actions) {
-    if (action.verb !== "create") continue;
-    for (const id of action.produces) {
-      if (id.kind !== "acl") createdObjects.add(encodeId(id));
-    }
-  }
+  const createdObjects = materializedObjects(actions, desired);
 
   const elidable = new Set<string>();
   for (const action of actions) {
@@ -1124,15 +1164,15 @@ export function elideDefaultAclCreates(
     // compare against `_ownerDefault` — the owner's create-time set captured from
     // acldefault() at extract (non-semantic `_` metadata). A strict subset means
     // the owner revoked a default; eliding would leave the full default in place.
-    const ownerEdge = desired
-      .outgoingEdges(
-        identityColumn === undefined ? aclId.target : tableOf(identityColumn),
-      )
-      .find((e) => e.kind === "owner");
+    // `_ownerDefault` rides only on the owner's row, so it also identifies the
+    // owner when database scope pruned the edge to the implicit default owner.
     if (
-      ownerEdge !== undefined &&
-      ownerEdge.to.kind === "role" &&
-      ownerEdge.to.name === aclId.grantee &&
+      isOwnerGrant(
+        desired,
+        identityColumn === undefined ? aclId.target : tableOf(identityColumn),
+        aclId.grantee,
+        payload,
+      ) &&
       payload._ownerDefault !== undefined &&
       samePrivilegeSet(privileges, payload._ownerDefault)
     )
@@ -1284,12 +1324,7 @@ export function elideCoCreateRevokeBeforeGrant(
   capability?: ApplierCapability,
   assumedDefaultGrants: readonly AssumedDefaultGrant[] = [],
 ): Action[] {
-  const createdObjects = new Set<string>();
-  for (const action of actions) {
-    if (action.verb !== "create") continue;
-    for (const id of action.produces)
-      if (id.kind !== "acl") createdObjects.add(encodeId(id));
-  }
+  const createdObjects = materializedObjects(actions, desired);
   if (createdObjects.size === 0) return [...actions];
 
   // index default-privilege facts once (small set) for the superset guard.
@@ -1367,15 +1402,7 @@ export function elideCoCreateRevokeBeforeGrant(
     // An identity sequence is owned through its table.
     const ownerTarget =
       identityColumn === undefined ? aclId.target : tableOf(identityColumn);
-    const ownerEdge = desired
-      .outgoingEdges(ownerTarget)
-      .find((e) => e.kind === "owner");
-    if (
-      ownerEdge !== undefined &&
-      ownerEdge.to.kind === "role" &&
-      ownerEdge.to.name === aclId.grantee
-    )
-      return;
+    if (isOwnerGrant(desired, ownerTarget, aclId.grantee, fact.payload)) return;
     if (defaultGrantsOutside(aclId.target, aclId.grantee, new Set(privileges)))
       return; // REVOKE is load-bearing
     const matches = overlayMatches(

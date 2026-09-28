@@ -571,9 +571,17 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // ADD IDENTITY on an existing column materializes a backing sequence in
   // place: it takes SEQUENCES default grants like a fresh create, but the column
   // is neither added nor replaced, so the loop above never sees it. The REVOKE
-  // consumes the sequence the ADD IDENTITY alter produces.
+  // consumes the sequence the ADD IDENTITY alter produces. A column a replace
+  // re-creates has no such alter (its create materializes the sequence) and
+  // already took hygiene above.
   for (const [key, sets] of setsByFact) {
     if (!sets.some((s) => s.attr === "identity")) continue;
+    if (
+      replaceIds.has(key) ||
+      recreatedByReplace.has(key) ||
+      inlinedByReplace.has(key)
+    )
+      continue;
     if (source.getByEncoded(key)?.payload["identity"] != null) continue;
     const fact = projectedDesired.getByEncoded(key);
     if (fact === undefined || fact.id.kind !== "column") continue;
@@ -587,6 +595,17 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       ownerOf(fact.parent) ?? defaultOwner,
       sequence,
     );
+    // A grant on a standalone sequence of the same name (serial → identity)
+    // keeps its acl id: the diff sees it unchanged under the column while the
+    // DROP SEQUENCE destroys it. Replay it onto the new backing sequence.
+    const sequenceKey = encodeId(sequence);
+    for (const child of projectedDesired.childrenOf(fact.id)) {
+      if (child.id.kind !== "acl") continue;
+      if (encodeId(child.id.target) !== sequenceKey) continue;
+      const childKey = encodeId(child.id);
+      if (added.has(childKey) || producerOf.has(childKey)) continue;
+      emitCreate(child, projectedDesired);
+    }
   }
 
   // drops (suppressed children fold into their root's destroys)
