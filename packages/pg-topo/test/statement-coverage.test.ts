@@ -29,25 +29,32 @@ describe("statement coverage", () => {
   test("orders range type before table using it", async () => {
     const result = await analyzeAndSort([
       "create table app.events(id int primary key, during app.int_range not null);",
-      "create type app.int_range as range (subtype = int4);",
+      "create type app.int_range as range (subtype = int4, subtype_diff = app.int4_subdiff);",
+      "create function app.int4_subdiff(a int4, b int4) returns float8 language sql immutable as $$ select (a - b)::float8 $$;",
       "create schema app;",
     ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
     const unknownCount = result.diagnostics.filter(
       (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
     ).length;
     const unresolvedCount = result.diagnostics.filter(
       (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
     ).length;
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
     const orderedSql = result.ordered.map((statement) =>
       statement.sql.toLowerCase(),
     );
 
     expect(unknownCount).toBe(0);
     expect(unresolvedCount).toBe(0);
+    expect(executionErrors).toHaveLength(0);
     expect(orderedSql[0]).toContain("create schema app");
-    expect(orderedSql[1]).toContain("create type app.int_range");
-    expect(orderedSql[2]).toContain("create table app.events");
-  });
+    expect(orderedSql[1]).toContain("create function app.int4_subdiff");
+    expect(orderedSql[2]).toContain("create type app.int_range");
+    expect(orderedSql[3]).toContain("create table app.events");
+  }, 120000);
 
   test("orders range type after custom subtype", async () => {
     const result = await analyzeAndSort([

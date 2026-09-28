@@ -1181,6 +1181,10 @@ const extractDependencyRefs = (
         asRecord(astNode.CreateForeignServerStmt) ?? {},
       );
     case "CREATE_TYPE": {
+      const rangeStmt = asRecord(astNode.CreateRangeStmt);
+      if (rangeStmt) {
+        return extractCreateRangeDependencies(rangeStmt);
+      }
       const compositeType = asRecord(astNode.CompositeTypeStmt);
       const compositeRef = relationFromRangeVarNode(
         compositeType?.typevar,
@@ -1191,14 +1195,7 @@ const extractDependencyRefs = (
         "type",
         extractNameParts(enumStmt?.typeName),
       );
-      const rangeStmt = asRecord(astNode.CreateRangeStmt);
-      const rangeDependencies = rangeStmt
-        ? extractCreateRangeDependencies(rangeStmt)
-        : null;
       const typeRef = compositeRef ?? enumRef;
-      if (rangeDependencies) {
-        return rangeDependencies;
-      }
       return {
         provides: typeRef
           ? [createObjectRefFromAst("type", typeRef.name, typeRef.schema)]
