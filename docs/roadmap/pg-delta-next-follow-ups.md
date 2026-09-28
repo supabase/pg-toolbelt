@@ -1789,20 +1789,28 @@ Deferred from the same review (not blocking):
 
 ## Issue #487 follow-up — enum retype through an indirect enum source
 
-Retyping a column away from an enum now casts through `text` / `text[]`,
-keyed on the column's released edge landing on an enum `type` fact.
-Deferred:
+An enum → enum column retype now casts through `text` / `text[]`. The hop
+requires BOTH the column's released (source) and consumed (desired) type
+edges to land on an enum `type` fact. Deferred:
 
-- **Domain over an enum, or an extension-member enum, as the source type.**
-  The released edge resolves to the `domain` / `extension` fact (no
-  `variant`), so a retype to another enum still emits the direct cast and
-  fails with 42846. Resolving it needs the domain's base type or the
-  member's variant at plan time.
-- **User-defined enum → enum cast (PR #490 Codex, round 2).** The text
-  hop applies to every enum → enum retype, so an explicit
-  `CREATE CAST (a_enum AS b_enum)` is bypassed. Casts are unmodeled
-  (`extract/unmodeled.ts` reports them; no fact reaches the planner), so
-  honouring one needs cast facts in the plan-time view. Deferred: before
-  #490 every enum → enum retype without such a cast failed outright, and
-  the case needs a hand-written cross-enum cast. Enum → non-enum already
-  keeps the direct cast.
+- **Domain over an enum, or an extension-member enum, as the source or
+  target type.** The edge resolves to the `domain` / `extension` fact (no
+  `variant`), so the hop is skipped and the retype emits the direct cast,
+  failing with 42846 — e.g. enum → a domain over another enum still emits
+  `c::d_widget`. Resolving it needs the domain's base type or the member's
+  variant at plan time.
+- **User-defined enum → enum cast (PR #490 Codex, round 2).** The hop
+  applies to every enum → enum retype, so an explicit
+  `CREATE CAST (a_enum AS b_enum)` is bypassed. For a cast mapping
+  `'legacy'` → `'active'`:
+  - a target enum that also has `'legacy'` now silently keeps `'legacy'`;
+  - a target without it now fails at apply, where it used to succeed.
+
+  The proof does not catch the silent case: once the column's type
+  signature changes it only compares row counts (`proof/prove.ts`,
+  `contentMode: "count"`). Casts are unmodeled (`extract/unmodeled.ts`
+  reports them; no fact reaches the planner), so honouring one needs cast
+  facts in the plan-time view. Deferred: before #490 every enum → enum
+  retype without such a cast failed outright, and the case needs a
+  hand-written cross-enum cast. Enum → non-enum already keeps the direct
+  cast.
