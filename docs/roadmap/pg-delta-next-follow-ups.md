@@ -1806,6 +1806,15 @@ Deferred (not blocking):
   limited to a result that is already out of date. Closing it needs each query
   to select whether the source expression exists (e.g. `ad.adbin IS NOT NULL`)
   so a NULL deparse can be told apart from a real absence and retried.
+- **Concurrent DDL on a surviving table records wrong definitions.** Not
+  detected by the retry, and worse than stale: the table still exists. A
+  column dropped just before the constraints query makes
+  `pg_get_constraintdef` render the placeholder name
+  (`CHECK (("?dropped?column?" > 0))`, `FOREIGN KEY ("........pg.dropped.3........") …`);
+  a type dropped with `CASCADE` just before the columns query makes
+  `format_type` return `???`. Reproduced on PG 14, 17 and 18; predates the
+  retry. Candidate fix: treat those markers in deparse output as a concurrent
+  change and retry.
 - **Non-transient `cache lookup failed`.** A corrupt catalog or a buggy
   extension deparser raises the same XX000 text; it now costs 3 attempts and
   ends in `ConcurrentCatalogChangeError` with the original error as `cause`.
