@@ -381,4 +381,41 @@ describe("column grants survive a same-grantee object-level REVOKE", () => {
     const list = sqls(plan(source, desired, { policy }));
     expectAfter(list, OBJ_REVOKE_T, COL_GRANT_T);
   });
+
+  // Known gap (docs/roadmap/pg-delta-next-follow-ups.md, supabase/cli#6761
+  // section): an accepted column rename cancels both column-acl ids out of the
+  // survivor check, and the rename is ordered after the wipe, so the renamed
+  // column's grant is not restored. `test.failing` flips once it is fixed.
+  test.failing(
+    "a column renamed in the same plan keeps its grant after the object-level REVOKE",
+    () => {
+      const colNm: StableId = { ...colName, name: "nm" };
+      const source = buildFactBase(
+        [
+          ...base,
+          grant(tableT, "r", ["SELECT"], tableT),
+          grant(tableT, "r", ["UPDATE"], colName, "name"),
+        ],
+        [],
+      );
+      const desired = buildFactBase(
+        [
+          ...base.filter((x) => encodeId(x.id) !== encodeId(colName)),
+          f(colNm, columnPayload(), tableT),
+          grant(tableT, "r", ["INSERT", "SELECT"], tableT),
+          grant(tableT, "r", ["UPDATE"], colNm, "nm"),
+        ],
+        [],
+      );
+      const list = sqls(plan(source, desired, { renames: "auto" }));
+      expect(list).toContain(
+        `ALTER TABLE "app"."t" RENAME COLUMN "name" TO "nm"`,
+      );
+      expectAfter(
+        list,
+        OBJ_REVOKE_T,
+        `GRANT UPDATE ("nm") ON TABLE "app"."t" TO "r"`,
+      );
+    },
+  );
 });

@@ -1808,6 +1808,15 @@ Deferred:
   `privilege-operations--column-grant-under-default-privileges`,
   `privilege-operations--object-grant-change-keeps-column-grants`,
   `privilege-operations--object-grant-removed-keeps-column-grants`.
+- **Column rename + object-level grant change in one plan** (renames
+  `auto` / `prompt` only; predates #491). An accepted column rename cancels
+  both column-acl ids out of the add / remove sets, so the implicit-wipe
+  survivor check skips them, and the wipe's reproduce edge orders the
+  object-level `REVOKE ALL` before the `RENAME COLUMN`: the renamed column's
+  grant is lost. Fix direction: treat a wiped desired-side column acl produced
+  by an accepted rename as a survivor and re-grant it after both the rename
+  and the wipe. Pinned by the `test.failing` case in
+  `src/plan/column-grant-revoke-order.test.ts`.
 - **Extension-member relations.** Column grants on extension-owned views stay
   invisible, like extension-owned table columns today (`columnsFamily` also
   filters `notExtensionMember`). A correct fix needs a column-aware
