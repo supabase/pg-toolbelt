@@ -7,8 +7,9 @@
 import { describe, expect, test } from "bun:test";
 import pg from "pg";
 import { extract } from "../src/extract/extract.ts";
-import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
+import { buildSchemaExport } from "../src/frontends/schema-export.ts";
+import { rawProfile } from "../src/integrations/profile.ts";
 import { plan } from "../src/plan/plan.ts";
 import { sharedCluster } from "./containers.ts";
 
@@ -151,8 +152,13 @@ describe("identity-column sequence privileges", () => {
         "REVOKE UPDATE ON SEQUENCE app.t_id_seq FROM CURRENT_USER",
       );
       const fb = (await extract(source.pool)).factBase;
-      const files = exportSqlFiles(fb).filter(
-        (f) => !f.name.startsWith("_cluster/roles"),
+      // the default database-scope export keeps the owner implicit
+      const { files } = await buildSchemaExport(source.pool, {
+        profile: rawProfile,
+      });
+      const table = files.find((f) => f.name === "app/tables/t.sql");
+      expect(table!.sql).toContain(
+        'REVOKE ALL ON SEQUENCE "app"."t_id_seq" FROM',
       );
       const loaded = await loadSqlFiles(files, shadow.pool);
       const owner = (await shadow.pool.query("SELECT current_user AS r"))
@@ -168,6 +174,22 @@ describe("identity-column sequence privileges", () => {
     }
   }, 120_000);
 
+  test("export of a plain identity table carries no sequence privilege statements", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("idseq_plain_src");
+    try {
+      await source.pool.query(IDENTITY_TABLE);
+      const { files } = await buildSchemaExport(source.pool, {
+        profile: rawProfile,
+      });
+      const table = files.find((f) => f.name === "app/tables/t.sql");
+      expect(table).toBeDefined();
+      expect(table!.sql).not.toMatch(/ON SEQUENCE/);
+    } finally {
+      await source.drop();
+    }
+  }, 120_000);
+
   test("export files the sequence grant with its table and load reproduces it", async () => {
     const cluster = await sharedCluster();
     const source = await cluster.createDb("idseq_src");
@@ -179,15 +201,19 @@ describe("identity-column sequence privileges", () => {
           `GRANT USAGE ON SEQUENCE app.t_id_seq TO "${role}"`,
         );
         const fb = (await extract(source.pool)).factBase;
-        // the role is cluster-global on the shared cluster: keep it out of the load
-        const files = exportSqlFiles(fb).filter(
-          (f) => !f.name.startsWith("_cluster/roles"),
-        );
+        const { files } = await buildSchemaExport(source.pool, {
+          profile: rawProfile,
+        });
         const table = files.find((f) => f.name === "app/tables/t.sql");
         expect(table).toBeDefined();
         expect(table!.sql).toContain(
           `GRANT USAGE ON SEQUENCE "app"."t_id_seq" TO "${role}"`,
         );
+        // the owner's own default is implicit: no statement for it
+        expect(table!.sql).not.toMatch(
+          /ON SEQUENCE "app"\."t_id_seq" (TO|FROM) (?!")/,
+        );
+        expect(table!.sql.match(/ON SEQUENCE/g)).toHaveLength(1);
         expect(files.some((f) => f.name.includes("/sequences/"))).toBe(false);
 
         const loaded = await loadSqlFiles(files, shadow.pool);
