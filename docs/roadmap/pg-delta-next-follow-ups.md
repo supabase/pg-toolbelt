@@ -1827,3 +1827,23 @@ Deferred from the review (not blocking):
   tolerated rather than rejected (`cli/profile.ts`). The durable fix is
   general: an extractor-version stamp on snapshots that `drift`/`plan` check
   and refuse with recapture guidance, not a per-kind normalizer for this row.
+
+## Issue #487 follow-up — enum retype through an indirect enum source
+
+Retyping a column away from an enum now casts through `text` / `text[]`,
+keyed on the column's released edge landing on an enum `type` fact.
+Deferred:
+
+- **Domain over an enum, or an extension-member enum, as the source type.**
+  The released edge resolves to the `domain` / `extension` fact (no
+  `variant`), so a retype to another enum still emits the direct cast and
+  fails with 42846. Resolving it needs the domain's base type or the
+  member's variant at plan time.
+- **User-defined enum → enum cast (PR #490 Codex, round 2).** The text
+  hop applies to every enum → enum retype, so an explicit
+  `CREATE CAST (a_enum AS b_enum)` is bypassed. Casts are unmodeled
+  (`extract/unmodeled.ts` reports them; no fact reaches the planner), so
+  honouring one needs cast facts in the plan-time view. Deferred: before
+  #490 every enum → enum retype without such a cast failed outright, and
+  the case needs a hand-written cross-enum cast. Enum → non-enum already
+  keeps the direct cast.
