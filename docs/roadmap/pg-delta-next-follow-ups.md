@@ -1808,6 +1808,12 @@ REVOKE elision). Deferred from round five (not blocking):
   (`ownerOf(fact.id) ?? defaultOwner` in `action-emitter.ts`), not specific
   to identity sequences, which follow their table. Fixing it means threading
   the applier role through hygiene for all kinds in one change.
+- **Identity lifecycle statement noise (jgoux, P3).** A plain ADD IDENTITY
+  is one statement again (the alter's materialized sequence counts as
+  co-created). Still verbose: the owner's `REVOKE ALL` before DROP IDENTITY
+  (an acl drop is not folded into an alter's `alsoDestroys`) and the three
+  extra statements around an identity-sequence rename (the renamed sequence
+  keeps its ACL, so it must not count as created). Both converge.
 - **Policy filtering an identity `set` delta but not the sequence acl.** An
   operation-level policy that drops a column's plain→identity set delta while
   admitting the sequence's `acl` adds would leave `GRANT ON SEQUENCE` for a
