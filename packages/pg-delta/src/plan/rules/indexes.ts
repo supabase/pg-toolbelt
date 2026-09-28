@@ -70,6 +70,10 @@ export const indexRules: Record<string, KindRules> = {
         name: string;
       } | null;
       if (attachedTo == null) return undefined;
+      // The owning partition's DROP TABLE already cascades this index; folding
+      // it into the parent index's root would order that root before the
+      // partition's DROP and close a cycle with the inherit edge.
+      if (fact.parent !== undefined && isRemoved(fact.parent)) return undefined;
       const parentIdx = {
         kind: "index" as const,
         schema: attachedTo.schema,
