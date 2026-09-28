@@ -115,12 +115,13 @@ export function isConcurrentCatalogChange(error: unknown): boolean {
  */
 export function deparsedDef(row: Row, kind: string): string {
   const def = row["def"];
-  if (typeof def !== "string") {
+  if (def == null) {
     throw new DroppedDuringExtractionError(
       `${kind} ${String(row["schema"])}.${String(row["name"])} was dropped during extraction`,
     );
   }
-  return def;
+  // a caller's pool may parse `text` into a non-string (e.g. a Buffer)
+  return String(def as string);
 }
 
 /**

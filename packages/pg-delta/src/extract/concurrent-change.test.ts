@@ -25,6 +25,12 @@ describe("isConcurrentCatalogChange", () => {
     expect(isConcurrentCatalogChange(undefined)).toBe(false);
   });
 
+  test("a non-string definition from a custom text parser is kept", () => {
+    expect(
+      deparsedDef({ def: Buffer.from("CREATE INDEX i ON t (a)") }, "index"),
+    ).toBe("CREATE INDEX i ON t (a)");
+  });
+
   test("a NULL deparse result is a concurrent change", () => {
     let thrown: unknown;
     try {
