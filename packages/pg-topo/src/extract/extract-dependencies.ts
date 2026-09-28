@@ -835,6 +835,7 @@ const extractCreateRangeDependencies = (
   const params = Array.isArray(statementNode.params)
     ? statementNode.params
     : [];
+  let subtypeSignature = "unknown";
   for (const paramNode of params) {
     const defElem = asRecord(asRecord(paramNode)?.DefElem);
     if (!defElem || typeof defElem.defname !== "string") {
@@ -847,6 +848,9 @@ const extractCreateRangeDependencies = (
       const typeRef = typeFromTypeNameNode(typeName);
       if (typeRef) {
         requires.push(typeRef);
+        subtypeSignature = typeRef.schema
+          ? `${typeRef.schema}.${typeRef.name}`
+          : typeRef.name;
       }
       continue;
     }
@@ -859,6 +863,24 @@ const extractCreateRangeDependencies = (
       if (functionRef) {
         requires.push(functionRef);
       }
+    }
+  }
+
+  // PostgreSQL also creates range(lower, upper) and range(lower, upper, bounds)
+  // constructor functions named after the range type.
+  if (rangeRef) {
+    for (const signature of [
+      `(${subtypeSignature},${subtypeSignature})`,
+      `(${subtypeSignature},${subtypeSignature},text)`,
+    ]) {
+      provides.push(
+        createObjectRefFromAst(
+          "function",
+          rangeRef.name,
+          rangeRef.schema,
+          signature,
+        ),
+      );
     }
   }
 

@@ -56,6 +56,35 @@ describe("statement coverage", () => {
     expect(orderedSql[3]).toContain("create table app.events");
   }, 120000);
 
+  test("orders range constructor callers after range type", async () => {
+    const result = await analyzeAndSort([
+      "create view app.spans as select app.int_range(1, 10) as closed_open, app.int_range(1, 10, '[]') as closed;",
+      "create table app.slots(id int primary key, during app.int_range default app.int_range(0, 1));",
+      "create type app.int_range as range (subtype = int4);",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const rangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.int_range"),
+    );
+
+    expect(unresolved).toHaveLength(0);
+    expect(executionErrors).toHaveLength(0);
+    expect(rangeIndex).toBeGreaterThan(-1);
+    expect(
+      orderedSql.findIndex((sql) => sql.includes("create view app.spans")),
+    ).toBeGreaterThan(rangeIndex);
+  }, 120000);
+
   test("orders range type after custom subtype", async () => {
     const result = await analyzeAndSort([
       "create type app.price_range as range (subtype = app.price);",
