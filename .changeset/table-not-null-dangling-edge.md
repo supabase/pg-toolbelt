@@ -14,3 +14,8 @@ dependency resolver produced an edge to a fact that does not exist — one
 The rows are now excluded from dependency resolution, sharing one predicate with
 the domain-side exclusion added for the same reason. Diagnostics only: the edge
 was already discarded, so the fact base, hashes, and plans are unchanged.
+
+A `COMMENT ON CONSTRAINT` attached to one of those rows has nowhere to live once
+the row is skipped, so extraction now reports it as an info
+`table_not_null_comment_skipped` diagnostic instead of dropping it without a
+word — mirroring the domain-side `domain_not_null_comment_skipped`.

@@ -270,7 +270,16 @@ const TABLE_CONSTRAINTS_SQL = `
     -- 'f' = foreign tables: they carry only CHECK constraints (no p/u/f/x),
     -- so the contype filter already scopes them; serialized via ALTER FOREIGN
     -- TABLE (constraintTarget keys off the parent's foreignTable kind).
-    WHERE con.contype IN ('p', 'u', 'f', 'c', 'x') AND con.conislocal
+    -- PG 18 also catalogs a column's NOT NULL as a contype 'n' row. That stays
+    -- the column's notNull attribute and must never become a second fact (the
+    -- row does not exist on PG 14-17, so hashes would differ per version) --
+    -- but a COMMENT ON CONSTRAINT attached to it has nowhere to live once the
+    -- row is skipped. Fetch the commented ones so apply() can report the
+    -- dropped comment instead of losing it silently; dependencies.ts skips
+    -- the same rows as dependency endpoints (NOT_NULL_IS_NOT_A_FACT).
+    WHERE ((con.contype IN ('p', 'u', 'f', 'c', 'x') AND con.conislocal)
+           OR (con.contype = 'n'
+               AND obj_description(con.oid, 'pg_constraint') IS NOT NULL))
       AND c.relkind IN ('r', 'p', 'f') AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, c.relname, con.conname`;
@@ -279,21 +288,40 @@ export const tableConstraintsFamily: CatalogFamily = {
   name: "constraints",
   statements: () => [TABLE_CONSTRAINTS_SQL],
   apply: (ctx, rowSets) => {
-    const { pushWithMeta } = ctx;
+    const { pushWithMeta, diagnostics } = ctx;
     for (const row of rowSets[0]!) {
+      const schema = String(row["schema"]);
+      const table = String(row["table"]);
+      const relation: StableId = {
+        kind: String(row["table_kind"]) === "f" ? "foreignTable" : "table",
+        schema,
+        name: table,
+      };
+      // Only COMMENTED contype 'n' rows reach here (see the query above): the
+      // constraint itself is the column's notNull attribute, so report the
+      // comment that cannot be carried and emit no fact for it.
+      if (row["type"] === "n") {
+        diagnostics.push({
+          code: "table_not_null_comment_skipped",
+          severity: "info",
+          subject: relation,
+          message:
+            `${schema}.${table}: the comment on its NOT NULL constraint ` +
+            `${String(row["name"])} is not modeled (NOT NULL is the column's notNull ` +
+            `attribute; the constraint row exists only on PG 18+) and will not be ` +
+            `diffed or exported.`,
+        });
+        continue;
+      }
       pushWithMeta(
         {
           id: {
             kind: "constraint",
-            schema: String(row["schema"]),
-            table: String(row["table"]),
+            schema,
+            table,
             name: String(row["name"]),
           },
-          parent: {
-            kind: String(row["table_kind"]) === "f" ? "foreignTable" : "table",
-            schema: String(row["schema"]),
-            name: String(row["table"]),
-          },
+          parent: relation,
           payload: {
             def: String(row["def"]),
             type: String(row["type"]),

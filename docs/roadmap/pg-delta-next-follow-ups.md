@@ -1878,3 +1878,30 @@ Deferred from the review (not blocking, pre-existing):
   inherited constraint is a real dependency of the child's column, just not one
   the engine keys separately today. Needs a deliberate call, not a one-line
   filter. Pick up if a user reports it, or alongside any other inheritance work.
+
+Codex round 1 (PR #485), both P2, both on the `tcon` filter:
+
+- **Commented table NOT NULL rows — FIXED here.** A `COMMENT ON CONSTRAINT
+  <table>_<col>_not_null ON <table>` is accepted on PG 18, and with the row
+  skipped as a fact the comment had nowhere to live. Extraction now emits an
+  info `table_not_null_comment_skipped`, mirroring the domain side. Verified on
+  postgres:18-alpine that the comment is accepted and that an UNcommented row
+  still extracts in silence.
+- **`NOT ENFORCED` on a table NOT NULL — DECLINED, not reachable.** The finding
+  claims such a constraint leaves the column nullable while the row persists.
+  PostgreSQL 18 rejects the syntax outright:
+
+  ```
+  ERROR:  NOT NULL constraints cannot be marked NOT ENFORCED
+  ```
+
+  Every contype 'n' row observed has `conenforced = true`, so the row is always
+  equivalent to `attnotnull`. This mirrors the same conclusion already recorded
+  for domains above.
+
+  What IS reachable is `NOT VALID`: `ALTER TABLE … ADD CONSTRAINT c NOT NULL col
+  NOT VALID` succeeds on PG 18 with `convalidated = false`, while `attnotnull`
+  is still set — so pg-delta renders a plain, validating `NOT NULL`, which fails
+  at apply if the table holds NULL rows. A user-chosen name for the constraint
+  is lost the same way. That is a genuine fidelity gap, out of scope for a
+  diagnostics-only PR, and tracked separately.
