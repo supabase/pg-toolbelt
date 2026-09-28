@@ -112,12 +112,13 @@ kind that honours a `SCHEMA` clause.)
 target schema's PRESENCE at plan time — see the extension create rule — and
 `extrelocatable` rides on the fact as non-hashed `_relocatable` metadata (it is a
 property of the installed version, i.e. version churn — CLI-2219), read only by
-the replace-vs-alter decision for schema moves. When the control file pins the
-schema (non-hashed `_controlSchema`, set only when the installed and default
-versions agree), the clause is always omitted — Postgres finds or creates the
-pinned schema itself — and only the ordering edge is kept: the export's pristine
-source assumes platform schemas such as `pgmq` that a fresh Supabase database
-lacks.)*
+the replace-vs-alter decision for schema moves. When the default version's
+control file pins the schema (non-hashed `_controlSchema`) and the target already
+holds it — possibly only as an assumed, reference-only fact — the clause is
+omitted and Postgres finds or creates the pinned schema itself: the export's
+pristine source assumes platform schemas such as `pgmq` that a fresh Supabase
+database lacks. A schema the plan creates keeps the clause, so an export loads
+in any file order.)*
 
 ### 3. Applier capability becomes a probed fact; the view is capability-restricted
 

@@ -54,25 +54,30 @@ export const schemaRules: Record<string, KindRules> = {
     // iff schema `s` EXISTS when CREATE EXTENSION runs — present on the target
     // (source view, incl. reference-only platform schemas such as Supabase's
     // `extensions`) or created by this plan (managed desired schema; `consumes`
-    // orders CREATE SCHEMA first). Otherwise emit the bare form; built-in
-    // schemas (pg_cron's pg_catalog) are never extracted and fall here too.
-    // When the control file pins `s`, drop the clause but keep the ordering:
-    // Postgres finds or creates the pinned schema itself, while the clause only
-    // adds a must-exist check that fails where `s` is merely assumed (the
-    // export's pristine source seeds platform schemas such as `pgmq` that a
-    // fresh database lacks). See docs/architecture/managed-view-architecture.md.
+    // orders CREATE SCHEMA first, and the clause keeps any load order of an
+    // export convergent). Otherwise emit the bare form; built-in schemas
+    // (pg_cron's pg_catalog) are never extracted and fall here too. A schema
+    // the control file pins and the target already holds is bare too: Postgres
+    // finds or creates it, while the clause would fail where `s` is merely
+    // assumed (the export's pristine source seeds platform schemas such as
+    // `pgmq` that a fresh database lacks).
+    // See docs/architecture/managed-view-architecture.md.
     create: (fact, view, _params, sourceView) => {
       const schemaName = str(p(fact, "schema"));
       const schemaId: StableId = { kind: "schema", name: schemaName };
-      const schemaPresent =
-        sourceView?.get(schemaId) !== undefined ||
-        (view.get(schemaId) !== undefined && !view.isReferenceOnly(schemaId));
+      const onTarget = sourceView?.get(schemaId) !== undefined;
+      const createdByPlan =
+        !onTarget &&
+        view.get(schemaId) !== undefined &&
+        !view.isReferenceOnly(schemaId);
       const name = qid((fact.id as { name: string }).name);
-      if (!schemaPresent) return [{ sql: `CREATE EXTENSION ${name}` }];
+      if (!onTarget && !createdByPlan) {
+        return [{ sql: `CREATE EXTENSION ${name}` }];
+      }
       return [
         {
           sql:
-            p(fact, "_controlSchema") === schemaName
+            onTarget && p(fact, "_controlSchema") === schemaName
               ? `CREATE EXTENSION ${name}`
               : `CREATE EXTENSION ${name} SCHEMA ${qid(schemaName)}`,
           consumes: [schemaId],

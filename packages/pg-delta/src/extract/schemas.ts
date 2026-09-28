@@ -46,20 +46,17 @@ const SCHEMAS_SQL = `
     ORDER BY n.nspname`;
 
 // ── extensions (version deliberately excluded from the payload) ─────
-// `control_schema`: the schema the control file pins, only when the installed
-// AND default versions agree on it — a bare CREATE EXTENSION installs the
-// default version, and secondary control files may set `schema` per version.
-// NULL when unpinned or a control file is missing.
+// `control_schema`: the schema the DEFAULT version's control file pins — the
+// version a bare CREATE EXTENSION installs (secondary control files may set
+// `schema` per version). NULL when unpinned or the control file is missing.
 const EXTENSIONS_SQL = `
     SELECT e.extname AS name, n.nspname AS schema,
            e.extrelocatable AS relocatable,
-           CASE WHEN iv.schema = dv.schema THEN iv.schema::text END AS control_schema,
+           dv.schema::text AS control_schema,
            obj_description(e.oid, 'pg_extension') AS comment
     FROM pg_extension e
     JOIN pg_namespace n ON n.oid = e.extnamespace
     LEFT JOIN pg_available_extensions a ON a.name = e.extname
-    LEFT JOIN pg_available_extension_versions iv
-           ON iv.name = e.extname AND iv.version = e.extversion
     LEFT JOIN pg_available_extension_versions dv
            ON dv.name = e.extname AND dv.version = a.default_version
     WHERE e.extname <> 'plpgsql'

@@ -109,9 +109,9 @@ export function projectTarget(
     [...facts.values()],
     [...edges.values()],
     desired.source,
-    // referenceOnly is intentionally NOT carried forward here (unchanged from the
-    // original 3-arg call); the 4th arg is supplied only to reach `allowDangling`.
-    new Set(),
+    // Surviving facts keep their reference-only marks, matching the
+    // no-filtered-delta path that returns `desired` itself.
+    new Set([...desired.referenceOnly].filter((key) => facts.has(key))),
     { allowDangling: retainOwnerRoleDangling },
   );
 }
