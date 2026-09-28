@@ -12,7 +12,7 @@ import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import type { Payload } from "../core/hash.ts";
 import type { Delta } from "../core/diff.ts";
-import type { StableId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 import { plan } from "./plan.ts";
 import type { Policy } from "../policy/policy.ts";
 import { projectTarget } from "./project.ts";
@@ -55,6 +55,24 @@ describe("projectTarget — revert filtered deltas to source", () => {
     ];
     const projected = projectTarget(desired, filtered);
     expect(projected.has(legacy)).toBe(true);
+  });
+
+  test("a filtered delta keeps the reference-only marks of surviving facts", () => {
+    const pgmq: StableId = { kind: "schema", name: "pgmq" };
+    const desired = buildFactBase(
+      [
+        makeFact(schemaPublic),
+        makeFact(pgmq),
+        makeFact(legacy, {}, schemaPublic),
+      ],
+      [],
+      undefined,
+      new Set([encodeId(pgmq)]),
+    );
+    const filtered: Delta[] = [
+      { verb: "add", fact: makeFact(legacy, {}, schemaPublic) },
+    ];
+    expect(projectTarget(desired, filtered).isReferenceOnly(pgmq)).toBe(true);
   });
 
   test("filtered add removes the fact from the target", () => {
