@@ -1,5 +1,12 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.55
+
+### Patch Changes
+
+- 4d253b6: Keep a role's column-level grants when its object-level grant on the same relation is (re)applied. PostgreSQL revokes matching column privileges with any table-level `REVOKE`, and every object-level acl action leads with `REVOKE ALL ON <rel> FROM <role>`, so column grants on tables, views and materialized views were silently wiped whenever that role's object-level grant was added, changed or removed (or the relation was created under default privileges). The planner now orders every same-grantee column `GRANT` after that `REVOKE` and re-grants the untouched column privileges after it. Not yet covered: a column renamed in the same plan (opt-in `renames: "auto"` / `"prompt"`).
+- be4e1cb: `CREATE EXTENSION` no longer carries a `SCHEMA <s>` clause when the extension's control file pins `<s>` (pgmq → `pgmq`, pg_tle → `pgtle`) and the target already holds `<s>`, possibly only as an assumed platform schema: Postgres finds or creates the pinned schema itself. This fixes Supabase-profile `schema export` output that failed to replay into a fresh database with `schema "pgmq" does not exist` (supabase/cli#6728). A schema the plan creates keeps the clause. The pin is extracted from the default version's control file as non-hashed `_controlSchema` metadata, and plan-target projection now keeps reference-only marks when a delta is filtered.
+
 ## 1.0.0-alpha.54
 
 ### Minor Changes
