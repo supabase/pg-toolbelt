@@ -83,6 +83,63 @@ describe("partition key column changes", () => {
       [column("k", "text", { ...key, collation: `pg_catalog."C"` })],
     );
     expect(sqls).toContain(`DROP TABLE "s1"."t"`);
+    expect(
+      sqls.some(
+        (s) =>
+          s.startsWith(`CREATE TABLE "s1"."t"`) &&
+          s.includes(`COLLATE pg_catalog."C"`),
+      ),
+    ).toBe(true);
     expect(sqls.some((s) => s.includes(`DROP COLUMN`))).toBe(false);
+  });
+
+  test("dropping a sub-partition key column replaces the table", () => {
+    // `c` is the key of a sub-partition, not of `t`. DROP COLUMN on `t`
+    // recurses into that sub-partition and Postgres rejects it there.
+    const sqls = sqlsFor(
+      [column("k", "date", key), column("c", "date", key)],
+      [column("k", "date", key)],
+    );
+    expect(sqls).toContain(`DROP TABLE "s1"."t"`);
+    expect(sqls).toContain(
+      `CREATE TABLE "s1"."t" ("k" date) PARTITION BY RANGE (k)`,
+    );
+    expect(sqls.some((s) => s.includes(`DROP COLUMN`))).toBe(false);
+  });
+
+  test("dropping a non-key column stays in place", () => {
+    const sqls = sqlsFor(
+      [column("k", "date", key), column("v", "text")],
+      [column("k", "date", key)],
+    );
+    expect(sqls).toContain(`ALTER TABLE "s1"."t" DROP COLUMN "v"`);
+    expect(sqls.some((s) => s.startsWith(`DROP TABLE`))).toBe(false);
+  });
+
+  test("a NOT NULL change on a partition key column stays in place", () => {
+    const sqls = sqlsFor(
+      [column("k", "date", key)],
+      [column("k", "date", { ...key, notNull: true })],
+    );
+    expect(sqls).toContain(
+      `ALTER TABLE "s1"."t" ALTER COLUMN "k" SET NOT NULL`,
+    );
+    expect(sqls.some((s) => s.startsWith(`DROP TABLE`))).toBe(false);
+  });
+
+  test("a key column on only one side still replaces the table", () => {
+    // the ALTER runs on the source, so a source-only key blocks it; a
+    // desired-only key replaces too (see the follow-up for a cheaper order)
+    for (const [from, to] of [
+      [key, {}],
+      [{}, key],
+    ]) {
+      const sqls = sqlsFor(
+        [column("k", "date", from)],
+        [column("k", "timestamp without time zone", to)],
+      );
+      expect(sqls).toContain(`DROP TABLE "s1"."t"`);
+      expect(sqls.some((s) => s.includes(`ALTER COLUMN`))).toBe(false);
+    }
   });
 });
