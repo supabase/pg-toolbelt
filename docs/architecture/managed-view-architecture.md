@@ -435,11 +435,14 @@ after `filterDeltas`):
   (`--strict-coverage` blocks on it). The absent withheld requirement is
   reverted too, from its highest absent withheld/reference-only ancestor, so
   the plan target equals the applied state.
-- Unsatisfied and withheld, on an existing fact (`set`/`link`), a new child of
-  an existing non-schema object (a CHECK, policy, trigger or default on a live
-  table), or a new RESTRICTIVE RLS policy → `plan()` throws, naming the
+- Unsatisfied and withheld, on an existing fact (`set`/`link`), or on a new
+  enforcement fact (a constraint or a RESTRICTIVE RLS policy) whose missing
+  requirement is not its own ancestor → `plan()` throws, naming the
   requirement and its stage. Skipping would leave the old definition, missing
-  enforcement, or access the policy would deny, live.
+  enforcement, or access the policy would deny, live. Every other kind
+  (defaults, labels, triggers, views, functions, permissive policies) is
+  skipped under new and live parents alike, so re-planning the applied result
+  skips the same facts again instead of throwing.
 - Unsatisfied but not withheld → untouched; the missing-requirement guard
   still throws.
 

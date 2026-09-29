@@ -5,9 +5,11 @@
  * security-label provider extension) the policy withholds and the target lacks
  * cannot apply, so it is reverted with its subtree into `filteredDeltas` and
  * reported. Reverting anything else would leave looser state live, so a
- * stranded change to an existing object, a new child of one (a CHECK, policy,
- * trigger, default), or a restrictive RLS policy throws instead. Unwithheld
- * requirements are left to the requirement guard.
+ * stranded change to an existing object, or a new constraint or restrictive
+ * RLS policy (unless an ancestor is what is missing), throws instead. The
+ * decision depends only on the desired state and the prerequisite, so
+ * re-planning the applied result is stable. Unwithheld requirements are left
+ * to the requirement guard.
  */
 import type { Diagnostic } from "../../core/diagnostic.ts";
 import { EXCLUDED_BY_CASCADE } from "../../core/diagnostic.ts";
@@ -26,8 +28,7 @@ import {
 import { ambientRequirements } from "../internal.ts";
 import { subtreeIds } from "../renames.ts";
 import { securityLabelProviderExtension } from "../rules/metadata.ts";
-import { isRestrictivePolicy } from "../rules/policies.ts";
-import { isSchemaId } from "../rules/schemas.ts";
+import { isEnforcementFact } from "../rules/constraints.ts";
 
 /** Projection stages that take a fact out of the user's hands. `managedBy`
  * (intent replay provisions it), `managementScope` (assumed roles cover it) and
@@ -133,6 +134,13 @@ export function cascadeWithheldRequirements(
   });
   const onTarget = (id: StableId): boolean =>
     source.has(id) || rawSourceHas(id);
+  const isAncestor = (key: string, id: StableId): boolean => {
+    for (let cursor = desired.get(id)?.parent; cursor !== undefined; ) {
+      if (encodeId(cursor) === key) return true;
+      cursor = desired.get(cursor)?.parent;
+    }
+    return false;
+  };
   const satisfied = (id: StableId, key: string): boolean =>
     keptAdds.has(key) ||
     onTarget(id) ||
@@ -157,7 +165,8 @@ export function cascadeWithheldRequirements(
 
   const requirements = new Map<string, StableId[]>();
   const diagnostics: Diagnostic[] = [];
-  const refusals: string[] = [];
+  // encoded subject → refusal line; dropped if an ancestor is reverted later
+  const refusals = new Map<string, string>();
   // An absent withheld requirement and its absent ancestors stay in the
   // desired view; revert the highest one (orphan pruning takes the rest) so the
   // plan target matches what apply produces.
@@ -186,18 +195,13 @@ export function cascadeWithheldRequirements(
             ? `which the policy withholds (${cause.stage}: ${cause.reasonCode}) and the target lacks`
             : `which this plan does not apply (${cause.stage}: ${cause.reasonCode})`;
         const fact = desired.get(id);
-        const parent = fact?.parent;
-        const underLiveObject =
-          parent !== undefined &&
-          !isSchemaId(parent) &&
-          !keptAdds.has(encodeId(parent)) &&
-          onTarget(parent);
         if (
           !keptAdds.has(key) ||
-          underLiveObject ||
-          (fact !== undefined && isRestrictivePolicy(fact))
+          (fact !== undefined &&
+            isEnforcementFact(fact) &&
+            !isAncestor(requirementKey, id))
         ) {
-          refusals.push(`  - ${key} requires ${requirementKey}, ${why}`);
+          refusals.set(key, `  - ${key} requires ${requirementKey}, ${why}`);
           break;
         }
         for (const member of subtreeIds(desired, id)) {
@@ -239,12 +243,15 @@ export function cascadeWithheldRequirements(
       }
     }
   }
-  if (refusals.length > 0) {
+  for (const key of refusals.keys()) {
+    if (reverted.has(key)) refusals.delete(key);
+  }
+  if (refusals.size > 0) {
     throw new Error(
       `plan: these changes depend on objects the policy withholds and the target lacks; ` +
         `skipping them would leave looser state live (an old definition, or access a ` +
         `restrictive policy would deny). Provide the prerequisite on the target or drop ` +
-        `the change from the desired state:\n${[...new Set(refusals)].sort().join("\n")}`,
+        `the change from the desired state:\n${[...refusals.values()].sort().join("\n")}`,
     );
   }
   if (reverted.size === 0) {

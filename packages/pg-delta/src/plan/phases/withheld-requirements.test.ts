@@ -5,8 +5,8 @@
  * lacks that prerequisite, is reverted at plan time (moved to `filteredDeltas`)
  * with an `excluded-by-cascade` warning instead of throwing or emitting DDL
  * that fails at apply. A stranded change to an existing object, or a stranded
- * restrictive RLS policy, is refused instead: skipping it would leave looser
- * state live. Prerequisites present on the target, produced by the plan, or
+ * constraint or restrictive RLS policy, is refused instead: skipping it would
+ * leave looser state live. Prerequisites present on the target, produced by the plan, or
  * ambient keep planning exactly as before. No DB.
  */
 import { describe, expect, test } from "bun:test";
@@ -183,6 +183,24 @@ describe("CLI-2300 — user trigger on a reference-only table the target lacks",
     expect(replan.source.fingerprint).toBe(p.target.fingerprint);
   });
 
+  test("re-planning against the applied empty branch is stable", () => {
+    const source = buildFactBase([f(postgres), f(publicSchema)], []);
+    const first = plan(source, desired(), { policy: supabasePolicy });
+    const applied = buildFactBase(
+      [
+        f(postgres),
+        f(publicSchema),
+        ...desired()
+          .facts()
+          .filter((fact) => encodeId(fact.id) === encodeId(fn)),
+      ],
+      [],
+    );
+    const again = plan(applied, desired(), { policy: supabasePolicy });
+    expect(sqlOf(again)).toEqual([]);
+    expect(cascadeSubjects(again)).toEqual(cascadeSubjects(first));
+  });
+
   test("a view over an absent reference-only column: the plan target fingerprint matches the applied state", () => {
     const view: StableId = { kind: "view", schema: "public", name: "mig_v" };
     const desiredWithView = buildFactBase(
@@ -270,9 +288,8 @@ describe("CLI-2342 — pgsodium TCE artefacts on a branch without pgsodium", () 
     provider: "pgsodium",
   };
 
-  test("empty branch: CREATE TABLE without pgsodium defaults; no view, label, or extension", () => {
-    const source = buildFactBase([f(publicSchema)], []);
-    const desired = buildFactBase(
+  const tceDesired = () =>
+    buildFactBase(
       [
         f(publicSchema),
         pgsodiumFact(),
@@ -293,6 +310,10 @@ describe("CLI-2342 — pgsodium TCE artefacts on a branch without pgsodium", () 
         { from: view, to: colSecret, kind: "depends" },
       ],
     );
+
+  test("empty branch: CREATE TABLE without pgsodium defaults; no view, label, or extension", () => {
+    const source = buildFactBase([f(publicSchema)], []);
+    const desired = tceDesired();
     const p = plan(source, desired, { policy: supabasePolicy });
     const sql = sqlOf(p);
     expect(sql.some((s) => s.startsWith(`CREATE TABLE "public"."creds"`))).toBe(
@@ -309,6 +330,77 @@ describe("CLI-2342 — pgsodium TCE artefacts on a branch without pgsodium", () 
       expect(d.context?.["requirement"]).toBe(encodeId(pgsodium));
       expect(d.context?.["stage"]).toBe("policyScopeRule");
     }
+  });
+
+  test("re-planning against the applied branch is stable: no throw, no actions, same warnings", () => {
+    const source = buildFactBase([f(publicSchema)], []);
+    const first = plan(source, tceDesired(), { policy: supabasePolicy });
+    const skipped = new Set([defKey, view, seclabel, pgsodium].map(encodeId));
+    const applied = buildFactBase(
+      tceDesired()
+        .facts()
+        .filter((fact) => !skipped.has(encodeId(fact.id))),
+      [],
+    );
+    const again = plan(applied, tceDesired(), { policy: supabasePolicy });
+    expect(sqlOf(again)).toEqual([]);
+    expect(cascadeSubjects(again)).toEqual(cascadeSubjects(first));
+  });
+
+  const check: StableId = {
+    kind: "constraint",
+    schema: "public",
+    table: "creds",
+    name: "creds_secret_check",
+  };
+  const checkFact = (): Fact =>
+    f(check, creds, {
+      def: "CHECK ((pgsodium.crypto_aead_det_decrypt(secret::bytea) IS NOT NULL))",
+      type: "c",
+      validated: true,
+    });
+  const tableFacts = (): Fact[] => [
+    f(publicSchema),
+    f(creds, publicSchema, tablePayload()),
+    f(colId, creds, colPayload("integer", 1)),
+    f(colSecret, creds, colPayload("text", 2)),
+  ];
+
+  test("a new CHECK calling pgsodium on a new table throws", () => {
+    const source = buildFactBase([f(publicSchema)], []);
+    const desired = buildFactBase(
+      [...tableFacts(), pgsodiumFact(), checkFact()],
+      [{ from: check, to: pgsodium, kind: "depends" }],
+    );
+    expect(() => plan(source, desired, { policy: supabasePolicy })).toThrow(
+      /constraint:public\.creds\.creds_secret_check requires extension:pgsodium/,
+    );
+  });
+
+  test("a CHECK on a table that is itself skipped cascades with it", () => {
+    const keyType: StableId = {
+      kind: "type",
+      schema: "pgsodium",
+      name: "key_type",
+    };
+    const source = buildFactBase([f(publicSchema)], []);
+    const desired = buildFactBase(
+      [
+        ...tableFacts(),
+        pgsodiumFact(),
+        f({ kind: "schema", name: "pgsodium" }),
+        f(keyType, { kind: "schema", name: "pgsodium" }, {}),
+        checkFact(),
+      ],
+      [
+        { from: keyType, to: pgsodium, kind: "memberOfExtension" },
+        { from: creds, to: keyType, kind: "depends" },
+        { from: check, to: pgsodium, kind: "depends" },
+      ],
+    );
+    const p = plan(source, desired, { policy: supabasePolicy });
+    expect(sqlOf(p)).toEqual([]);
+    expect(cascadeSubjects(p)).toEqual([encodeId(creds)]);
   });
 });
 
@@ -492,7 +584,7 @@ describe("stranded changes to existing objects are refused, not reverted", () =>
   });
 });
 
-describe("new children of existing objects are refused, not skipped", () => {
+describe("a stranded constraint on an existing table is refused", () => {
   test("a new CHECK constraint on an existing table that calls pgsodium throws", () => {
     const t: StableId = { kind: "table", schema: "public", name: "t" };
     const colA: StableId = {
@@ -539,7 +631,6 @@ describe("new RLS policies whose prerequisite is withheld", () => {
     table: "t",
     name: "gate",
   };
-  // On a NEW table: a new child of an existing table is refused either way.
   const run = (permissive: boolean) => {
     const source = buildFactBase([f(publicSchema)], []);
     const desired = buildFactBase(

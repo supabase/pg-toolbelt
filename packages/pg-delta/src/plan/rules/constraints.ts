@@ -1,7 +1,15 @@
 /** Rule definitions for table / domain constraints. */
+import type { Fact } from "../../core/fact.ts";
 import { qid } from "../render.ts";
 import type { KindRules } from "../rules.ts";
 import { constraintTarget, p, str } from "./helpers.ts";
+import { isRestrictivePolicy } from "./policies.ts";
+
+/** Facts that enforce integrity or deny access: omitting one silently turns
+ *  enforcement off. */
+export function isEnforcementFact(fact: Fact): boolean {
+  return fact.id.kind === "constraint" || isRestrictivePolicy(fact);
+}
 
 export const constraintRules: Record<string, KindRules> = {
   constraint: {

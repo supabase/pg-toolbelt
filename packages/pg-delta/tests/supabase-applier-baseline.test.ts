@@ -156,6 +156,15 @@ describe.skipIf(!runSupabaseBareTests)(
           `SELECT to_regclass('public.creds') IS NOT NULL AS present`,
         );
         expect(exists.rows[0].present).toBe(true);
+        // Re-planning the applied branch is stable: the skipped TCE artefacts
+        // are skipped again rather than refused.
+        const applied = await profile.extract(applier);
+        const again = plan(applied.factBase, desired.factBase, {
+          ...profile.planOptions,
+          renames: "off",
+          compact: true,
+        });
+        expect(again.actions.map((a) => a.sql)).toEqual([]);
       } finally {
         await applier.end().catch(() => {});
         await baseAsPostgres.end().catch(() => {});

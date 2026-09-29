@@ -30,10 +30,6 @@ const NEVER_REPLACE_FOR_RELOCATION = new Set(["postgis"]);
 
 export const SCHEMA_WEIGHT = 1;
 
-export function isSchemaId(id: StableId): boolean {
-  return id.kind === "schema";
-}
-
 export const schemaRules: Record<string, KindRules> = {
   schema: {
     weight: SCHEMA_WEIGHT,
