@@ -198,7 +198,11 @@ describe("compaction folds self-contained constraints into CREATE TABLE", () => 
     ]);
   });
 
-  test("PK + same-key UNIQUE still folds when _keyColumns is absent", () => {
+  // Characterizes a known-unsafe fallback, not intended behavior: facts without
+  // _keyColumns (snapshots captured by an older extractor) cannot detect the
+  // same-key UNIQUE, so both inline and PostgreSQL drops the UNIQUE. Recapture
+  // the snapshot to get the ALTER.
+  test("known-unsafe fallback: PK + same-key UNIQUE inline when _keyColumns is absent", () => {
     const desired = buildFactBase(
       [
         f(schemaApp),
