@@ -184,13 +184,9 @@ describe.skipIf(!runSupabaseBareTests)(
       });
       baseAsPostgres.on("error", () => {});
       try {
-        // The branch has the schema but not the table, so the plan target's
-        // fingerprint can be checked against the applied state.
-        for (const db of [branch, base]) {
-          await db.pool.query(
-            `CREATE SCHEMA supabase_migrations AUTHORIZATION postgres`,
-          );
-        }
+        await base.pool.query(
+          `CREATE SCHEMA supabase_migrations AUTHORIZATION postgres`,
+        );
         await baseAsPostgres.query(`
           CREATE TABLE supabase_migrations.schema_migrations (
             version text PRIMARY KEY

@@ -164,6 +164,58 @@ describe("CLI-2300 — user trigger on a reference-only table the target lacks",
     expect(replan.source.fingerprint).toBe(p.target.fingerprint);
   });
 
+  test("empty branch without the schema: the plan target fingerprint matches the applied state", () => {
+    const source = buildFactBase([f(postgres), f(publicSchema)], []);
+    const p = plan(source, desired(), { policy: supabasePolicy });
+    expect(cascadeSubjects(p)).toEqual([encodeId(trigger)]);
+    const applied = buildFactBase(
+      desired()
+        .facts()
+        .filter(
+          (fact) =>
+            ![trigger, migTable, migCol, migSchema].some(
+              (id) => encodeId(id) === encodeId(fact.id),
+            ),
+        ),
+      [],
+    );
+    const replan = plan(applied, desired(), { policy: supabasePolicy });
+    expect(replan.source.fingerprint).toBe(p.target.fingerprint);
+  });
+
+  test("a view over an absent reference-only column: the plan target fingerprint matches the applied state", () => {
+    const view: StableId = { kind: "view", schema: "public", name: "mig_v" };
+    const desiredWithView = buildFactBase(
+      [
+        f(postgres),
+        f(publicSchema),
+        f(migSchema),
+        f(migTable, migSchema, tablePayload()),
+        f(migCol, migTable, colPayload("text", 1)),
+        f(view, publicSchema, {
+          def: "SELECT version FROM supabase_migrations.schema_migrations",
+          reloptions: null,
+        }),
+      ],
+      [
+        { from: migTable, to: postgres, kind: "owner" },
+        { from: view, to: migCol, kind: "depends" },
+      ],
+    );
+    const source = buildFactBase(
+      [f(postgres), f(publicSchema), f(migSchema)],
+      [],
+    );
+    const p = plan(source, desiredWithView, { policy: supabasePolicy });
+    expect(cascadeSubjects(p)).toEqual([encodeId(view)]);
+    const applied = buildFactBase(
+      [f(postgres), f(publicSchema), f(migSchema)],
+      [],
+    );
+    const replan = plan(applied, desiredWithView, { policy: supabasePolicy });
+    expect(replan.source.fingerprint).toBe(p.target.fingerprint);
+  });
+
   test("the table present on the target: the trigger still plans", () => {
     const source = buildFactBase(
       [
@@ -440,6 +492,45 @@ describe("stranded changes to existing objects are refused, not reverted", () =>
   });
 });
 
+describe("new children of existing objects are refused, not skipped", () => {
+  test("a new CHECK constraint on an existing table that calls pgsodium throws", () => {
+    const t: StableId = { kind: "table", schema: "public", name: "t" };
+    const colA: StableId = {
+      kind: "column",
+      schema: "public",
+      table: "t",
+      name: "a",
+    };
+    const check: StableId = {
+      kind: "constraint",
+      schema: "public",
+      table: "t",
+      name: "t_a_check",
+    };
+    const shared = (): Fact[] => [
+      f(publicSchema),
+      f(t, publicSchema, tablePayload()),
+      f(colA, t, colPayload("bytea", 1)),
+    ];
+    const source = buildFactBase(shared(), []);
+    const desired = buildFactBase(
+      [
+        ...shared(),
+        pgsodiumFact(),
+        f(check, t, {
+          def: "CHECK ((pgsodium.crypto_aead_det_decrypt(a) IS NOT NULL))",
+          type: "c",
+          validated: true,
+        }),
+      ],
+      [{ from: check, to: pgsodium, kind: "depends" }],
+    );
+    expect(() => plan(source, desired, { policy: supabasePolicy })).toThrow(
+      /constraint:public\.t\.t_a_check[\s\S]*extension:pgsodium[\s\S]*policyScopeRule/,
+    );
+  });
+});
+
 describe("new RLS policies whose prerequisite is withheld", () => {
   const t: StableId = { kind: "table", schema: "public", name: "t" };
   const pol: StableId = {
@@ -448,11 +539,9 @@ describe("new RLS policies whose prerequisite is withheld", () => {
     table: "t",
     name: "gate",
   };
+  // On a NEW table: a new child of an existing table is refused either way.
   const run = (permissive: boolean) => {
-    const source = buildFactBase(
-      [f(publicSchema), f(t, publicSchema, tablePayload())],
-      [],
-    );
+    const source = buildFactBase([f(publicSchema)], []);
     const desired = buildFactBase(
       [
         f(publicSchema),
@@ -479,6 +568,9 @@ describe("new RLS policies whose prerequisite is withheld", () => {
 
   test("a permissive policy is skipped with a warning", () => {
     const p = run(true)();
+    expect(sqlOf(p).some((s) => /CREATE TABLE "public"\."t"/.test(s))).toBe(
+      true,
+    );
     expect(sqlOf(p).some((s) => /CREATE POLICY/i.test(s))).toBe(false);
     expect(cascadeSubjects(p)).toEqual([encodeId(pol)]);
   });

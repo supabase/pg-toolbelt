@@ -5,8 +5,9 @@
  * security-label provider extension) the policy withholds and the target lacks
  * cannot apply, so it is reverted with its subtree into `filteredDeltas` and
  * reported. Reverting anything else would leave looser state live, so a
- * stranded change to an existing object, or a stranded restrictive RLS policy,
- * throws instead. Unwithheld requirements are left to the requirement guard.
+ * stranded change to an existing object, a new child of one (a CHECK, policy,
+ * trigger, default), or a restrictive RLS policy throws instead. Unwithheld
+ * requirements are left to the requirement guard.
  */
 import type { Diagnostic } from "../../core/diagnostic.ts";
 import { EXCLUDED_BY_CASCADE } from "../../core/diagnostic.ts";
@@ -26,6 +27,7 @@ import { ambientRequirements } from "../internal.ts";
 import { subtreeIds } from "../renames.ts";
 import { securityLabelProviderExtension } from "../rules/metadata.ts";
 import { isRestrictivePolicy } from "../rules/policies.ts";
+import { isSchemaId } from "../rules/schemas.ts";
 
 /** Projection stages that take a fact out of the user's hands. `managedBy`
  * (intent replay provisions it), `managementScope` (assumed roles cover it) and
@@ -129,10 +131,11 @@ export function cascadeWithheldRequirements(
     assumedSchemaNames: inputs.assumedSchemaNames,
     assumedPresentIds: inputs.assumedPresentIds,
   });
+  const onTarget = (id: StableId): boolean =>
+    source.has(id) || rawSourceHas(id);
   const satisfied = (id: StableId, key: string): boolean =>
     keptAdds.has(key) ||
-    source.has(id) ||
-    rawSourceHas(id) ||
+    onTarget(id) ||
     isAmbient(id) ||
     memberExtensionPresent(key);
 
@@ -155,8 +158,9 @@ export function cascadeWithheldRequirements(
   const requirements = new Map<string, StableId[]>();
   const diagnostics: Diagnostic[] = [];
   const refusals: string[] = [];
-  // Absent reference-only requirements stay in the desired view; revert them
-  // too so the plan target matches what apply produces.
+  // An absent withheld requirement and its absent ancestors stay in the
+  // desired view; revert the highest one (orphan pruning takes the rest) so the
+  // plan target matches what apply produces.
   const absentReferences = new Map<string, Delta>();
   let changed = true;
   while (changed) {
@@ -179,11 +183,18 @@ export function cascadeWithheldRequirements(
         if (cause === undefined) continue;
         const why =
           upstream === undefined
-            ? `which the policy withholds (${cause.reasonCode}) and the target lacks`
-            : `which this plan does not apply (${cause.reasonCode})`;
+            ? `which the policy withholds (${cause.stage}: ${cause.reasonCode}) and the target lacks`
+            : `which this plan does not apply (${cause.stage}: ${cause.reasonCode})`;
         const fact = desired.get(id);
+        const parent = fact?.parent;
+        const underLiveObject =
+          parent !== undefined &&
+          !isSchemaId(parent) &&
+          !keptAdds.has(encodeId(parent)) &&
+          onTarget(parent);
         if (
           !keptAdds.has(key) ||
+          underLiveObject ||
           (fact !== undefined && isRestrictivePolicy(fact))
         ) {
           refusals.push(`  - ${key} requires ${requirementKey}, ${why}`);
@@ -193,10 +204,24 @@ export function cascadeWithheldRequirements(
           const memberKey = encodeId(member);
           if (!reverted.has(memberKey)) reverted.set(memberKey, cause);
         }
-        const absent =
-          upstream === undefined ? desired.get(requirement) : undefined;
-        if (absent !== undefined && !absentReferences.has(requirementKey)) {
-          absentReferences.set(requirementKey, { verb: "add", fact: absent });
+        let highest: StableId | undefined;
+        for (
+          let cursor: StableId | undefined =
+            upstream === undefined ? requirement : undefined;
+          cursor !== undefined &&
+          desired.has(cursor) &&
+          !onTarget(cursor) &&
+          (withheld.has(encodeId(cursor)) || desired.isReferenceOnly(cursor));
+          cursor = desired.get(cursor)?.parent
+        ) {
+          highest = cursor;
+        }
+        const absent = highest === undefined ? undefined : desired.get(highest);
+        if (absent !== undefined) {
+          absentReferences.set(encodeId(absent.id), {
+            verb: "add",
+            fact: absent,
+          });
         }
         diagnostics.push({
           code: EXCLUDED_BY_CASCADE,

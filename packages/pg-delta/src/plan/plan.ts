@@ -432,12 +432,12 @@ export function plan(
   // prunes it together with the role fact) — is a DECLARED assumed role other
   // than the resolved default owner. The default owner is the role the
   // platform hands the user, so objects it owns (and objects owned by user
-  // roles) are USER-created: when the target lacks them, a dependent is
-  // skipped by the withheld-requirement cascade or fails the requirement guard
-  // at plan time. A system-role-owned member is covered by
-  // the same platform guarantee that makes its schema assumed, so a kept
-  // dependent (a user webhook trigger) must plan even when the target has not
-  // had the infra provisioned yet (Sentry SUPABASE-API-8CX). Threaded into the
+  // roles) are USER-created: when the target lacks them, the
+  // withheld-requirement cascade skips or refuses a dependent, or the
+  // requirement guard fails at plan time. A system-role-owned member is
+  // covered by the same platform guarantee that makes its schema assumed, so a
+  // kept dependent (a user webhook trigger) must plan even when the target has
+  // not had the infra provisioned yet. Threaded into the
   // requirement guard and the withheld-requirement cascade only — never
   // ordering/edges. Empty under the raw/no-policy path and for callers that
   // pass an already-resolved view (its owner edges to excluded roles are gone).
@@ -447,17 +447,16 @@ export function plan(
   //  - NOT `options.assumedRoles`: the database-scoped apply frontend passes
   //    EVERY role found on the target through it (schema-plan.ts), so the
   //    combined set would mark a user-role-owned object in an assumed schema
-  //    as platform-provisioned and silence the fail-fast (Codex P1 #1,
-  //    PR #407);
+  //    as platform-provisioned and silence the fail-fast;
   //  - NOT the run-level `options.defaultOwner` override: the policy declares
   //    `postgres` assumed only so ownership/grant references resolve — objects
   //    it owns are the USER's, and a custom `--default-owner` must not
-  //    reclassify them as platform-provisioned (Codex P1 #2, PR #407).
+  //    reclassify them as platform-provisioned.
   // The exemption then covers the owner-bearing root AND its non-satellite
   // descendants: extraction resolves relation subobjects to COLUMN ids
   // (extract/dependencies.ts), so a dependent's `depends` edge can point at a
-  // column of a platform table — the platform guarantee covers the subtree
-  // (Codex P2, PR #407). Satellites are excluded like extensionMemberClosure
+  // column of a platform table — the platform guarantee covers the subtree.
+  // Satellites are excluded like extensionMemberClosure
   // does: a user GRANT/COMMENT on a platform object is user state, never a
   // depends target.
   const policyAssumedRoleNames = new Set(flatPolicy?.assumedRoles ?? []);
@@ -469,7 +468,7 @@ export function plan(
       // platform root present on BOTH sides is recorded by the source pass
       // first, but the desired pass must still walk it — its DESIRED-ONLY
       // descendants (a platform column added by a newer image) would otherwise
-      // never be traversed (Codex P2 round 3, PR #407).
+      // never be traversed.
       const visited = new Set<string>();
       for (const e of fb.edges) {
         if (e.kind !== "owner" || e.to.kind !== "role") continue;
