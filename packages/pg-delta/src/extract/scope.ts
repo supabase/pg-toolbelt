@@ -69,6 +69,62 @@ export class ExtractionTimeoutError extends Error {
 }
 
 /**
+ * Thrown when every extraction attempt raced concurrent DDL: an object the
+ * snapshot still lists was dropped before its definition could be deparsed.
+ * The database is fine; retrying once the DDL settles succeeds. `cause` is the
+ * last attempt's failure.
+ */
+export class ConcurrentCatalogChangeError extends Error {
+  readonly code = "concurrent_catalog_change";
+  readonly attempts: number;
+  constructor(attempts: number, cause: unknown) {
+    super(
+      `the catalog changed during extraction on ${attempts} consecutive attempts (${cause instanceof Error ? cause.message : String(cause)}); retry once concurrent DDL has settled`,
+      { cause },
+    );
+    this.name = "ConcurrentCatalogChangeError";
+    this.attempts = attempts;
+  }
+}
+
+class DroppedDuringExtractionError extends Error {}
+
+// Raised by the `pg_get_*def` deparsers (and relation opens), which read the
+// latest catalog rather than the transaction snapshot, when the object is gone.
+const CONCURRENT_DROP_MESSAGE =
+  /^(cache lookup failed for |could not open relation with OID )/;
+
+/** Whether `error` means the catalog changed under the extraction snapshot. */
+export function isConcurrentCatalogChange(error: unknown): boolean {
+  if (error instanceof DroppedDuringExtractionError) return true;
+  const { code, message } = (error ?? {}) as {
+    code?: unknown;
+    message?: unknown;
+  };
+  return (
+    code === "XX000" &&
+    typeof message === "string" &&
+    CONCURRENT_DROP_MESSAGE.test(message)
+  );
+}
+
+/**
+ * The `def` column of a row whose object the snapshot lists. The deparsers return
+ * NULL, instead of failing, for some objects dropped after the snapshot was
+ * taken; that must trigger a retry, never become a `"null"` definition.
+ */
+export function deparsedDef(row: Row, kind: string): string {
+  const def = row["def"];
+  if (def == null) {
+    throw new DroppedDuringExtractionError(
+      `${kind} ${String(row["schema"])}.${String(row["name"])} was dropped during extraction`,
+    );
+  }
+  // a caller's pool may parse `text` into a non-string (e.g. a Buffer)
+  return String(def as string);
+}
+
+/**
  * Consistency invariant (hardening Item 4a; review #1): a metadata satellite
  * (comment / acl / securityLabel) must never outlive its target. Most are
  * pushed via `pushWithMeta` alongside their object, so a filtered object never
@@ -77,6 +133,10 @@ export class ExtractionTimeoutError extends Error {
  * satellite would make `buildFactBase` throw on a missing parent, or — if it
  * survived — yield an orphan GRANT/COMMENT at plan time (CLI-1471). Drop them
  * here with an `info` diagnostic so the exclusion is visible, never silent.
+ *
+ * A satellite whose lifecycle is owned by a different, present parent is kept
+ * even when its target is not a fact: a grant on an identity column's backing
+ * sequence targets the sequence but lives and dies with the column.
  */
 export function pruneOrphanedSatellites(facts: Fact[]): {
   facts: Fact[];
@@ -88,7 +148,13 @@ export function pruneOrphanedSatellites(facts: Fact[]): {
   for (const fact of facts) {
     if ("target" in fact.id) {
       const targetKey = encodeId(fact.id.target);
-      if (!present.has(targetKey)) {
+      const parentKey =
+        fact.parent === undefined ? undefined : encodeId(fact.parent);
+      const anchoredByParent =
+        parentKey !== undefined &&
+        parentKey !== targetKey &&
+        present.has(parentKey);
+      if (!present.has(targetKey) && !anchoredByParent) {
         diagnostics.push({
           code: "orphaned_satellite",
           severity: "info",

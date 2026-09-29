@@ -8,7 +8,9 @@ never silently dropped.
 
 schema, role (+ config), role membership, default privilege, extension,
 table (incl. partitioned/partitions, INHERITS, replica identity), column,
-default, constraint (table + domain + foreign-table CHECK), index, sequence (+ OWNED BY), view,
+default, constraint (table + domain + foreign-table CHECK), index, sequence (+ OWNED BY;
+an identity column's backing sequence is part of the column, and its grants are
+`acl` satellites of that column), view,
 materialized view, function, procedure, aggregate, trigger, policy, rewrite
 rule, event trigger, domain, enum / composite / range type, collation,
 publication, subscription, FDW, server, user mapping, foreign table.

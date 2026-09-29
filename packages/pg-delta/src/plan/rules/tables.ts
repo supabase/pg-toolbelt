@@ -229,13 +229,16 @@ export const tableRules: Record<string, KindRules> = {
         alsoProduces.push(defaultChild.id);
       }
       // ADD COLUMN rewrites the table when it materializes a value for every
-      // row: a STORED generated column always, or an inline DEFAULT whose
-      // expression may be volatile (nextval, now, …). We cannot tell a
-      // constant default from a volatile one without parsing (guardrail 2),
-      // so any inline default conservatively declares rewriteRisk — over-
-      // declaring is safe (the proof only fails on UNDER-declared rewrites).
+      // row: a STORED generated column always, an identity column (nextval per
+      // row), or an inline DEFAULT whose expression may be volatile (nextval,
+      // now, …). We cannot tell a constant default from a volatile one without
+      // parsing (guardrail 2), so any inline default conservatively declares
+      // rewriteRisk — over-declaring is safe (the proof only fails on
+      // UNDER-declared rewrites).
       const rewrites =
-        fact.payload["generatedExpr"] != null || defaultChild !== undefined;
+        fact.payload["generatedExpr"] != null ||
+        fact.payload["identity"] != null ||
+        defaultChild !== undefined;
       const spec: ActionSpec = {
         sql: `ALTER TABLE ${rel(schema, table)} ADD COLUMN ${clause}`,
         alsoProduces,

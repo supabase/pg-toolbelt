@@ -6,6 +6,7 @@ import {
   aclJson,
   aclJsonMemberAware,
   type CatalogFamily,
+  deparsedDef,
   memberExtensionExpr,
   notExtensionMember,
   parseAcl,
@@ -108,6 +109,7 @@ export const tablesFamily: CatalogFamily = {
 };
 
 // ── columns + defaults (defaults are their own facts, like pg_attrdef) ─
+
 const COLUMNS_SQL = `
     SELECT n.nspname AS schema, c.relname AS table, a.attname AS name,
            a.attnum AS position,
@@ -135,6 +137,17 @@ const COLUMNS_SQL = `
               AND d.refobjid = c.oid AND d.refobjsubid = a.attnum
               AND d.deptype = 'i'
             LIMIT 1) AS identity_options,
+           -- ACL of the identity column's backing sequence. The sequence is not a
+           -- fact of its own (it lives and dies with the column), so its grants
+           -- ride on the column as acl satellites targeting the sequence.
+           (SELECT ${aclJson("sc.relacl", "s", "sc.relowner")}
+            FROM pg_depend d
+            JOIN pg_class sc ON sc.oid = d.objid
+            WHERE d.classid = 'pg_class'::regclass
+              AND d.refclassid = 'pg_class'::regclass
+              AND d.refobjid = c.oid AND d.refobjsubid = a.attnum
+              AND d.deptype = 'i' AND sc.relkind = 'S'
+            LIMIT 1) AS identity_sequence_acl,
            NULLIF(a.attgenerated, '') AS generated,
            CASE WHEN a.attcollation <> t.typcollation THEN (
              SELECT quote_ident(cn.nspname) || '.' || quote_ident(co.collname)
@@ -239,6 +252,38 @@ export const columnsFamily: CatalogFamily = {
           payload: { expr: row["default_expr"] as string },
         });
       }
+      // Identity-sequence grants: acl satellites of the column whose target is
+      // the backing sequence, so they are created after the column and fold into
+      // its drop (DROP IDENTITY destroys the sequence). The owner's row carries
+      // `_ownerDefault` like any relation so the planner can elide it on create
+      // and tell a restored default apart from a revoked one.
+      const identitySequence = row["identity_sequence"] as {
+        schema: string;
+        name: string;
+      } | null;
+      if (row["identity"] != null && identitySequence != null) {
+        for (const acl of parseAcl(row["identity_sequence_acl"])) {
+          facts.push({
+            id: {
+              kind: "acl",
+              target: {
+                kind: "sequence",
+                schema: identitySequence.schema,
+                name: identitySequence.name,
+              },
+              grantee: acl.grantee,
+            },
+            parent: columnId,
+            payload: {
+              privileges: acl.privileges,
+              grantable: acl.grantable,
+              ...(acl.ownerDefault !== undefined
+                ? { _ownerDefault: acl.ownerDefault }
+                : {}),
+            },
+          });
+        }
+      }
       // Column-level grants (attacl): one acl satellite per grantee, targeting the
       // owning relation but qualified by this column. Parent is the column so the
       // grant folds into the column/table drop, exactly like the default above.
@@ -263,14 +308,32 @@ const TABLE_CONSTRAINTS_SQL = `
            c.relkind AS table_kind,
            pg_get_constraintdef(con.oid) AS def,
            con.contype AS type, con.convalidated AS validated,
-           obj_description(con.oid, 'pg_constraint') AS comment
+           obj_description(con.oid, 'pg_constraint') AS comment,
+           CASE
+             WHEN con.contype NOT IN ('p', 'u') THEN NULL
+             WHEN con.conkey IS NULL OR 0 = ANY (con.conkey) THEN ARRAY[]::text[]
+             ELSE (
+               SELECT array_agg(a.attname::text ORDER BY k.ord)
+               FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+               JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum
+             )
+           END AS key_columns
     FROM pg_constraint con
     JOIN pg_class c ON c.oid = con.conrelid
     JOIN pg_namespace n ON n.oid = c.relnamespace
     -- 'f' = foreign tables: they carry only CHECK constraints (no p/u/f/x),
     -- so the contype filter already scopes them; serialized via ALTER FOREIGN
     -- TABLE (constraintTarget keys off the parent's foreignTable kind).
-    WHERE con.contype IN ('p', 'u', 'f', 'c', 'x') AND con.conislocal
+    -- PG 18 also catalogs a column's NOT NULL as a contype 'n' row. That stays
+    -- the column's notNull attribute and must never become a second fact (the
+    -- row does not exist on PG 14-17, so hashes would differ per version) --
+    -- but a COMMENT ON CONSTRAINT attached to it has nowhere to live once the
+    -- row is skipped. Fetch the commented ones so apply() can report the
+    -- dropped comment instead of losing it silently; dependencies.ts skips
+    -- the same rows as dependency endpoints (NOT_NULL_IS_NOT_A_FACT).
+    WHERE ((con.contype IN ('p', 'u', 'f', 'c', 'x') AND con.conislocal)
+           OR (con.contype = 'n'
+               AND obj_description(con.oid, 'pg_constraint') IS NOT NULL))
       AND c.relkind IN ('r', 'p', 'f') AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, c.relname, con.conname`;
@@ -279,25 +342,56 @@ export const tableConstraintsFamily: CatalogFamily = {
   name: "constraints",
   statements: () => [TABLE_CONSTRAINTS_SQL],
   apply: (ctx, rowSets) => {
-    const { pushWithMeta } = ctx;
+    const { pushWithMeta, diagnostics } = ctx;
     for (const row of rowSets[0]!) {
+      const type = String(row["type"]);
+      const keyColumns = row["key_columns"];
+      const schema = String(row["schema"]);
+      const table = String(row["table"]);
+      const relation: StableId = {
+        kind: String(row["table_kind"]) === "f" ? "foreignTable" : "table",
+        schema,
+        name: table,
+      };
+      // Only COMMENTED contype 'n' rows reach here (see the query above): the
+      // constraint itself is the column's notNull attribute, so report the
+      // comment that cannot be carried and emit no fact for it.
+      if (type === "n") {
+        diagnostics.push({
+          code: "table_not_null_comment_skipped",
+          severity: "info",
+          subject: relation,
+          message:
+            `${schema}.${table}: the comment on its NOT NULL constraint ` +
+            `${String(row["name"])} is not modeled (NOT NULL is the column's notNull ` +
+            `attribute; the constraint row exists only on PG 18+) and will not be ` +
+            `diffed or exported.`,
+        });
+        continue;
+      }
       pushWithMeta(
         {
           id: {
             kind: "constraint",
-            schema: String(row["schema"]),
-            table: String(row["table"]),
+            schema,
+            table,
             name: String(row["name"]),
           },
-          parent: {
-            kind: String(row["table_kind"]) === "f" ? "foreignTable" : "table",
-            schema: String(row["schema"]),
-            name: String(row["table"]),
-          },
+          parent: relation,
           payload: {
-            def: String(row["def"]),
-            type: String(row["type"]),
+            def: deparsedDef(row, "constraint"),
+            type,
             validated: Boolean(row["validated"]),
+            // Planner-only: CREATE TABLE drops a UNIQUE whose conkey equals
+            // another index constraint in the same statement; `_` keeps this
+            // off the hash/diff surface.
+            ...(type === "p" || type === "u"
+              ? {
+                  _keyColumns: Array.isArray(keyColumns)
+                    ? keyColumns.map(String)
+                    : [],
+                }
+              : {}),
           },
         },
         row,
@@ -375,7 +469,7 @@ export const indexesFamily: CatalogFamily = {
           // `attachedTo`. Unmasking it would `valid: "replace"` the parent and
           // CASCADE-drop attached children that this plan does not recreate.
           payload: {
-            def: String(row["def"]),
+            def: deparsedDef(row, "index"),
             valid: Boolean(row["valid"]),
             attachedTo,
           },
@@ -505,7 +599,10 @@ export const viewsFamily: CatalogFamily = {
         {
           id,
           parent: schemaId(row["schema"]),
-          payload: { def: String(row["def"]), reloptions: reloptions(row) },
+          payload: {
+            def: deparsedDef(row, "view"),
+            reloptions: reloptions(row),
+          },
         },
         row,
         parseAcl(row["acl"]),
@@ -572,7 +669,7 @@ export const triggersFamily: CatalogFamily = {
             name: String(row["table"]),
           },
           payload: {
-            def: String(row["def"]),
+            def: deparsedDef(row, "trigger"),
             enabled: String(row["enabled"]),
           },
         },
@@ -620,7 +717,10 @@ export const rulesFamily: CatalogFamily = {
             schema: String(row["schema"]),
             name: String(row["table"]),
           },
-          payload: { def: String(row["def"]), enabled: String(row["enabled"]) },
+          payload: {
+            def: deparsedDef(row, "rule"),
+            enabled: String(row["enabled"]),
+          },
         },
         row,
       );

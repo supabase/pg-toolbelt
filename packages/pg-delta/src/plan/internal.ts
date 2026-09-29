@@ -11,7 +11,7 @@
  * bookkeeping, kept local to the ActionEmitter phase) each live behind a phase
  * boundary, so their invariants are testable in isolation.
  */
-import type { FactBase } from "../core/fact.ts";
+import type { Fact, FactBase } from "../core/fact.ts";
 import {
   encodeId,
   EVALUATED_CHILD_DESCENT,
@@ -685,6 +685,20 @@ export function compactColumnFolds(
       if (!targetPosOf.has(key)) targetPosOf.set(key, pos);
     }
   });
+  // CREATE TABLE's transformIndexConstraints drops a UNIQUE whose key list
+  // equals a PRIMARY KEY — or another UNIQUE — in the same statement. ALTER
+  // TABLE ADD CONSTRAINT UNIQUE does not. Refuse those folds so one pass
+  // still converges. Occupied keys: NUL-joined attnames (C-string names) in a
+  // Set per CREATE. PKs are pre-seeded (a UNIQUE may sort before the PK);
+  // UNIQUEs are added only after they fold so the first still inlines.
+  const occupiedIndexKeysByFoldInto = new Map<string, Set<string>>();
+  for (let pos = 0; pos < orderedActions.length; pos++) {
+    const hint = foldHints[order[pos] as number];
+    if (hint?.constraintType !== "p") continue;
+    const sig = indexKeySig(hint.indexKeyColumns);
+    if (sig === undefined) continue;
+    occupyIndexKey(occupiedIndexKeysByFoldInto, encodeId(hint.foldInto), sig);
+  }
   const foldedPos = new Set<number>();
   const effectivePosOf = new Map<number, number>(); // orig idx -> post-fold pos
   for (let pos = 0; pos < orderedActions.length; pos++) {
@@ -706,11 +720,23 @@ export function compactColumnFolds(
     //    folded into a CREATE TABLE that precedes the referenced table's
     //    CREATE would fail, so FK hints stay inert here.
     const isConstraintFold = action.produces[0]?.kind === "constraint";
+    let uniqueSigToOccupy: string | undefined;
     if (isConstraintFold) {
       if (foldConstraints === undefined) {
         if (hint.executorSafe !== true) continue;
       } else if (foldConstraints.exclude?.has(encodeId(action.produces[0]!))) {
         continue;
+      }
+      if (hint.constraintType === "u") {
+        uniqueSigToOccupy = indexKeySig(hint.indexKeyColumns);
+        if (
+          uniqueSigToOccupy !== undefined &&
+          occupiedIndexKeysByFoldInto
+            .get(encodeId(hint.foldInto))
+            ?.has(uniqueSigToOccupy)
+        ) {
+          continue;
+        }
       }
     }
     const targetPos = targetPosOf.get(encodeId(hint.foldInto));
@@ -763,10 +789,32 @@ export function compactColumnFolds(
     target.rewriteRisk = target.rewriteRisk || action.rewriteRisk;
     foldedPos.add(pos);
     effectivePosOf.set(origIndex, targetPos);
+    if (uniqueSigToOccupy !== undefined) {
+      occupyIndexKey(
+        occupiedIndexKeysByFoldInto,
+        encodeId(hint.foldInto),
+        uniqueSigToOccupy,
+      );
+    }
   }
   return foldedPos.size > 0
     ? orderedActions.filter((_, pos) => !foldedPos.has(pos))
     : [...orderedActions];
+}
+
+function indexKeySig(keys: readonly string[] | undefined): string | undefined {
+  if (keys === undefined || keys.length === 0) return undefined;
+  return keys.join("\0");
+}
+
+function occupyIndexKey(
+  occupied: Map<string, Set<string>>,
+  foldInto: string,
+  sig: string,
+): void {
+  const set = occupied.get(foldInto);
+  if (set) set.add(sig);
+  else occupied.set(foldInto, new Set([sig]));
 }
 
 /**
@@ -932,9 +980,10 @@ function isStrictSubset(
 function ownerDefaultPrivileges(
   desired: FactBase,
   target: StableId,
+  ownerOf: StableId = target,
 ): string[] | undefined {
   const ownerEdge = desired
-    .outgoingEdges(target)
+    .outgoingEdges(ownerOf)
     .find((e) => e.kind === "owner");
   if (ownerEdge !== undefined && ownerEdge.to.kind === "role") {
     const ownerAcl = desired.get({
@@ -1028,6 +1077,73 @@ function adpCustomizesObjtype(adp: AdpIndex, target: StableId): boolean {
 }
 
 /**
+ * Objects this plan brings into existence (acl satellites excluded): whatever a
+ * create produces, plus a non-fact id an alter materializes without destroying
+ * anything (an ADD IDENTITY's backing sequence). An alter that also destroys
+ * (an identity-sequence rename) keeps the renamed object's ACL, so it stays out.
+ */
+function materializedObjects(
+  actions: readonly Action[],
+  desired: FactBase,
+): Set<string> {
+  const created = new Set<string>();
+  for (const action of actions) {
+    const fresh =
+      action.verb === "create" ||
+      (action.verb === "alter" && action.destroys.length === 0);
+    if (!fresh) continue;
+    for (const id of action.produces) {
+      if (id.kind === "acl") continue;
+      if (action.verb === "alter" && desired.has(id)) continue;
+      created.add(encodeId(id));
+    }
+  }
+  return created;
+}
+
+/**
+ * An identity column's backing sequence is not a fact: its acl satellites hang
+ * off the column and target the sequence. The column's CREATE materializes the
+ * sequence, so such an acl counts as co-created when the column is.
+ */
+function identitySequenceColumn(
+  aclId: Extract<StableId, { kind: "acl" }>,
+  fact: Fact,
+): StableId | undefined {
+  if (aclId.target.kind !== "sequence") return undefined;
+  if (fact.parent === undefined || fact.parent.kind !== "column")
+    return undefined;
+  return fact.parent;
+}
+
+/**
+ * Whether `grantee` owns the object: the owner edge names it, or the acl row
+ * carries `_ownerDefault`, which extract writes only on the owner's row (the
+ * edge is absent when database scope prunes it to the implicit default owner).
+ */
+function isOwnerGrant(
+  desired: FactBase,
+  ownerOf: StableId,
+  grantee: string,
+  payload: Fact["payload"],
+): boolean {
+  if (payload["_ownerDefault"] !== undefined) return true;
+  const ownerEdge = desired
+    .outgoingEdges(ownerOf)
+    .find((e) => e.kind === "owner");
+  return (
+    ownerEdge !== undefined &&
+    ownerEdge.to.kind === "role" &&
+    ownerEdge.to.name === grantee
+  );
+}
+
+function tableOf(column: StableId): StableId {
+  const { schema, table } = column as { schema: string; table: string };
+  return { kind: "table", schema, name: table };
+}
+
+/**
  * Compaction (§3.6), default-ACL elision: a freshly `CREATE`d object already
  * carries PostgreSQL's built-in default privileges, so the `acl` rule's
  * REVOKE-ALL+GRANT pair that merely re-materializes those defaults is a no-op on
@@ -1066,23 +1182,22 @@ export function elideDefaultAclCreates(
   // large catalog.
   const adp = buildAdpIndex(desired, capability);
 
-  // ids of the objects actually created in this plan (acl satellites excluded).
-  const createdObjects = new Set<string>();
-  for (const action of actions) {
-    if (action.verb !== "create") continue;
-    for (const id of action.produces) {
-      if (id.kind !== "acl") createdObjects.add(encodeId(id));
-    }
-  }
+  const createdObjects = materializedObjects(actions, desired);
 
   const elidable = new Set<string>();
   for (const action of actions) {
     if (action.verb !== "create") continue;
     const aclId = action.produces.find((id) => id.kind === "acl");
     if (aclId === undefined || aclId.kind !== "acl") continue;
-    if (!createdObjects.has(encodeId(aclId.target))) continue;
     const fact = desired.get(aclId);
     if (fact === undefined) continue;
+    const identityColumn = identitySequenceColumn(aclId, fact);
+    if (
+      !createdObjects.has(encodeId(aclId.target)) &&
+      (identityColumn === undefined ||
+        !createdObjects.has(encodeId(identityColumn)))
+    )
+      continue;
     const payload = fact.payload as {
       privileges?: string[];
       grantable?: string[];
@@ -1114,13 +1229,15 @@ export function elideDefaultAclCreates(
     // compare against `_ownerDefault` — the owner's create-time set captured from
     // acldefault() at extract (non-semantic `_` metadata). A strict subset means
     // the owner revoked a default; eliding would leave the full default in place.
-    const ownerEdge = desired
-      .outgoingEdges(aclId.target)
-      .find((e) => e.kind === "owner");
+    // `_ownerDefault` rides only on the owner's row, so it also identifies the
+    // owner when database scope pruned the edge to the implicit default owner.
     if (
-      ownerEdge !== undefined &&
-      ownerEdge.to.kind === "role" &&
-      ownerEdge.to.name === aclId.grantee &&
+      isOwnerGrant(
+        desired,
+        identityColumn === undefined ? aclId.target : tableOf(identityColumn),
+        aclId.grantee,
+        payload,
+      ) &&
       payload._ownerDefault !== undefined &&
       samePrivilegeSet(privileges, payload._ownerDefault)
     )
@@ -1272,12 +1389,7 @@ export function elideCoCreateRevokeBeforeGrant(
   capability?: ApplierCapability,
   assumedDefaultGrants: readonly AssumedDefaultGrant[] = [],
 ): Action[] {
-  const createdObjects = new Set<string>();
-  for (const action of actions) {
-    if (action.verb !== "create") continue;
-    for (const id of action.produces)
-      if (id.kind !== "acl") createdObjects.add(encodeId(id));
-  }
+  const createdObjects = materializedObjects(actions, desired);
   if (createdObjects.size === 0) return [...actions];
 
   // index default-privilege facts once (small set) for the superset guard.
@@ -1329,9 +1441,15 @@ export function elideCoCreateRevokeBeforeGrant(
     if (action.verb !== "create") return;
     const aclId = action.produces.find((id) => id.kind === "acl");
     if (aclId === undefined || aclId.kind !== "acl") return; // not a REVOKE leader
-    if (!createdObjects.has(encodeId(aclId.target))) return; // not co-created
     const fact = desired.get(aclId);
     if (fact === undefined) return;
+    const identityColumn = identitySequenceColumn(aclId, fact);
+    if (
+      !createdObjects.has(encodeId(aclId.target)) &&
+      (identityColumn === undefined ||
+        !createdObjects.has(encodeId(identityColumn)))
+    )
+      return; // not co-created
     const payload = fact.payload as {
       privileges?: string[];
       grantable?: string[];
@@ -1346,15 +1464,10 @@ export function elideCoCreateRevokeBeforeGrant(
     // and that is the ONLY owner case reaching here, because a full-default
     // owner group was already dropped wholesale by elideDefaultAclCreates.
     // Stripping it would leave PostgreSQL's full default in place (review P2).
-    const ownerEdge = desired
-      .outgoingEdges(aclId.target)
-      .find((e) => e.kind === "owner");
-    if (
-      ownerEdge !== undefined &&
-      ownerEdge.to.kind === "role" &&
-      ownerEdge.to.name === aclId.grantee
-    )
-      return;
+    // An identity sequence is owned through its table.
+    const ownerTarget =
+      identityColumn === undefined ? aclId.target : tableOf(identityColumn);
+    if (isOwnerGrant(desired, ownerTarget, aclId.grantee, fact.payload)) return;
     if (defaultGrantsOutside(aclId.target, aclId.grantee, new Set(privileges)))
       return; // REVOKE is load-bearing
     const matches = overlayMatches(
@@ -1363,7 +1476,11 @@ export function elideCoCreateRevokeBeforeGrant(
       aclId.grantee,
     );
     if (matches.length > 0) {
-      const fullSet = ownerDefaultPrivileges(desired, aclId.target);
+      const fullSet = ownerDefaultPrivileges(
+        desired,
+        aclId.target,
+        ownerTarget,
+      );
       if (fullSet === undefined || isStrictSubset(privileges, fullSet)) return; // dest injectee may be a superset of desired ADP / object ACL
     }
     dropRevoke.add(index);
@@ -1412,7 +1529,13 @@ export function mergeCoTargetRevokes(actions: readonly Action[]): Action[] {
       return undefined;
     // Hygiene REVOKEs start with REVOKE ALL; skip other ALTERs (e.g. COLUMN).
     if (!action.sql.startsWith("REVOKE ALL")) return undefined;
-    const obj = action.consumes.find((id) => id.kind !== "role");
+    // A hygiene REVOKE consumes the fact whose CREATE materialized the revoked
+    // object. That is the object itself, except for an identity column's
+    // backing sequence, whose hygiene consumes the column: a column is not a
+    // grant target, so it cannot be the leader and the action stays as is.
+    const obj = action.consumes.find(
+      (id) => id.kind !== "role" && id.kind !== "column",
+    );
     if (obj === undefined) return undefined;
     const role = action.consumes.find((id) => id.kind === "role") as
       | { kind: "role"; name: string }

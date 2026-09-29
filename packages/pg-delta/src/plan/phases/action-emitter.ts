@@ -36,6 +36,7 @@ import {
 import {
   columnAclIdsFor,
   defaultPrivilegeCreateActions,
+  identitySequenceId,
   renderRevokeAllSql,
 } from "../rules/helpers.ts";
 import type { AcceptedRename } from "./change-set.ts";
@@ -315,6 +316,10 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // ADDed by CREATE … FOR TABLE must not also emit ALTER PUBLICATION ADD TABLE).
   // Emission order does not affect apply order (the action graph re-sorts).
   const recreatedByReplace = new Set<string>();
+  // descendants a replaced ancestor's CREATE materialized via `alsoProduces`
+  // (a partitioned parent's columns): no action of their own, but they are
+  // still created on the target and take default-privilege hygiene
+  const inlinedByReplace = new Set<string>();
   for (const key of replaceIds) {
     const oldFact = source.getByEncoded(key) as Fact;
     // the replacement is rendered from the PROJECTED plan target, so a filtered
@@ -373,6 +378,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         // standalone action (which would duplicate it and fail apply), but still
         // descend for any non-inlined descendants. Mirrors the added-create loop.
         if (producerOf.has(childKey)) {
+          inlinedByReplace.add(childKey);
           recreate(child.id);
           continue;
         }
@@ -491,52 +497,53 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // extensions.grant_pg_net_access() acquired a stale `postgres` grant from the
   // image's pre-existing default privileges).
   const hygieneTargets: Fact[] = [...added.values()];
-  for (const key of [...replaceIds, ...recreatedByReplace]) {
+  for (const key of [
+    ...replaceIds,
+    ...recreatedByReplace,
+    ...inlinedByReplace,
+  ]) {
     const fact = projectedDesired.getByEncoded(key);
     if (fact) hygieneTargets.push(fact);
   }
-  for (const fact of hygieneTargets) {
-    // which pg_default_acl objtype this kind maps to is declared per-kind in the
-    // rule table (`defaclObjtype`); absent → no default ACLs
-    const objtype = ruleFlag(fact.id.kind, "defaclObjtype");
-    if (objtype === undefined) continue;
-    // a created object whose fact is absent from the projected target (its add
-    // was effectively reverted) has no hygiene to do
-    if (!projectedDesired.has(fact.id)) continue;
-    // owner is now an edge, not a payload field (move 2). Database-scope
-    // export/apply prunes the edge to the implicit default owner; match ADP
-    // creating-role against that name so hygiene still fires.
+  // owner is now an edge, not a payload field (move 2). Database-scope
+  // export/apply prunes the edge to the implicit default owner; hygiene falls
+  // back to that name so it still fires.
+  const ownerOf = (id: StableId): string | undefined => {
     const ownerEdge = projectedDesired
-      .outgoingEdges(fact.id)
+      .outgoingEdges(id)
       .find((e) => e.kind === "owner");
-    const owner =
-      ownerEdge?.to.kind === "role"
-        ? (ownerEdge.to as { kind: "role"; name: string }).name
-        : undefined;
-    const creatingRole = owner ?? defaultOwner;
-    const schema = (fact.id as { schema?: string }).schema ?? null;
+    return ownerEdge?.to.kind === "role"
+      ? (ownerEdge.to as { kind: "role"; name: string }).name
+      : undefined;
+  };
+  // `target` receives the default grants; `after` is the created fact whose
+  // CREATE materializes it (the object itself, or the column for the backing
+  // sequence of an identity column).
+  const hygieneFor = (
+    target: StableId,
+    objtype: string,
+    schema: string | null,
+    creatingRole: string | undefined,
+    after: StableId,
+  ): void => {
     const revoked = new Set<string>();
     const emitHygieneRevoke = (grantee: string): void => {
       if (typeof creatingRole === "string" && grantee === creatingRole) return;
       if (revoked.has(grantee)) return;
-      const aclId: StableId = {
-        kind: "acl",
-        target: fact.id,
-        grantee,
-      };
+      const aclId: StableId = { kind: "acl", target, grantee };
       if (projectedDesired.has(aclId)) return;
       revoked.add(grantee);
       pushAction(
         "alter",
         {
-          sql: renderRevokeAllSql(fact.id, [grantee]),
+          sql: renderRevokeAllSql(target, [grantee]),
           consumes:
             grantee === "PUBLIC"
               ? []
               : [{ kind: "role", name: grantee } as StableId],
         },
         {
-          consumes: [fact.id],
+          consumes: [after],
           // the wipe also revokes this grantee's desired column grants
           wipes: columnAclIdsFor(aclId, projectedDesired),
         },
@@ -563,6 +570,78 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       if (tuple.schema != null && tuple.schema !== schema) continue;
       if (!overlayHygieneGrantees.has(tuple.grantee)) continue;
       emitHygieneRevoke(tuple.grantee);
+    }
+  };
+  for (const fact of hygieneTargets) {
+    // a created object whose fact is absent from the projected target (its add
+    // was effectively reverted) has no hygiene to do
+    if (!projectedDesired.has(fact.id)) continue;
+    // which pg_default_acl objtype this kind maps to is declared per-kind in the
+    // rule table (`defaclObjtype`); absent → no default ACLs of its own
+    const objtype = ruleFlag(fact.id.kind, "defaclObjtype");
+    if (objtype !== undefined) {
+      hygieneFor(
+        fact.id,
+        objtype,
+        (fact.id as { schema?: string }).schema ?? null,
+        ownerOf(fact.id) ?? defaultOwner,
+        fact.id,
+      );
+    }
+    // An identity column materializes its backing sequence, which receives
+    // SEQUENCES default grants the same way; the sequence is not a fact, so its
+    // hygiene hangs off the column and its owner is the table's.
+    if (fact.id.kind === "column" && fact.parent !== undefined) {
+      const sequence = identitySequenceId(fact.payload["identity"]);
+      if (sequence !== null && sequence.kind === "sequence") {
+        hygieneFor(
+          sequence,
+          "S",
+          sequence.schema,
+          ownerOf(fact.parent) ?? defaultOwner,
+          fact.id,
+        );
+      }
+    }
+  }
+
+  // ADD IDENTITY on an existing column materializes a backing sequence in
+  // place: it takes SEQUENCES default grants like a fresh create, but the column
+  // is neither added nor replaced, so the loop above never sees it. The REVOKE
+  // consumes the sequence the ADD IDENTITY alter produces. A column a replace
+  // re-creates has no such alter (its create materializes the sequence) and
+  // already took hygiene above.
+  for (const [key, sets] of setsByFact) {
+    if (!sets.some((s) => s.attr === "identity")) continue;
+    if (
+      replaceIds.has(key) ||
+      recreatedByReplace.has(key) ||
+      inlinedByReplace.has(key)
+    )
+      continue;
+    if (source.getByEncoded(key)?.payload["identity"] != null) continue;
+    const fact = projectedDesired.getByEncoded(key);
+    if (fact === undefined || fact.id.kind !== "column") continue;
+    if (fact.parent === undefined) continue;
+    const sequence = identitySequenceId(fact.payload["identity"]);
+    if (sequence === null || sequence.kind !== "sequence") continue;
+    hygieneFor(
+      sequence,
+      "S",
+      sequence.schema,
+      ownerOf(fact.parent) ?? defaultOwner,
+      sequence,
+    );
+    // A grant on a standalone sequence of the same name (serial → identity)
+    // keeps its acl id: the diff sees it unchanged under the column while the
+    // DROP SEQUENCE destroys it. Replay it onto the new backing sequence.
+    const sequenceKey = encodeId(sequence);
+    for (const child of projectedDesired.childrenOf(fact.id)) {
+      if (child.id.kind !== "acl") continue;
+      if (encodeId(child.id.target) !== sequenceKey) continue;
+      const childKey = encodeId(child.id);
+      if (added.has(childKey) || producerOf.has(childKey)) continue;
+      emitCreate(child, projectedDesired);
     }
   }
 
