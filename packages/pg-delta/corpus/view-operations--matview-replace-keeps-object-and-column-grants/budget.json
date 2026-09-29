@@ -1,0 +1,4 @@
+{
+  "a-to-b": { "require": ["replacement:materializedView"] },
+  "b-to-a": { "require": ["replacement:materializedView"] }
+}

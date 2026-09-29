@@ -1,0 +1,1 @@
+CREATE FUNCTION pin_probe_fn() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 1';

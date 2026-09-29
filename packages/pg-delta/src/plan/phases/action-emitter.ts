@@ -34,7 +34,9 @@ import {
   type RulesForId,
 } from "../rules.ts";
 import {
+  columnAclIdsFor,
   defaultPrivilegeCreateActions,
+  identitySequenceId,
   renderRevokeAllSql,
 } from "../rules/helpers.ts";
 import type { AcceptedRename } from "./change-set.ts";
@@ -85,6 +87,10 @@ export interface ActionEmitterOutput {
   foldHints: Array<FoldHint | undefined>;
   acceptsFolds: boolean[];
   renameActionIndices: Set<number>;
+  /** action index → encoded ids in its `destroys` that are side-effect wipes
+   *  (rule-declared `implicitlyDestroys`), for the graph: reproduce edge only,
+   *  no teardown edges. Transient, never persisted. */
+  implicitDestroys: Map<number, Set<string>>;
 }
 
 /**
@@ -120,6 +126,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const foldHints: Array<FoldHint | undefined> = [];
   const acceptsFolds: boolean[] = [];
 
+  // side-effect wipes per action (see ActionEmitterOutput.implicitDestroys)
+  const implicitDestroys = new Map<number, Set<string>>();
+
   const pushAction = (
     verb: Action["verb"],
     spec: ActionSpec,
@@ -127,12 +136,20 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       produces?: StableId[];
       consumes?: StableId[];
       destroys?: StableId[];
+      wipes?: StableId[];
     },
   ): number => {
     const index = actions.length;
     const produces = [...(opts.produces ?? []), ...(spec.alsoProduces ?? [])];
     const destroys = [...(opts.destroys ?? []), ...(spec.alsoDestroys ?? [])];
     const consumes = [...(opts.consumes ?? []), ...(spec.consumes ?? [])];
+    const wipes = (opts.wipes ?? []).filter(
+      (id) => !destroys.some((d) => encodeId(d) === encodeId(id)),
+    );
+    if (wipes.length > 0) {
+      implicitDestroys.set(index, new Set(wipes.map(encodeId)));
+      destroys.push(...wipes);
+    }
     const subjectKind = (produces[0] ?? destroys[0] ?? consumes[0])?.kind;
     actions.push({
       sql: spec.sql,
@@ -155,7 +172,14 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       const key = encodeId(id);
       if (!producerOf.has(key)) producerOf.set(key, index);
     }
-    for (const id of destroys) destroyerOf.set(encodeId(id), index);
+    // a wipe is not the id's destroyer: its own drop (if any) stays the one
+    // consumers / releasers / child teardown order against
+    const wipeKeys = implicitDestroys.get(index);
+    for (const id of destroys) {
+      const key = encodeId(id);
+      if (wipeKeys?.has(key) === true) continue;
+      destroyerOf.set(key, index);
+    }
     return index;
   };
 
@@ -201,6 +225,13 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const redirectedOnto = (rootKey: string): readonly StableId[] =>
     redirectedOntoByRoot.get(rootKey) ?? [];
 
+  // facts a statement of this fact's kind wipes as a side effect (rule-declared
+  // `implicitlyDestroys`); attached to the producing create and to the drop as
+  // `wipes`, so their re-creation is ordered after the wipe.
+  const implicitlyDestroyed = (fact: Fact): StableId[] =>
+    rulesForId(fact.id).implicitlyDestroys?.(fact, projectedDesired, source) ??
+    [];
+
   const emitCreate = (fact: Fact, base: FactBase): void => {
     let specs = rulesForId(fact.id).create(fact, base, paramsFor(fact), source);
     // Overlay dest may hold a SUPERSET of this ADP. GRANT is additive — wipe first.
@@ -216,6 +247,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         ...specs,
       ];
     }
+    const wiped = implicitlyDestroyed(fact);
     specs.forEach((spec, i) => {
       pushAction("create", spec, {
         produces: i === 0 ? [fact.id] : [],
@@ -223,6 +255,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           ...(i === 0 ? [] : [fact.id]),
           ...(fact.parent !== undefined ? [fact.parent] : []),
         ],
+        wipes: i === 0 ? wiped : [],
       });
     });
   };
@@ -283,8 +316,11 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // ADDed by CREATE … FOR TABLE must not also emit ALTER PUBLICATION ADD TABLE).
   // Emission order does not affect apply order (the action graph re-sorts).
   const recreatedByReplace = new Set<string>();
-  // children a replace's CREATE writes inline (`alsoProduces`). The CREATE
-  // already renders their projected payload, so skip their attribute alters.
+  // descendants a replaced ancestor's CREATE materialized via `alsoProduces`
+  // (a partitioned parent's columns): no action of their own, but they are
+  // still created on the target and take default-privilege hygiene. The
+  // CREATE already renders their projected payload, so their attribute
+  // alters are skipped too.
   const inlinedByReplace = new Set<string>();
   for (const key of replaceIds) {
     const oldFact = source.getByEncoded(key) as Fact;
@@ -320,6 +356,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         consumes:
           isRoot && rootFact.parent !== undefined ? [rootFact.parent] : [],
         destroys,
+        wipes: implicitlyDestroyed(rootFact),
       });
     };
     // Attached child indexes fold into the parent-index replace via
@@ -462,51 +499,56 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // extensions.grant_pg_net_access() acquired a stale `postgres` grant from the
   // image's pre-existing default privileges).
   const hygieneTargets: Fact[] = [...added.values()];
-  for (const key of [...replaceIds, ...recreatedByReplace]) {
+  for (const key of [
+    ...replaceIds,
+    ...recreatedByReplace,
+    ...inlinedByReplace,
+  ]) {
     const fact = projectedDesired.getByEncoded(key);
     if (fact) hygieneTargets.push(fact);
   }
-  for (const fact of hygieneTargets) {
-    // which pg_default_acl objtype this kind maps to is declared per-kind in the
-    // rule table (`defaclObjtype`); absent → no default ACLs
-    const objtype = ruleFlag(fact.id.kind, "defaclObjtype");
-    if (objtype === undefined) continue;
-    // a created object whose fact is absent from the projected target (its add
-    // was effectively reverted) has no hygiene to do
-    if (!projectedDesired.has(fact.id)) continue;
-    // owner is now an edge, not a payload field (move 2). Database-scope
-    // export/apply prunes the edge to the implicit default owner; match ADP
-    // creating-role against that name so hygiene still fires.
+  // owner is now an edge, not a payload field (move 2). Database-scope
+  // export/apply prunes the edge to the implicit default owner; hygiene falls
+  // back to that name so it still fires.
+  const ownerOf = (id: StableId): string | undefined => {
     const ownerEdge = projectedDesired
-      .outgoingEdges(fact.id)
+      .outgoingEdges(id)
       .find((e) => e.kind === "owner");
-    const owner =
-      ownerEdge?.to.kind === "role"
-        ? (ownerEdge.to as { kind: "role"; name: string }).name
-        : undefined;
-    const creatingRole = owner ?? defaultOwner;
-    const schema = (fact.id as { schema?: string }).schema ?? null;
+    return ownerEdge?.to.kind === "role"
+      ? (ownerEdge.to as { kind: "role"; name: string }).name
+      : undefined;
+  };
+  // `target` receives the default grants; `after` is the created fact whose
+  // CREATE materializes it (the object itself, or the column for the backing
+  // sequence of an identity column).
+  const hygieneFor = (
+    target: StableId,
+    objtype: string,
+    schema: string | null,
+    creatingRole: string | undefined,
+    after: StableId,
+  ): void => {
     const revoked = new Set<string>();
     const emitHygieneRevoke = (grantee: string): void => {
       if (typeof creatingRole === "string" && grantee === creatingRole) return;
       if (revoked.has(grantee)) return;
-      const aclId: StableId = {
-        kind: "acl",
-        target: fact.id,
-        grantee,
-      };
+      const aclId: StableId = { kind: "acl", target, grantee };
       if (projectedDesired.has(aclId)) return;
       revoked.add(grantee);
       pushAction(
         "alter",
         {
-          sql: renderRevokeAllSql(fact.id, [grantee]),
+          sql: renderRevokeAllSql(target, [grantee]),
           consumes:
             grantee === "PUBLIC"
               ? []
               : [{ kind: "role", name: grantee } as StableId],
         },
-        { consumes: [fact.id] },
+        {
+          consumes: [after],
+          // the wipe also revokes this grantee's desired column grants
+          wipes: columnAclIdsFor(aclId, projectedDesired),
+        },
       );
     };
     if (typeof creatingRole === "string") {
@@ -530,6 +572,78 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       if (tuple.schema != null && tuple.schema !== schema) continue;
       if (!overlayHygieneGrantees.has(tuple.grantee)) continue;
       emitHygieneRevoke(tuple.grantee);
+    }
+  };
+  for (const fact of hygieneTargets) {
+    // a created object whose fact is absent from the projected target (its add
+    // was effectively reverted) has no hygiene to do
+    if (!projectedDesired.has(fact.id)) continue;
+    // which pg_default_acl objtype this kind maps to is declared per-kind in the
+    // rule table (`defaclObjtype`); absent → no default ACLs of its own
+    const objtype = ruleFlag(fact.id.kind, "defaclObjtype");
+    if (objtype !== undefined) {
+      hygieneFor(
+        fact.id,
+        objtype,
+        (fact.id as { schema?: string }).schema ?? null,
+        ownerOf(fact.id) ?? defaultOwner,
+        fact.id,
+      );
+    }
+    // An identity column materializes its backing sequence, which receives
+    // SEQUENCES default grants the same way; the sequence is not a fact, so its
+    // hygiene hangs off the column and its owner is the table's.
+    if (fact.id.kind === "column" && fact.parent !== undefined) {
+      const sequence = identitySequenceId(fact.payload["identity"]);
+      if (sequence !== null && sequence.kind === "sequence") {
+        hygieneFor(
+          sequence,
+          "S",
+          sequence.schema,
+          ownerOf(fact.parent) ?? defaultOwner,
+          fact.id,
+        );
+      }
+    }
+  }
+
+  // ADD IDENTITY on an existing column materializes a backing sequence in
+  // place: it takes SEQUENCES default grants like a fresh create, but the column
+  // is neither added nor replaced, so the loop above never sees it. The REVOKE
+  // consumes the sequence the ADD IDENTITY alter produces. A column a replace
+  // re-creates has no such alter (its create materializes the sequence) and
+  // already took hygiene above.
+  for (const [key, sets] of setsByFact) {
+    if (!sets.some((s) => s.attr === "identity")) continue;
+    if (
+      replaceIds.has(key) ||
+      recreatedByReplace.has(key) ||
+      inlinedByReplace.has(key)
+    )
+      continue;
+    if (source.getByEncoded(key)?.payload["identity"] != null) continue;
+    const fact = projectedDesired.getByEncoded(key);
+    if (fact === undefined || fact.id.kind !== "column") continue;
+    if (fact.parent === undefined) continue;
+    const sequence = identitySequenceId(fact.payload["identity"]);
+    if (sequence === null || sequence.kind !== "sequence") continue;
+    hygieneFor(
+      sequence,
+      "S",
+      sequence.schema,
+      ownerOf(fact.parent) ?? defaultOwner,
+      sequence,
+    );
+    // A grant on a standalone sequence of the same name (serial → identity)
+    // keeps its acl id: the diff sees it unchanged under the column while the
+    // DROP SEQUENCE destroys it. Replay it onto the new backing sequence.
+    const sequenceKey = encodeId(sequence);
+    for (const child of projectedDesired.childrenOf(fact.id)) {
+      if (child.id.kind !== "acl") continue;
+      if (encodeId(child.id.target) !== sequenceKey) continue;
+      const childKey = encodeId(child.id);
+      if (added.has(childKey) || producerOf.has(childKey)) continue;
+      emitCreate(child, projectedDesired);
     }
   }
 
@@ -565,6 +679,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       consumes: fact.parent !== undefined ? [fact.parent] : [],
       // the root fact leads: it is the action's subject (tie-break, locks)
       destroys: destroyList,
+      wipes: implicitlyDestroyed(fact),
     });
   }
 
@@ -735,5 +850,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     foldHints,
     acceptsFolds,
     renameActionIndices,
+    implicitDestroys,
   };
 }

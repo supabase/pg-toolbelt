@@ -45,7 +45,13 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // index (buildAdpIndex), dropping the redundant `Extract<StableId, { kind:
   // "defaultPrivilege" }>` cast — narrowing on the `!==` check suffices.
   // 29 → 37: overlay REVOKE elision + mergeCoTargetRevokes.
-  "internal.ts": 37,
+  // 37 → 38: the REVOKE-merge leader skips a column consume (identity-sequence
+  // hygiene consumes the column, which is not a grant target).
+  // 38 → 42: the co-create elisions count an identity sequence's acl as
+  // co-created with its column (sequence target, column parent, table owner).
+  // 42 → 41: both passes share isOwnerGrant (one role-edge narrowing).
+  // 41 → 40: both passes share materializedObjects (one acl exclusion).
+  "internal.ts": 40,
   "locks.ts": 18,
   // 10 → 11: the extension-replace satellite replay guards on
   // `oldFact.id.kind === "extension"` so a plan with no extension replace
@@ -53,7 +59,11 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // maps members to owning EXTENSIONS only, so the guard is behavior-neutral).
   // 11 → 15: overlay ADP wipe + emitCreate wipe-then-grant.
   // 15 → 14: overlay tuple match lives in policy.isOverlayDefaultPrivilege.
-  "phases/action-emitter.ts": 14,
+  // 14 → 16: default-privilege hygiene for an identity column's backing
+  // sequence keys off the column fact and narrows the sequence id.
+  // 16 → 18: the same hygiene for an in-place ADD IDENTITY.
+  // 18 → 19: ADD IDENTITY replays the column's surviving sequence acl children.
+  "phases/action-emitter.ts": 19,
   "phases/action-graph.ts": 1,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,

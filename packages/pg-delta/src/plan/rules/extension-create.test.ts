@@ -5,7 +5,9 @@
  * managed, non-reference-only desired schema). Otherwise the extension creates
  * its own schema from its control file (pgmq), so the clause would fail against
  * a not-yet-existing schema — emit the bare form. Built-in schemas (pg_catalog,
- * pg_cron's target) are never extracted, so they also fall to bare.
+ * pg_cron's target) are never extracted, so they also fall to bare. A schema
+ * the control file pins and the target already holds (possibly only assumed)
+ * is bare too: Postgres finds or creates it.
  *
  * This is a PLAN-TIME property. `relocatable` / `_schemaIsMember` cannot express
  * it: the `deptype='e'` schema→extension edge never exists (Postgres does not
@@ -109,5 +111,60 @@ describe("CREATE EXTENSION schema clause (presence-based)", () => {
         EMPTY,
       ),
     ).toBe(`CREATE EXTENSION "x"`);
+  });
+});
+
+describe("CREATE EXTENSION schema clause (control-file-pinned schema)", () => {
+  const pinned = (schema: string, controlSchema: string): Payload => ({
+    schema,
+    _relocatable: false,
+    _controlSchema: controlSchema,
+  });
+  const create = (payload: Payload, sourceView: FactView, desired: FactView) =>
+    schemaRules.extension!.create(
+      { id: { kind: "extension", name: "x" }, payload },
+      desired,
+      undefined,
+      sourceView,
+    )[0]!;
+
+  test("schema only assumed on the target (export seed) → bare", () => {
+    // Export seeds reference-only schemas into its pristine source, so `pgmq`
+    // looks present although a fresh Supabase database does not have it.
+    const action = create(
+      pinned("pgmq", "pgmq"),
+      view([sch("pgmq")], [sch("pgmq")]),
+      view([sch("pgmq")], [sch("pgmq")]),
+    );
+    expect(action.sql).toBe(`CREATE EXTENSION "x"`);
+    expect(action.consumes).toEqual([sch("pgmq")]);
+  });
+
+  test("schema created by this plan → SCHEMA, ordered after CREATE SCHEMA", () => {
+    // The clause keeps the exported extension file failing until CREATE SCHEMA
+    // has run, so any load order converges.
+    const action = create(pinned("app", "app"), EMPTY, view([sch("app")]));
+    expect(action.sql).toBe(`CREATE EXTENSION "x" SCHEMA "app"`);
+    expect(action.consumes).toEqual([sch("app")]);
+  });
+
+  test("schema a real fact on the target → bare", () => {
+    const action = create(
+      pinned("pgmq", "pgmq"),
+      view([sch("pgmq")]),
+      view([sch("pgmq")]),
+    );
+    expect(action.sql).toBe(`CREATE EXTENSION "x"`);
+    expect(action.consumes).toEqual([sch("pgmq")]);
+  });
+
+  test("control file pinning a different schema → presence logic", () => {
+    expect(
+      createSql(
+        pinned("extensions", "other"),
+        view([sch("extensions")], [sch("extensions")]),
+        view([sch("extensions")], [sch("extensions")]),
+      ),
+    ).toBe(`CREATE EXTENSION "x" SCHEMA "extensions"`);
   });
 });

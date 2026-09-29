@@ -1,0 +1,18 @@
+{
+  "a-to-b": {
+    "require": ["replacement:acl"],
+    "forbid": [
+      "replacement:table",
+      "replacement:view",
+      "replacement:materializedView"
+    ]
+  },
+  "b-to-a": {
+    "require": ["replacement:acl"],
+    "forbid": [
+      "replacement:table",
+      "replacement:view",
+      "replacement:materializedView"
+    ]
+  }
+}
