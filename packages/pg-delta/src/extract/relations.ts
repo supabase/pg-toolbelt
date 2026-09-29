@@ -6,6 +6,7 @@ import {
   aclJson,
   aclJsonMemberAware,
   type CatalogFamily,
+  deparsedDef,
   memberExtensionExpr,
   notExtensionMember,
   parseAcl,
@@ -314,7 +315,16 @@ const TABLE_CONSTRAINTS_SQL = `
     -- 'f' = foreign tables: they carry only CHECK constraints (no p/u/f/x),
     -- so the contype filter already scopes them; serialized via ALTER FOREIGN
     -- TABLE (constraintTarget keys off the parent's foreignTable kind).
-    WHERE con.contype IN ('p', 'u', 'f', 'c', 'x') AND con.conislocal
+    -- PG 18 also catalogs a column's NOT NULL as a contype 'n' row. That stays
+    -- the column's notNull attribute and must never become a second fact (the
+    -- row does not exist on PG 14-17, so hashes would differ per version) --
+    -- but a COMMENT ON CONSTRAINT attached to it has nowhere to live once the
+    -- row is skipped. Fetch the commented ones so apply() can report the
+    -- dropped comment instead of losing it silently; dependencies.ts skips
+    -- the same rows as dependency endpoints (NOT_NULL_IS_NOT_A_FACT).
+    WHERE ((con.contype IN ('p', 'u', 'f', 'c', 'x') AND con.conislocal)
+           OR (con.contype = 'n'
+               AND obj_description(con.oid, 'pg_constraint') IS NOT NULL))
       AND c.relkind IN ('r', 'p', 'f') AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, c.relname, con.conname`;
@@ -323,23 +333,42 @@ export const tableConstraintsFamily: CatalogFamily = {
   name: "constraints",
   statements: () => [TABLE_CONSTRAINTS_SQL],
   apply: (ctx, rowSets) => {
-    const { pushWithMeta } = ctx;
+    const { pushWithMeta, diagnostics } = ctx;
     for (const row of rowSets[0]!) {
+      const schema = String(row["schema"]);
+      const table = String(row["table"]);
+      const relation: StableId = {
+        kind: String(row["table_kind"]) === "f" ? "foreignTable" : "table",
+        schema,
+        name: table,
+      };
+      // Only COMMENTED contype 'n' rows reach here (see the query above): the
+      // constraint itself is the column's notNull attribute, so report the
+      // comment that cannot be carried and emit no fact for it.
+      if (row["type"] === "n") {
+        diagnostics.push({
+          code: "table_not_null_comment_skipped",
+          severity: "info",
+          subject: relation,
+          message:
+            `${schema}.${table}: the comment on its NOT NULL constraint ` +
+            `${String(row["name"])} is not modeled (NOT NULL is the column's notNull ` +
+            `attribute; the constraint row exists only on PG 18+) and will not be ` +
+            `diffed or exported.`,
+        });
+        continue;
+      }
       pushWithMeta(
         {
           id: {
             kind: "constraint",
-            schema: String(row["schema"]),
-            table: String(row["table"]),
+            schema,
+            table,
             name: String(row["name"]),
           },
-          parent: {
-            kind: String(row["table_kind"]) === "f" ? "foreignTable" : "table",
-            schema: String(row["schema"]),
-            name: String(row["table"]),
-          },
+          parent: relation,
           payload: {
-            def: String(row["def"]),
+            def: deparsedDef(row, "constraint"),
             type: String(row["type"]),
             validated: Boolean(row["validated"]),
           },
@@ -419,7 +448,7 @@ export const indexesFamily: CatalogFamily = {
           // `attachedTo`. Unmasking it would `valid: "replace"` the parent and
           // CASCADE-drop attached children that this plan does not recreate.
           payload: {
-            def: String(row["def"]),
+            def: deparsedDef(row, "index"),
             valid: Boolean(row["valid"]),
             attachedTo,
           },
@@ -518,28 +547,62 @@ const VIEWS_SQL = `
     WHERE c.relkind IN ('v', 'm') AND ${USER_SCHEMA_FILTER}
     ORDER BY n.nspname, c.relname`;
 
+// View/matview column-level ACLs. View columns are not facts (they come from
+// the view definition), so these grants hang off the view itself.
+const VIEW_COLUMN_ACLS_SQL = `
+    SELECT n.nspname AS schema, c.relname AS name, c.relkind AS kind,
+           a.attname AS column,
+           ${aclJson("a.attacl", "c", "c.relowner")} AS acl
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relkind IN ('v', 'm') AND a.attnum > 0 AND NOT a.attisdropped
+      AND a.attacl IS NOT NULL
+      AND ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_class", "c.oid")}
+    ORDER BY n.nspname, c.relname, a.attname`;
+
 export const viewsFamily: CatalogFamily = {
   name: "views",
-  statements: () => [VIEWS_SQL],
+  statements: () => [VIEWS_SQL, VIEW_COLUMN_ACLS_SQL],
   apply: (ctx, rowSets) => {
-    const { pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    const { facts, pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    const viewId = (row: Record<string, unknown>): StableId => ({
+      kind: String(row["kind"]) === "m" ? "materializedView" : "view",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+    });
     for (const row of rowSets[0]!) {
-      const id: StableId = {
-        kind: String(row["kind"]) === "m" ? "materializedView" : "view",
-        schema: String(row["schema"]),
-        name: String(row["name"]),
-      };
+      const id = viewId(row);
       pushWithMeta(
         {
           id,
           parent: schemaId(row["schema"]),
-          payload: { def: String(row["def"]), reloptions: reloptions(row) },
+          payload: {
+            def: deparsedDef(row, "view"),
+            reloptions: reloptions(row),
+          },
         },
         row,
         parseAcl(row["acl"]),
       );
       pushMemberEdge(id, row);
       pushOwnerEdge(id, row["owner"]);
+    }
+    for (const row of rowSets[1]!) {
+      const target = viewId(row);
+      for (const acl of parseAcl(row["acl"])) {
+        facts.push({
+          id: {
+            kind: "acl",
+            target,
+            grantee: acl.grantee,
+            column: String(row["column"]),
+          },
+          parent: target,
+          payload: { privileges: acl.privileges, grantable: acl.grantable },
+        });
+      }
     }
   },
 };
@@ -585,7 +648,7 @@ export const triggersFamily: CatalogFamily = {
             name: String(row["table"]),
           },
           payload: {
-            def: String(row["def"]),
+            def: deparsedDef(row, "trigger"),
             enabled: String(row["enabled"]),
           },
         },
@@ -633,7 +696,10 @@ export const rulesFamily: CatalogFamily = {
             schema: String(row["schema"]),
             name: String(row["table"]),
           },
-          payload: { def: String(row["def"]), enabled: String(row["enabled"]) },
+          payload: {
+            def: deparsedDef(row, "rule"),
+            enabled: String(row["enabled"]),
+          },
         },
         row,
       );

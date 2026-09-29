@@ -1793,6 +1793,46 @@ Deferred from the same review (not blocking):
   we start modeling grant options on the tuples.
 
 
+## PR #484 review triage (Codex) — domain NOT NULL on PG 17+
+
+PostgreSQL 17+ catalogs a domain NOT NULL as a `pg_constraint` row
+(`contype = 'n'`). Both extractors (`types.ts` constraint facts,
+`dependencies.ts` `dcon` CTE) skip those rows so NOT NULL is modeled only by
+the domain's `notNull` attribute and hashes match across PG 14–18 (#482).
+
+Deferred from the review (not blocking):
+
+- **Comment on a domain NOT NULL constraint.** `COMMENT ON CONSTRAINT
+  <domain>_not_null ON DOMAIN d` (PG 17+ only) lives on the skipped row, so
+  it is neither diffed nor exported and a load of the export converges to
+  the comment-less state. This is a narrow PG 17+ regression for a NOT NULL
+  domain that exists on both sides: a comment-only change on that row used
+  to plan `COMMENT ON CONSTRAINT …` and now plans nothing. (Creating such a
+  domain from a PG 17+ source failed outright before #484, so the create
+  path only narrowed.) The loss is not silent: extract emits an info
+  `domain_not_null_comment_skipped` diagnostic for a commented `n` row. The
+  constraint's name is not modeled either (deliberate: PG 14–16 cannot
+  replay `ADD CONSTRAINT name NOT NULL`), so a faithful comment would need a
+  `notNullComment` domain attribute rendered against the auto-generated name
+  on PG 17+ only. Pick up if a user reports it.
+- **PG 18 `NOT ENFORCED` on domain NOT NULL.** Not reachable: PG 18 rejects
+  `specifying constraint enforceability not supported for domains` for every
+  domain constraint form, and `NOT NULL constraints cannot be marked NOT
+  ENFORCED` on `ALTER DOMAIN … ADD CONSTRAINT`. Every domain `n` row has
+  `conenforced = true` and mirrors `typnotnull`.
+- **Legacy snapshots carrying the `n` constraint fact (round 2).** A
+  snapshot captured by an earlier alpha from a PG 17+ database with a
+  NOT NULL domain serialized `constraint:<schema>.<domain>.<domain>_not_null`
+  (`type: "n"`). Diffed against a fresh extraction it reads as a removed
+  constraint: `drift` reports it, and a plan from that snapshot emits
+  `ALTER DOMAIN … DROP CONSTRAINT <domain>_not_null`, which on PG 17+ makes
+  the domain nullable. Recapture the snapshot. Snapshot compatibility across
+  extractor changes is not a contract today — `FORMAT_VERSION` has stayed at 1
+  through every extraction change since the rewrite, and legacy stamps are
+  tolerated rather than rejected (`cli/profile.ts`). The durable fix is
+  general: an extractor-version stamp on snapshots that `drift`/`plan` check
+  and refuse with recapture guidance, not a per-kind normalizer for this row.
+
 ## PR #478 review triage (Codex) — identity-sequence privileges
 
 PR #478 models grants on an identity column's backing sequence as `acl`
@@ -1824,20 +1864,140 @@ REVOKE elision). Deferred from round five (not blocking):
 
 ## Issue #487 follow-up — enum retype through an indirect enum source
 
-Retyping a column away from an enum now casts through `text` / `text[]`,
-keyed on the column's released edge landing on an enum `type` fact.
+An enum → enum column retype now casts through `text` / `text[]`. The hop
+requires BOTH the column's released (source) and consumed (desired) type
+edges to land on an enum `type` fact. Deferred:
+
+- **Domain over an enum, or an extension-member enum, as the source or
+  target type.** The edge resolves to the `domain` / `extension` fact (no
+  `variant`), so the hop is skipped and the retype emits the direct cast,
+  failing with 42846 — e.g. enum → a domain over another enum still emits
+  `c::d_widget`. Resolving it needs the domain's base type or the member's
+  variant at plan time.
+- **User-defined enum → enum cast (PR #490 Codex, round 2).** The hop
+  applies to every enum → enum retype, so an explicit
+  `CREATE CAST (a_enum AS b_enum)` is bypassed. For a cast mapping
+  `'legacy'` → `'active'`:
+  - a target enum that also has `'legacy'` now silently keeps `'legacy'`;
+  - a target without it now fails at apply, where it used to succeed.
+
+  The proof does not catch the silent case: once the column's type
+  signature changes it only compares row counts (`proof/prove.ts`,
+  `contentMode: "count"`). Casts are unmodeled (`extract/unmodeled.ts`
+  reports them; no fact reaches the planner), so honouring one needs cast
+  facts in the plan-time view. Deferred: before #490 every enum → enum
+  retype without such a cast failed outright, and the case needs a
+  hand-written cross-enum cast. Enum → non-enum already keeps the direct
+  cast.
+
+## supabase/cli#6761 — view / matview column-level grants
+
+Column grants on views and materialized views (`pg_attribute.attacl`, relkind
+`v`/`m`) are now extracted as `acl` facts with a `column` qualifier, parented
+on the view (view columns are not facts). Previously tracked as
+supabase/pg-toolbelt#359, which was closed as a duplicate of #332 item 4
+(view column **comments**) and so left the grant half untracked.
+
 Deferred:
 
-- **Domain over an enum, or an extension-member enum, as the source type.**
-  The released edge resolves to the `domain` / `extension` fact (no
-  `variant`), so a retype to another enum still emits the direct cast and
-  fails with 42846. Resolving it needs the domain's base type or the
-  member's variant at plan time.
-- **User-defined enum → enum cast (PR #490 Codex, round 2).** The text
-  hop applies to every enum → enum retype, so an explicit
-  `CREATE CAST (a_enum AS b_enum)` is bypassed. Casts are unmodeled
-  (`extract/unmodeled.ts` reports them; no fact reaches the planner), so
-  honouring one needs cast facts in the plan-time view. Deferred: before
-  #490 every enum → enum retype without such a cast failed outright, and
-  the case needs a hand-written cross-enum cast. Enum → non-enum already
-  keeps the direct cast.
+- **Object-level `REVOKE ALL` wipes same-role column grants.** Pre-existing
+  for tables, and now reachable for views: PostgreSQL revokes matching column
+  privileges with any table-level revoke, and the planner neither orders the
+  column GRANT after it nor re-emits it on replace.
+  https://github.com/supabase/pg-toolbelt/issues/491 (next PR).
+- **Extension-member relations.** Column grants on extension-owned views stay
+  invisible, like extension-owned table columns today (`columnsFamily` also
+  filters `notExtensionMember`). A correct fix needs a column-aware
+  initial-privileges delta: `memberAclDeltaJson` hardcodes
+  `pg_init_privs.objsubid = 0`. Tables and views should be fixed together.
+- **View / matview column comments** (#332 item 4) need their own
+  representation; out of scope here.
+
+## Issue #483 review triage — table NOT NULL dangling edges on PG 18
+
+PG 18 catalogs a table column's NOT NULL as a `pg_constraint` row
+(`contype = 'n'`), the same change PG 17 made for domains (#482). The fix
+excludes those rows from the `tcon` branch of the dependency resolver and
+shares one predicate with the domain-side `dcon` exclusion, so the two cannot
+drift. Diagnostics only — the edge was already dropped before reaching the fact
+base, and the `depend-edges-oracle` snapshot is unchanged across PG 14–18.
+
+Deferred from the review (not blocking, pre-existing):
+
+- **`conislocal = false` constraints dangle the same way, on every version.**
+  `relations.ts` extracts only `contype IN ('p','u','f','c','x') AND
+  conislocal`, but the resolver's `tcon` branch resolves non-local rows too, so
+  an inherited or partition-child constraint produces the identical
+  `constraint:… -[depends]-> column:…` dangling edge and warning. Confirmed on
+  postgres:17-alpine with an `INHERITS` child:
+
+  ```
+  dangling_edge: edge constraint:app.c.p_id_check -[depends]-> column:app.c.id references a fact not in the base
+  ```
+
+  The review's probe saw the same for partition-child PK/CHECK rows on PG 18.
+  Not introduced or worsened by this change, but a user with inheritance or
+  partitions still sees warning noise after it. The mechanical fix is the same
+  shape (`AND con.conislocal` in `tcon`), but whether a non-local constraint
+  should instead resolve to its PARENT constraint is a modeling decision — an
+  inherited constraint is a real dependency of the child's column, just not one
+  the engine keys separately today. Needs a deliberate call, not a one-line
+  filter. Pick up if a user reports it, or alongside any other inheritance work.
+
+Codex round 1 (PR #485), both P2, both on the `tcon` filter:
+
+- **Commented table NOT NULL rows — FIXED here.** A `COMMENT ON CONSTRAINT
+  <table>_<col>_not_null ON <table>` is accepted on PG 18, and with the row
+  skipped as a fact the comment had nowhere to live. Extraction now emits an
+  info `table_not_null_comment_skipped`, mirroring the domain side. Verified on
+  postgres:18-alpine that the comment is accepted and that an UNcommented row
+  still extracts in silence.
+- **`NOT ENFORCED` on a table NOT NULL — DECLINED, not reachable.** The finding
+  claims such a constraint leaves the column nullable while the row persists.
+  PostgreSQL 18 rejects the syntax outright:
+
+  ```
+  ERROR:  NOT NULL constraints cannot be marked NOT ENFORCED
+  ```
+
+  Every contype 'n' row observed has `conenforced = true`, so the row is always
+  equivalent to `attnotnull`. This mirrors the same conclusion already recorded
+  for domains above.
+
+  What IS reachable is `NOT VALID`: `ALTER TABLE … ADD CONSTRAINT c NOT NULL col
+  NOT VALID` succeeds on PG 18 with `convalidated = false`, while `attnotnull`
+  is still set — so pg-delta renders a plain, validating `NOT NULL`, which fails
+  at apply if the table holds NULL rows. A user-chosen name for the constraint
+  is lost the same way. That is a genuine fidelity gap, out of scope for a
+  diagnostics-only PR, and tracked separately.
+
+## SUPABASE-API-8S4 — objects dropped mid-extraction
+
+Extraction now retries on a fresh snapshot when concurrent DDL drops an
+object after the snapshot was taken: on XX000 `cache lookup failed …` /
+`could not open relation with OID …`, and on a NULL result from the required
+`def` deparsers (constraint, index, view, trigger, rule, routine, domain
+constraint). After 3 attempts it throws `ConcurrentCatalogChangeError`.
+
+Deferred (not blocking):
+
+- **Optional expressions still NULL silently.** `pg_get_expr` returns NULL
+  (PG 17 probe) for a relation dropped after the snapshot, and the column
+  default (`relations.ts` `default_expr`), partition bound / key, policy
+  `USING` / `WITH CHECK`, and publication `WHERE` sites treat NULL as "absent".
+  The stale fact describes a relation that no longer exists, so the effect is
+  limited to a result that is already out of date. Closing it needs each query
+  to select whether the source expression exists (e.g. `ad.adbin IS NOT NULL`)
+  so a NULL deparse can be told apart from a real absence and retried.
+- **Concurrent DDL on a surviving table records wrong definitions.** Not
+  detected by the retry, and worse than stale: the table still exists. A
+  column dropped just before the constraints query makes
+  `pg_get_constraintdef` render the placeholder name
+  (`CHECK (("?dropped?column?" > 0))`, `FOREIGN KEY ("........pg.dropped.3........") …`);
+  a type dropped with `CASCADE` just before the columns query makes
+  `format_type` return `???`. Reproduced on PG 14, 17 and 18; predates the
+  retry. Candidate fix: treat those markers in deparse output as a concurrent
+  change and retry.
+- **Non-transient `cache lookup failed`.** A corrupt catalog or a buggy
+  extension deparser raises the same XX000 text; it now costs 3 attempts and
+  ends in `ConcurrentCatalogChangeError` with the original error as `cause`.
