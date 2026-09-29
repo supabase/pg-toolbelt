@@ -2001,3 +2001,41 @@ Deferred (not blocking):
 - **Non-transient `cache lookup failed`.** A corrupt catalog or a buggy
   extension deparser raises the same XX000 text; it now costs 3 attempts and
   ends in `ConcurrentCatalogChangeError` with the original error as `cause`.
+
+## Inherited-object dependency edges — review triage
+
+The pg_depend resolver now skips partition/inheritance-derived objects
+(inherited columns, cloned constraints and FK clones, copied defaults,
+cloned triggers) as dependents, and resolves the referenceable ones
+(inherited columns, cloned PK/UNIQUE/EXCLUDE) to the parent's modeled fact
+plus the child relation, removing the `dangling_edge` flood on partitioned
+tables. Deferred:
+
+- **Deferred — partition-level default overrides are unmodeled.** A
+  partition (or legacy child) whose inherited column carries its own
+  `ALTER … SET DEFAULT` differing from the parent is invisible to diff and
+  proof. The old `dangling_edge` warning fired for *every* copied default,
+  so it never isolated overrides; a real signal needs a dedicated
+  attribute-level check (compare child `pg_attrdef` to the parent's).
+- **Deferred — multi-level legacy inheritance.** A view over a
+  grandchild's inherited column still dangles: legacy ancestry is resolved
+  one `pg_inherits` hop (partitions use `pg_partition_root()` at any depth).
+  A recursive walk was avoided because its row estimate pushes the resolver
+  over `jit_above_cost` on small catalogs.
+- **Deferred — replacing a partition of an FK-referenced partitioned
+  table.** PostgreSQL refuses `DROP TABLE <partition>` while an FK
+  references the partitioned parent (the per-partition FK clone depends on
+  it), so a partition bound change on such a table fails at apply. Needs a
+  `DETACH PARTITION` (or FK drop/re-add) strategy in the planner; unrelated
+  to edge resolution.
+- **Deferred — same-name column from several legacy parents.** A child
+  column merged from two parents that both define it locally resolves to
+  the first parent (`inhseqno`) only, so a view over it depends on that
+  parent's column alone. Rare; a fan-out to every defining parent would fix
+  it.
+- **Deferred (pre-existing) — replacing a directly published partition.**
+  The publication's pg_depend edge on a leaf partition is attributed to the
+  publication, but publications are not `rebuildable`
+  (`src/plan/rules/publications.ts`), so a partition drop + recreate can
+  lose its publication membership. Needs a corpus case and a publication
+  membership re-add on table replace.
