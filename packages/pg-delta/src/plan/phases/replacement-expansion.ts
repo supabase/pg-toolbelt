@@ -12,7 +12,7 @@ import type { Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { cascadesToChildren, isRebuildable } from "../rule-flags.ts";
-import type { RulesForId } from "../rules.ts";
+import type { ReplaceRootChange, RulesForId } from "../rules.ts";
 
 export interface ReplacementExpansionInput {
   /** removed facts keyed by encoded id (ordinary rename cancellation applied) */
@@ -87,29 +87,40 @@ export function expandReplacements(
     }
   }
 
-  // Some facts can't be replaced on their own. Their rule names an ancestor
-  // to replace instead (`replaceRoot`). The ancestor trim below then removes
-  // the fact, and the ancestor's subtree recreates it. Check both sides, as
-  // `replaceWhen` does: the drop runs on the source, and the create renders
-  // the desired state.
+  // Some changes can't be applied to a fact on its own (a partition key
+  // column can't be retyped or dropped). Its rule names an ancestor to replace
+  // instead (`replaceRoot`), asked once per changed or removed fact. Check both
+  // sides, as `replaceWhen` does: the change runs on the source, and the
+  // create renders the desired state. A lifted set-delta fact also joins
+  // `replaceIds` so the rebuild walk fully destroys its dependents; the
+  // ancestor trim below then removes it, and the ancestor's subtree recreates
+  // it. A removed fact folds into the ancestor's drop. An ancestor the plan
+  // drops outright needs no lift: its DROP already takes the fact.
   {
-    const lift = [...replaceIds];
-    while (lift.length > 0) {
-      const key = lift.pop() as string;
-      const sourceFact = source.getByEncoded(key);
-      const desiredFact = desired.getByEncoded(key);
-      const fact = sourceFact ?? desiredFact;
-      if (fact === undefined) continue;
-      const replaceRoot = rulesForId(fact.id).replaceRoot;
-      if (replaceRoot === undefined) continue;
-      const root =
-        (sourceFact && replaceRoot(sourceFact)) ??
-        (desiredFact && replaceRoot(desiredFact));
-      if (root === undefined) continue;
-      const rootKey = encodeId(root);
-      if (replaceIds.has(rootKey)) continue;
-      replaceIds.add(rootKey);
-      lift.push(rootKey);
+    const lift = (
+      key: string,
+      change: ReplaceRootChange,
+      facts: readonly (Fact | undefined)[],
+    ): void => {
+      for (const fact of facts) {
+        if (fact === undefined) continue;
+        const root = rulesForId(fact.id).replaceRoot?.(fact, change);
+        if (root === undefined) continue;
+        if (!source.has(root) || !desired.has(root)) continue;
+        if (change.verb === "set") replaceIds.add(key);
+        replaceIds.add(encodeId(root));
+        return;
+      }
+    };
+    for (const [key, sets] of setsByFact) {
+      const attrs = new Set(sets.map((s) => s.attr));
+      lift(key, { verb: "set", attrs }, [
+        source.getByEncoded(key),
+        desired.getByEncoded(key),
+      ]);
+    }
+    for (const [key, fact] of removed) {
+      lift(key, { verb: "remove" }, [fact]);
     }
   }
 

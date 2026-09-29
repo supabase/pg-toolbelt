@@ -66,6 +66,16 @@ export const tableRules: Record<string, KindRules> = {
         // them (and attaches child indexes). Consume so attach cannot run first.
         for (const child of view.childrenOf(parentId)) {
           if (child.id.kind === "index") consumes.push(child.id);
+          // a sub-partitioned partition's PARTITION BY names inherited
+          // columns: a key column the parent gains in this plan must be
+          // ADDed first ("column ... named in partition key does not exist")
+          if (
+            partKey != null &&
+            child.id.kind === "column" &&
+            p(child, "_partitionKey") === true
+          ) {
+            consumes.push(child.id);
+          }
           if (child.id.kind === "constraint") {
             const ctype = p(child, "type");
             if (ctype === "p" || ctype === "u") consumes.push(child.id);
@@ -208,11 +218,19 @@ export const tableRules: Record<string, KindRules> = {
   column: {
     weight: 5,
     cascadesToChildren: true,
-    // Postgres rejects ALTER COLUMN ... TYPE and DROP COLUMN on a partition
-    // key column ("... is part of the partition key of relation ..."). Any
-    // replace of one (type, collation) replaces the partitioned table instead.
-    replaceRoot: (fact) =>
-      p(fact, "_partitionKey") === true ? fact.parent : undefined,
+    // Postgres rejects ALTER COLUMN ... TYPE (which also carries a collation
+    // change) and DROP COLUMN on a partition key column ("... is part of the
+    // partition key of relation ..."), including a sub-partition's key. Those
+    // changes replace the partitioned table instead. Other changes, such as
+    // SET NOT NULL, stay in place.
+    replaceRoot: (fact, change) => {
+      if (p(fact, "_partitionKey") !== true) return undefined;
+      const blocked =
+        change.verb === "remove" ||
+        change.attrs.has("type") ||
+        change.attrs.has("collation");
+      return blocked ? fact.parent : undefined;
+    },
     rename: (fact, to) => {
       const { schema, table, column } = columnRef(fact);
       return {
@@ -363,9 +381,6 @@ export const tableRules: Record<string, KindRules> = {
           }
           return specs;
         },
-        // a partition key column can't be retyped in place. `replaceRoot`
-        // moves the replace up to its partitioned table.
-        replaceWhen: (_from, _to, fact) => p(fact, "_partitionKey") === true,
         // PostgreSQL rejects ALTER COLUMN … TYPE while a view, rule, or
         // policy references the column (0A000). Those dependents must be
         // dropped before the alter and recreated after; indexes and
