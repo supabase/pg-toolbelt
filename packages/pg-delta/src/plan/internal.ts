@@ -46,6 +46,101 @@ const EVALUATED_DESCENT = ((): ReadonlyMap<string, ReadonlySet<string>> => {
   return byParent;
 })();
 
+/** Inputs of {@link ambientRequirements}; see `buildActionGraph`'s parameters. */
+interface AmbientRequirementInputs {
+  source: FactBase;
+  desired: FactBase;
+  /** whether this plan produces the encoded id */
+  isProduced: (key: string) => boolean;
+  assumedRoleNames: ReadonlySet<string>;
+  assumedSchemaNames: ReadonlySet<string>;
+  assumedPresentIds: ReadonlySet<string>;
+}
+
+/**
+ * The requirement guard's satisfiability predicates for targets that are
+ * neither produced by the plan nor on the target. Shared with the
+ * withheld-requirement cascade (./phases/withheld-requirements.ts) so both
+ * judge "present at apply" identically.
+ */
+export function ambientRequirements({
+  source,
+  desired,
+  isProduced,
+  assumedRoleNames,
+  assumedSchemaNames,
+  assumedPresentIds,
+}: AmbientRequirementInputs): {
+  isAmbient: (id: StableId) => boolean;
+  memberExtensionPresent: (memberKey: string) => boolean;
+  desiredMemberClosure: Map<string, StableId[]>;
+  sourceMemberClosure: Map<string, StableId[]>;
+} {
+  // A reference target that is present-at-apply but kept out of the managed
+  // view: built-in roles (pg_*/PUBLIC), policy-declared assumed roles, an
+  // assumed SCHEMA object, or an object WITHIN an assumed schema (e.g. a
+  // Supabase extension member in `extensions`). Such a target satisfies a
+  // `consumes` / `depends` requirement without being produced by the plan.
+  const isAmbient = (id: StableId): boolean => {
+    if (id.kind === "role") {
+      const name = (id as { name: string }).name;
+      if (name.startsWith("pg_") || name === "PUBLIC") return true;
+      if (assumedRoleNames.has(name)) return true;
+    }
+    if (
+      id.kind === "schema" &&
+      assumedSchemaNames.has((id as { name: string }).name)
+    ) {
+      return true;
+    }
+    const schema = (id as { schema?: string }).schema;
+    if (schema === undefined || !assumedSchemaNames.has(schema)) return false;
+    // A PLATFORM-PROVISIONED member of an assumed schema (system-role-owned,
+    // e.g. `supabase_functions.http_request()`) is present at apply time by the
+    // same guarantee that makes its schema assumed — even when the desired view
+    // keeps it reference-only and the target lacks it (the platform provisions
+    // webhooks infra outside the plan). See `buildActionGraph`'s
+    // `assumedPresentIds` doc.
+    if (assumedPresentIds.has(encodeId(id))) return true;
+    // Any OTHER object in an assumed schema is ambient only when it is genuinely
+    // external to the managed view (e.g. an extension member, hard-pruned from
+    // both sides). If the DESIRED view KEEPS it (reference-only) yet it is absent
+    // from the target (`!source.has`, checked by the caller), the desired side is
+    // referencing something the target lacks — a user-created object nothing will
+    // provision — so it is not ambient: the withheld-requirement cascade skips
+    // the dependent, or the guard fails at plan time, instead of letting apply
+    // fail against a missing relation (review P2).
+    return !desired.has(id);
+  };
+
+  // Extension-member closures (member object OR non-satellite descendant →
+  // owning extension ids), computed ONCE per side. A member is reference-only
+  // (never produced/dropped by a standalone action) but is present-at-apply VIA
+  // its extension, so it can satisfy a consume/depends requirement — but ONLY
+  // when an owning extension is actually produced by this plan or already on the
+  // target. A member whose CREATE EXTENSION a policy filtered away is NOT
+  // present, so the guard must still fire (surfacing the missing reference at
+  // plan time, not apply time). Distinct from the assumed-schema `isAmbient`
+  // case, which never exempts a kept-but-absent object.
+  const desiredMemberClosure = extensionMemberClosure(desired);
+  const sourceMemberClosure = extensionMemberClosure(source);
+  const memberExtensionPresent = (memberKey: string): boolean => {
+    const exts =
+      desiredMemberClosure.get(memberKey) ?? sourceMemberClosure.get(memberKey);
+    return (
+      exts !== undefined &&
+      exts.some((ext) => isProduced(encodeId(ext)) || source.has(ext))
+    );
+  };
+
+  return {
+    isAmbient,
+    memberExtensionPresent,
+    desiredMemberClosure,
+    sourceMemberClosure,
+  };
+}
+
 /**
  * Build the action dependency graph (edges as `[fromIndex, toIndex]`) and check
  * requirements. Build order comes from the DESIRED state's edges, teardown
@@ -215,60 +310,19 @@ export function buildActionGraph(
     return key;
   };
 
-  // A reference target that is present-at-apply but kept out of the managed
-  // view: built-in roles (pg_*/PUBLIC), policy-declared assumed roles, an
-  // assumed SCHEMA object, or an object WITHIN an assumed schema (e.g. a
-  // Supabase extension member in `extensions`). Such a target satisfies a
-  // `consumes` / `depends` requirement without being produced by the plan.
-  const isAmbient = (id: StableId): boolean => {
-    if (id.kind === "role") {
-      const name = (id as { name: string }).name;
-      if (name.startsWith("pg_") || name === "PUBLIC") return true;
-      if (assumedRoleNames.has(name)) return true;
-    }
-    if (
-      id.kind === "schema" &&
-      assumedSchemaNames.has((id as { name: string }).name)
-    ) {
-      return true;
-    }
-    const schema = (id as { schema?: string }).schema;
-    if (schema === undefined || !assumedSchemaNames.has(schema)) return false;
-    // A PLATFORM-PROVISIONED member of an assumed schema (system-role-owned,
-    // e.g. `supabase_functions.http_request()`) is present at apply time by the
-    // same guarantee that makes its schema assumed — even when the desired view
-    // keeps it reference-only and the target lacks it (the platform provisions
-    // webhooks infra outside the plan). See the parameter doc above.
-    if (assumedPresentIds.has(encodeId(id))) return true;
-    // Any OTHER object in an assumed schema is ambient only when it is genuinely
-    // external to the managed view (e.g. an extension member, hard-pruned from
-    // both sides). If the DESIRED view KEEPS it (reference-only) yet it is absent
-    // from the target (`!source.has`, checked by the caller), the desired side is
-    // referencing something the target lacks — a user-created object nothing will
-    // provision — so fail at plan time instead of exempting it and letting apply
-    // fail against a missing relation (review P2).
-    return !desired.has(id);
-  };
-
-  // Extension-member closures (member object OR non-satellite descendant →
-  // owning extension ids), computed ONCE per side. A member is reference-only
-  // (never produced/dropped by a standalone action) but is present-at-apply VIA
-  // its extension, so it can satisfy a consume/depends requirement — but ONLY
-  // when an owning extension is actually produced by this plan or already on the
-  // target. A member whose CREATE EXTENSION a policy filtered away is NOT
-  // present, so the guard must still fire (surfacing the missing reference at
-  // plan time, not apply time). Distinct from the assumed-schema `isAmbient`
-  // case, which never exempts a kept-but-absent object.
-  const desiredMemberClosure = extensionMemberClosure(desired);
-  const sourceMemberClosure = extensionMemberClosure(source);
-  const memberExtensionPresent = (memberKey: string): boolean => {
-    const exts =
-      desiredMemberClosure.get(memberKey) ?? sourceMemberClosure.get(memberKey);
-    return (
-      exts !== undefined &&
-      exts.some((ext) => producerOf.has(encodeId(ext)) || source.has(ext))
-    );
-  };
+  const {
+    isAmbient,
+    memberExtensionPresent,
+    desiredMemberClosure,
+    sourceMemberClosure,
+  } = ambientRequirements({
+    source,
+    desired,
+    isProduced: (key) => producerOf.has(key),
+    assumedRoleNames,
+    assumedSchemaNames,
+    assumedPresentIds,
+  });
 
   // alter actions indexed by their primary fact (opts.consumes[0])
   const alterersOf = new Map<string, number[]>();

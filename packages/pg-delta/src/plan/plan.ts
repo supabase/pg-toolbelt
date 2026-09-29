@@ -204,7 +204,8 @@ export interface Plan {
   acceptedRenames?: Array<{ from: StableId; to: StableId }>;
   actions: Action[];
   safetyReport: SafetyReport;
-  /** Plan-time diagnostics that are not extraction-time (e.g. `vault_presence`).
+  /** Plan-time diagnostics that are not extraction-time (e.g. `vault_presence`,
+   *  `excluded-by-cascade`).
    *  Omitted when empty so corpus / direct-library artifacts stay byte-identical.
    *  Not part of planId — reporting metadata, not approved run content. */
   diagnostics?: Diagnostic[];
@@ -403,6 +404,96 @@ export function plan(
   // once and threaded through every phase so all of them dispatch identically.
   const rulesForId = buildRuleResolver(options?.intentRules);
 
+  const flatPolicy = options?.policy
+    ? flattenPolicy(options.policy)
+    : undefined;
+  // roles the policy assumes exist at apply time but does not manage (e.g.
+  // Supabase's anon/authenticated). Threaded into the action-graph guard so a
+  // kept `GRANT … TO <role>` whose role object is filtered out of the view is
+  // not mistaken for a stranded requirement (§ managed-view-architecture).
+  const assumedRoleNames = new Set([
+    ...(flatPolicy?.assumedRoles ?? []),
+    ...(options?.assumedRoles ?? []),
+  ]);
+
+  // schemas the policy assumes exist at apply time but does not manage (e.g.
+  // Supabase's `extensions`). Threaded into the action-graph guard so a kept
+  // `CREATE EXTENSION … SCHEMA <schema>` whose schema object is filtered out of
+  // the view is not mistaken for a stranded requirement (§ managed-view-architecture).
+  const assumedSchemaNames = new Set([
+    ...(flatPolicy?.assumedSchemas ?? []),
+    ...(options?.assumedSchemas ?? []),
+  ]);
+
+  // PLATFORM-PROVISIONED members of assumed schemas (e.g. Supabase's
+  // `supabase_functions.http_request()`, the DB-webhook trigger function): an
+  // object inside an assumed schema whose owner — read from the RAW extracts,
+  // where the owner edge to the policy-excluded role still exists (resolveView
+  // prunes it together with the role fact) — is a DECLARED assumed role other
+  // than the resolved default owner. The default owner is the role the
+  // platform hands the user, so objects it owns (and objects owned by user
+  // roles) are USER-created: when the target lacks them, a dependent is
+  // skipped by the withheld-requirement cascade or fails the requirement guard
+  // at plan time (PR #307 review P2). A system-role-owned member is covered by
+  // the same platform guarantee that makes its schema assumed, so a kept
+  // dependent (a user webhook trigger) must plan even when the target has not
+  // had the infra provisioned yet (Sentry SUPABASE-API-8CX). Threaded into the
+  // requirement guard and the withheld-requirement cascade only — never
+  // ordering/edges. Empty under the raw/no-policy path and for callers that
+  // pass an already-resolved view (its owner edges to excluded roles are gone).
+  //
+  // The provenance judgment is derived from the POLICY alone — its declared
+  // `assumedRoles` minus its own declared `defaultOwner`:
+  //  - NOT `options.assumedRoles`: the database-scoped apply frontend passes
+  //    EVERY role found on the target through it (schema-plan.ts), so the
+  //    combined set would mark a user-role-owned object in an assumed schema
+  //    as platform-provisioned and silence the fail-fast (Codex P1 #1,
+  //    PR #407);
+  //  - NOT the run-level `options.defaultOwner` override: the policy declares
+  //    `postgres` assumed only so ownership/grant references resolve — objects
+  //    it owns are the USER's, and a custom `--default-owner` must not
+  //    reclassify them as platform-provisioned (Codex P1 #2, PR #407).
+  // The exemption then covers the owner-bearing root AND its non-satellite
+  // descendants: extraction resolves relation subobjects to COLUMN ids
+  // (extract/dependencies.ts), so a dependent's `depends` edge can point at a
+  // column of a platform table — the platform guarantee covers the subtree
+  // (Codex P2, PR #407). Satellites are excluded like extensionMemberClosure
+  // does: a user GRANT/COMMENT on a platform object is user state, never a
+  // depends target.
+  const policyAssumedRoleNames = new Set(flatPolicy?.assumedRoles ?? []);
+  const policyDefaultOwner = flatPolicy?.defaultOwner;
+  const assumedPresentIds = new Set<string>();
+  if (policyAssumedRoleNames.size > 0) {
+    for (const fb of [rawSource, rawDesired]) {
+      // The traversal guard is PER FACT BASE, not the shared result set: a
+      // platform root present on BOTH sides is recorded by the source pass
+      // first, but the desired pass must still walk it — its DESIRED-ONLY
+      // descendants (a platform column added by a newer image) would otherwise
+      // never be traversed (Codex P2 round 3, PR #407).
+      const visited = new Set<string>();
+      for (const e of fb.edges) {
+        if (e.kind !== "owner" || e.to.kind !== "role") continue;
+        const schema = (e.from as { schema?: string }).schema;
+        if (schema === undefined || !assumedSchemaNames.has(schema)) continue;
+        const owner = (e.to as { name: string }).name;
+        if (!policyAssumedRoleNames.has(owner)) continue;
+        if (owner === policyDefaultOwner) continue;
+        const stack: StableId[] = [e.from];
+        while (stack.length > 0) {
+          const id = stack.pop() as StableId;
+          const key = encodeId(id);
+          if (visited.has(key)) continue;
+          visited.add(key);
+          assumedPresentIds.add(key);
+          for (const child of fb.childrenOf(id)) {
+            if (isSatelliteId(child.id)) continue;
+            stack.push(child.id);
+          }
+        }
+      }
+    }
+  }
+
   const {
     physicalSource,
     source,
@@ -416,7 +507,12 @@ export function plan(
     renameCandidates,
     acceptedRenames,
     projectionSuppressions,
-  } = buildChangeSet(rawSource, rawDesired, options, rulesForId);
+    cascadeDiagnostics,
+  } = buildChangeSet(rawSource, rawDesired, options, rulesForId, {
+    assumedRoleNames,
+    assumedSchemaNames,
+    assumedPresentIds,
+  });
 
   // The change set already reconstructed BOTH managed views under exactly these
   // options and collected every suppression along the way, so the audit is
@@ -577,15 +673,6 @@ export function plan(
     ? flattenPolicy(options.policy).serialize
     : [];
 
-  // roles the policy assumes exist at apply time but does not manage (e.g.
-  // Supabase's anon/authenticated). Threaded into the action-graph guard so a
-  // kept `GRANT … TO <role>` whose role object is filtered out of the view is
-  // not mistaken for a stranded requirement (§ managed-view-architecture).
-  const assumedRoleNames = new Set([
-    ...(options?.policy ? flattenPolicy(options.policy).assumedRoles : []),
-    ...(options?.assumedRoles ?? []),
-  ]);
-
   // Database-scope projection RETAINS `owner` edges to scope-projected roles as
   // dangling assumed references (view.ts), so a kept `ALTER … OWNER TO <role>`
   // would otherwise strand the action-graph requirement guard (the role object
@@ -620,52 +707,6 @@ export function plan(
     }
   }
 
-  // schemas the policy assumes exist at apply time but does not manage (e.g.
-  // Supabase's `extensions`). Threaded into the action-graph guard so a kept
-  // `CREATE EXTENSION … SCHEMA <schema>` whose schema object is filtered out of
-  // the view is not mistaken for a stranded requirement (§ managed-view-architecture).
-  const assumedSchemaNames = new Set([
-    ...(options?.policy ? flattenPolicy(options.policy).assumedSchemas : []),
-    ...(options?.assumedSchemas ?? []),
-  ]);
-
-  // PLATFORM-PROVISIONED members of assumed schemas (e.g. Supabase's
-  // `supabase_functions.http_request()`, the DB-webhook trigger function): an
-  // object inside an assumed schema whose owner — read from the RAW extracts,
-  // where the owner edge to the policy-excluded role still exists (resolveView
-  // prunes it together with the role fact) — is a DECLARED assumed role other
-  // than the resolved default owner. The default owner is the role the
-  // platform hands the user, so objects it owns (and objects owned by user
-  // roles) are USER-created: for those the requirement guard keeps the
-  // PR #307 review-P2 fail-fast when the target lacks them. A system-role-owned
-  // member is covered by the same platform guarantee that makes its schema
-  // assumed, so a kept dependent (a user webhook trigger) must plan even when
-  // the target has not had the infra provisioned yet (Sentry SUPABASE-API-8CX).
-  // Threaded into the action-graph requirement guard only — never
-  // ordering/edges. Empty under the raw/no-policy path and for callers that
-  // pass an already-resolved view (its owner edges to excluded roles are gone).
-  //
-  // The provenance judgment is derived from the POLICY alone — its declared
-  // `assumedRoles` minus its own declared `defaultOwner`:
-  //  - NOT `options.assumedRoles`: the database-scoped apply frontend passes
-  //    EVERY role found on the target through it (schema-plan.ts), so the
-  //    combined set would mark a user-role-owned object in an assumed schema
-  //    as platform-provisioned and silence the fail-fast (Codex P1 #1,
-  //    PR #407);
-  //  - NOT the run-level `options.defaultOwner` override: the policy declares
-  //    `postgres` assumed only so ownership/grant references resolve — objects
-  //    it owns are the USER's, and a custom `--default-owner` must not
-  //    reclassify them as platform-provisioned (Codex P1 #2, PR #407).
-  // The exemption then covers the owner-bearing root AND its non-satellite
-  // descendants: extraction resolves relation subobjects to COLUMN ids
-  // (extract/dependencies.ts), so a dependent's `depends` edge can point at a
-  // column of a platform table — the platform guarantee covers the subtree
-  // (Codex P2, PR #407). Satellites are excluded like extensionMemberClosure
-  // does: a user GRANT/COMMENT on a platform object is user state, never a
-  // depends target.
-  const flatPolicy = options?.policy
-    ? flattenPolicy(options.policy)
-    : undefined;
   const assumedDefaultGrants = uniqueAssumedDefaultGrants([
     ...(flatPolicy?.assumedDefaultGrants ?? []),
     ...(options?.assumedDefaultGrants ?? []),
@@ -685,40 +726,6 @@ export function plan(
       overlayHygieneGrantees.add(tuple.grantee);
     }
   }
-  const policyAssumedRoleNames = new Set(flatPolicy?.assumedRoles ?? []);
-  const policyDefaultOwner = flatPolicy?.defaultOwner;
-  const assumedPresentIds = new Set<string>();
-  if (policyAssumedRoleNames.size > 0) {
-    for (const fb of [rawSource, rawDesired]) {
-      // The traversal guard is PER FACT BASE, not the shared result set: a
-      // platform root present on BOTH sides is recorded by the source pass
-      // first, but the desired pass must still walk it — its DESIRED-ONLY
-      // descendants (a platform column added by a newer image) would otherwise
-      // never be traversed (Codex P2 round 3, PR #407).
-      const visited = new Set<string>();
-      for (const e of fb.edges) {
-        if (e.kind !== "owner" || e.to.kind !== "role") continue;
-        const schema = (e.from as { schema?: string }).schema;
-        if (schema === undefined || !assumedSchemaNames.has(schema)) continue;
-        const owner = (e.to as { name: string }).name;
-        if (!policyAssumedRoleNames.has(owner)) continue;
-        if (owner === policyDefaultOwner) continue;
-        const stack: StableId[] = [e.from];
-        while (stack.length > 0) {
-          const id = stack.pop() as StableId;
-          const key = encodeId(id);
-          if (visited.has(key)) continue;
-          visited.add(key);
-          assumedPresentIds.add(key);
-          for (const child of fb.childrenOf(id)) {
-            if (isSatelliteId(child.id)) continue;
-            stack.push(child.id);
-          }
-        }
-      }
-    }
-  }
-
   // ── phase 2: replacement expansion + drop-root suppression ────────────
   // Classify set-deltas (alter vs replace), expand the forced dependent
   // rebuild, and compute drop-root suppression/redirect (./phases/
@@ -796,7 +803,10 @@ export function plan(
   });
   const { safetyReport } = finalized;
 
-  const vaultDiags = vaultPresenceDiagnostics(desired, finalized.actions);
+  const diagnostics = [
+    ...cascadeDiagnostics,
+    ...vaultPresenceDiagnostics(desired, finalized.actions),
+  ];
 
   return stampPlanId({
     formatVersion: 1,
@@ -857,9 +867,10 @@ export function plan(
       : {}),
     actions: finalized.actions,
     safetyReport,
-    // CREATE/DROP EXTENSION supabase_vault is generic; the warning is that
-    // secret values/keys are not schema state. Omitted when empty so corpus
-    // artifacts stay byte-identical. Not hashed into planId.
-    ...(vaultDiags.length > 0 ? { diagnostics: vaultDiags } : {}),
+    // Withheld-requirement cascade warnings, then vault_presence (CREATE/DROP
+    // EXTENSION supabase_vault is generic; secret values/keys are not schema
+    // state). Omitted when empty so corpus artifacts stay byte-identical. Not
+    // hashed into planId.
+    ...(diagnostics.length > 0 ? { diagnostics } : {}),
   });
 }
