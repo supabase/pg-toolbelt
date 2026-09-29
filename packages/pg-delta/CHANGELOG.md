@@ -1,5 +1,43 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.54
+
+### Minor Changes
+
+- 1142712: Privileges on the sequence behind a `GENERATED … AS IDENTITY` column are now tracked. A `GRANT` or `REVOKE` on that sequence is extracted, shows up in `schema diff` and `schema plan`, is exported into the owning table's file, and survives `schema apply` and `load(export(db))`. Previously such grants were invisible: a role granted `USAGE` on an identity sequence lost it when the schema was recreated, and a project whose default privileges grant sequence access kept that access on identity sequences the source had revoked. The owner's untouched default on its own sequence is not exported, so exports of plain identity tables are unchanged. The same owner detection now also drops the redundant `GRANT … TO <owner>` line that database-scope exports used to write for every table.
+
+### Patch Changes
+
+- 6c9a630: Fix domains with `NOT NULL` extracted from PostgreSQL 17+. The catalog stores a domain NOT NULL as a `pg_constraint` row (`contype = 'n'`), which the extractor turned into a second constraint fact next to the domain's `notNull` attribute. `CREATE DOMAIN` then rendered `… NOT NULL … CONSTRAINT "<domain>_not_null" NOT NULL`, which PostgreSQL rejects (`constraint … already exists`), toggling NOT NULL emitted a redundant `ADD/DROP CONSTRAINT`, and every extract reported a spurious `dangling_edge` warning for the row. NOT NULL is now modeled only by the domain attribute, identically on PG 14–18; a user-chosen name for that NOT NULL constraint is not preserved, and a `COMMENT ON CONSTRAINT` attached to it is dropped with an info `domain_not_null_comment_skipped` diagnostic.
+- 56269a1: Cast through `text` (`text[]` for array columns) when a column is retyped from one enum to a differently named enum, so the migration no longer fails with "cannot cast type … (42846)". Retypes from an enum to a non-enum type keep the direct cast, so user-defined casts still apply.
+- 0d88e30: Extraction no longer fails with `cache lookup failed …` (or records a `"null"` definition) when concurrent DDL drops an object mid-extraction: the attempt is retried on a fresh snapshot, up to 3 times. If the catalog keeps changing, `extract()` throws the new `ConcurrentCatalogChangeError` (`code: "concurrent_catalog_change"`) so callers can report a retryable condition instead of an internal error.
+- c03c015: fix(pg-delta): keep a UNIQUE that matches a PK or another UNIQUE as ALTER TABLE
+
+  Postgres silently drops a UNIQUE inlined in CREATE TABLE when its column list
+  equals a PRIMARY KEY or another UNIQUE in the same statement
+  (`transformIndexConstraints`). Compaction now leaves those UNIQUEs as
+  `ALTER TABLE … ADD CONSTRAINT` so one apply pass converges.
+
+- 1476a72: Stop reporting a `dangling_edge` warning for every NOT NULL column on PostgreSQL 18
+
+  PostgreSQL 18 catalogs a table column's NOT NULL as a `pg_constraint` row
+  (`contype = 'n'`, auto-named `<table>_<column>_not_null`). pg-delta models NOT
+  NULL as an attribute on the column fact, not as a constraint fact, so the
+  dependency resolver produced an edge to a fact that does not exist — one
+  `WARNING [dangling_edge]` per NOT NULL column on every `plan`, `diff`, and
+  `snapshot`, burying real diagnostics.
+
+  The rows are now excluded from dependency resolution, sharing one predicate with
+  the domain-side exclusion added for the same reason. Diagnostics only: the edge
+  was already discarded, so the fact base, hashes, and plans are unchanged.
+
+  A `COMMENT ON CONSTRAINT` attached to one of those rows has nowhere to live once
+  the row is skipped, so extraction now reports it as an info
+  `table_not_null_comment_skipped` diagnostic instead of dropping it without a
+  word — mirroring the domain-side `domain_not_null_comment_skipped`.
+
+- f10401d: Extract and plan column-level grants on views and materialized views (e.g. `GRANT INSERT (name) ON api.items TO authenticated`). They were previously dropped from exports and invisible to diffs.
+
 ## 1.0.0-alpha.53
 
 ### Patch Changes
