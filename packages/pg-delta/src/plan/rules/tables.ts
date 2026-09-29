@@ -64,18 +64,36 @@ export const tableRules: Record<string, KindRules> = {
         // `CREATE INDEX … ON ONLY` / `ADD PRIMARY KEY` do not recurse onto
         // partitions that already exist. PARTITION OF after those facts inherit
         // them (and attaches child indexes). Consume so attach cannot run first.
+        // A sub-partitioned partition's PARTITION BY names inherited columns:
+        // a key column an ancestor gains in this plan must be ADDed first
+        // ("column ... named in partition key does not exist"). Only local
+        // columns are facts, so the column sits on whichever ancestor declares
+        // it; walk the parentTable chain up to the root.
+        if (partKey != null) {
+          const seen = new Set<string>();
+          let ancestor: StableId | undefined = parentId;
+          while (ancestor !== undefined && !seen.has(encodeId(ancestor))) {
+            seen.add(encodeId(ancestor));
+            for (const col of view.childrenOf(ancestor)) {
+              if (
+                col.id.kind === "column" &&
+                p(col, "_partitionKey") === true
+              ) {
+                consumes.push(col.id);
+              }
+            }
+            const up = view.get(ancestor)?.payload["parentTable"] as
+              | { schema: string; name: string }
+              | null
+              | undefined;
+            ancestor =
+              up == null
+                ? undefined
+                : { kind: "table", schema: up.schema, name: up.name };
+          }
+        }
         for (const child of view.childrenOf(parentId)) {
           if (child.id.kind === "index") consumes.push(child.id);
-          // a sub-partitioned partition's PARTITION BY names inherited
-          // columns: a key column the parent gains in this plan must be
-          // ADDed first ("column ... named in partition key does not exist")
-          if (
-            partKey != null &&
-            child.id.kind === "column" &&
-            p(child, "_partitionKey") === true
-          ) {
-            consumes.push(child.id);
-          }
           if (child.id.kind === "constraint") {
             const ctype = p(child, "type");
             if (ctype === "p" || ctype === "u") consumes.push(child.id);
