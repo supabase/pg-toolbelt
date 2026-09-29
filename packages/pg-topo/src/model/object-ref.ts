@@ -200,6 +200,9 @@ export const dedupeObjectRefs = (refs: ObjectRef[]): ObjectRef[] => {
   return [...map.values()];
 };
 
+export const isBuiltInTypeName = (name: string): boolean =>
+  BUILTIN_TYPES.has(name.toLowerCase());
+
 export const isBuiltInObjectRef = (ref: ObjectRef): boolean => {
   const schemaLower = ref.schema?.toLowerCase();
   const nameLower = ref.name.toLowerCase();
@@ -216,7 +219,7 @@ export const isBuiltInObjectRef = (ref: ObjectRef): boolean => {
     return true;
   }
 
-  if (ref.kind === "type" && BUILTIN_TYPES.has(nameLower)) {
+  if (ref.kind === "type" && isBuiltInTypeName(nameLower)) {
     return true;
   }
 

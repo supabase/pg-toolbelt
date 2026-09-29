@@ -85,6 +85,29 @@ describe("statement coverage", () => {
     ).toBeGreaterThan(rangeIndex);
   }, 120000);
 
+  test("matches keyword-cast arguments against unqualified built-in parameter types", async () => {
+    const result = await analyzeAndSort([
+      "create schema app;",
+      "create table app.slots(label text default app.int_range(1::integer, 10::integer)::text, n int default app.twice(2::integer));",
+      "create type app.int_range as range (subtype = int4);",
+      "create function app.twice(a int4) returns int4 language sql immutable as $$ select a * 2 $$;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+
+    expect(unresolved).toHaveLength(0);
+    expect(executionErrors).toHaveLength(0);
+    expect(orderedSql.at(-1)).toContain("create table app.slots");
+  }, 120000);
+
   test("orders range type after custom subtype", async () => {
     const result = await analyzeAndSort([
       "create type app.price_range as range (subtype = app.price);",

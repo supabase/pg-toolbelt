@@ -1,4 +1,8 @@
-import { createObjectRefFromAst, DEFAULT_SCHEMA } from "../model/object-ref.ts";
+import {
+  createObjectRefFromAst,
+  DEFAULT_SCHEMA,
+  isBuiltInTypeName,
+} from "../model/object-ref.ts";
 import type { ObjectRef } from "../model/types.ts";
 import { asRecord } from "../utils/ast.ts";
 
@@ -146,7 +150,13 @@ export const typeFromTypeNameNode = (
     return null;
   }
   const nameParts = extractNameParts(typeNameRecord.names);
-  return objectFromNameParts("type", nameParts, undefined);
+  // pg_catalog is searched before public, so an unqualified built-in name is
+  // the pg_catalog type — the same ref the grammar emits for `integer` etc.
+  const [onlyPart] = nameParts;
+  if (nameParts.length === 1 && onlyPart && isBuiltInTypeName(onlyPart)) {
+    return objectFromNameParts("type", nameParts, "pg_catalog");
+  }
+  return objectFromNameParts("type", nameParts);
 };
 
 export const relationFromRangeVarNode = (
