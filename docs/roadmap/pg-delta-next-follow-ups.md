@@ -622,7 +622,7 @@ re-raised in a later review, reply with a link here.
 | P1b | `SET MAXVALUE` ordered before `TYPE` widening on identity columns | reproduced, new | regression class (old engine had no identity-bounds emitter) | **blocker** → ✅ [#379](https://github.com/supabase/pg-toolbelt/pull/379) |
 | P2a | `relam` / `reltablespace` invisible to diff | real, tracked | shared pre-existing gap | subsumed by the Wave 3 entries above |
 | P2b | `pg_parameter_acl` (PG15+) silently dropped | real, untracked | shared pre-existing gap | probe + docs → ✅ [#380](https://github.com/supabase/pg-toolbelt/pull/380) |
-| P2c | identity sequence grants | not a bug | identical behavior in old engine | **closed won't-fix** |
+| P2c | identity sequence grants | not a bug | identical behavior in old engine | **closed won't-fix** (export hoist in #475) |
 | P3 | no outside-observer verification gate | absent | never existed in either engine | post-cutover — tracked in [backlog.md](backlog.md) § Validation |
 
 Notes:
@@ -640,8 +640,12 @@ Notes:
   `unmodeled_kind` probe list — silently invisible, violating the completeness
   module's own contract. Now a probe (with `minVersion` version gating);
   modeling the grant as a fact remains add-when-needed.
-- **P2c rationale:** grant handling on identity sequences is byte-identical to
-  the legacy engine's behavior; the review confirmed there is no defect to fix.
+- **P2c rationale:** identity sequences are still not facts, so per-object grant
+  diffs on them are out of scope (same as the legacy engine). #475 sorts overlay
+  `REVOKE ALL` with CREATE SCHEMA in the plan (and files `adp_wipes.sql` ahead
+  of objects/extensions in every layout) so a dest auto-expose baseline no
+  longer injects those grants at `CREATE TABLE` / `CREATE EXTENSION` time.
+  Positive ADP `GRANT`s stay at plan order.
 - **Still open (discovered during #379):** a desired identity bound pinned
   exactly at the source type's max (e.g. `bigint … (MAXVALUE 2147483647)` from
   an `integer` identity) produces **no** `identity` delta, yet PostgreSQL
@@ -1653,3 +1657,313 @@ Deferred:
 - **CodeQL `js/polynomial-redos` on `/;+\s*$/`.** End-anchored strip of
   trailing semicolons. Dismissed: planner SQL is not a `;` bomb, and
   the match cannot slide over the rest of the string.
+
+## PR #470 review triage (Codex) — partition replace + index attach
+
+PR #470 recreates partitions/views/publicationRel across a parent-table
+replace and emits child indexes plus `ALTER INDEX … ATTACH PARTITION`.
+Codex round 1 on `36f77e2a`; round 2 on parent-index rename; round 3
+on unchanged children of a `def` replace, child rename, and
+snapshot `attachedTo`. Apply holes in this PR's attach path were
+in-scope; unusual desired states, snapshot-format compat, and
+resolver contract stay deferred.
+
+- **Fixed — fold attached child index drops into parent-index replace
+  (P1).** `dropRootRedirect` ran only over `removed`. A parent-index
+  `def` replace also replaces attached children; both entered
+  `replaceIds` and the plan emitted `DROP INDEX child`. PostgreSQL
+  refuses that while the parent still requires the child. Redirect
+  now covers `replaceIds` and the parent replace `destroys` those
+  children. Unit test in `partition-index-attach.test.ts`.
+- **Fixed — recreate attached children when the parent index identity
+  changes (P1).** `renames` off plans a parent-index rename as
+  `DROP INDEX old` + `CREATE INDEX new`. Drop cascades attached
+  children; `attachedTo` was an in-place ATTACH against a ghost.
+  `replaceWhen` is now `from != null`, and the drop pass lists
+  replaced children in that DROP's `destroys` (direct redirect
+  only). Unit + corpus
+  `partitioned-table-operations--parent-index-rename`.
+- **Fixed — recreate unchanged children of a replaced parent index
+  (P1).** `dropRootRedirect` only walks facts already in `removed` /
+  `replaceIds`. A parent-index `def` change (`WITH (fillfactor=…)`,
+  tablespace, …) can leave the child payload identical, so the child
+  was neither removed nor replaced. `DROP INDEX parent` still
+  cascades it; the plan recreated only the parent. Expansion now
+  promotes surviving facts whose `dropRootRedirect` ancestor is
+  destroyed (kind knowledge stays in the rule table) and walks that
+  to a fixed point so a leaf attached through a middle partitioned
+  index is included regardless of fact order. Unit tests plus corpus
+  `partitioned-table-operations--parent-index-fillfactor`.
+- **Deferred — synthesize publicationRel→table via pg_depend (P1).**
+  The edge is extract-time from `pg_publication_rel` (same catalog
+  relationship pg_depend records). The resolver's `pubrel` CTE
+  currently *folds* those rows onto the publication id on purpose
+  (`seed-assumed-schemas`: a shell publication must not inherit member
+  replay requirements). Un-folding `pg_publication_rel` onto
+  `publicationRel` is a resolver + seed contract change, not a bug in
+  the membership rebuild this PR landed.
+- **Deferred — alsoProduces vs renamed/custom child indexes (P1).**
+  `PARTITION OF` after a parent index clones a default-named child.
+  `alsoProduces` suppresses the desired child CREATE when
+  `attachedTo` is set. A desired child with a different name or
+  reloptions than that clone would drift. Corpus and pg_dump-healthy
+  trees use the inherited name. Custom names need a follow-up that
+  only alsoProduces when identity/payload match the clone, or that
+  emits RENAME/ALTER after inherit.
+- **Deferred — attachedTo → null / re-parent ATTACH (P2).** There is
+  no `ALTER INDEX … DETACH PARTITION` grammar we emit. Detach is
+  `replaceWhen`. Re-ATTACH to a different parent while the old parent
+  **survives** still has no redirect (old parent is not removed) and
+  emits `DROP INDEX child`, which PostgreSQL rejects while attached.
+  Same class as detach; not a schema-first dump path (you drop or
+  replace the parent index). The rename case (old parent gone) is
+  the P1 above.
+- **Deferred — consume parent indexes only when the new partition has
+  an attached child (P1).** Unconditional consume forces `CREATE INDEX
+  ON ONLY` before `PARTITION OF`, which clones children. Desired SQL
+  that is `PARTITION OF` then `ON ONLY` with *no* child facts (an
+  incomplete parent) would then fail proof. This PR's corpus and
+  pg_dump-style trees include the child facts; the incomplete parent
+  is the state we force-valid and do not round-trip as a goal.
+- **Deferred — rename attached child while the parent index survives
+  (P1).** `renames` off plans a child rename as `DROP INDEX old_child`
+  + `CREATE INDEX new_child`. The parent is not removed, so there is
+  no redirect, and PostgreSQL rejects the child DROP while attached.
+  Same class as custom child names / `alsoProduces`: schema-first
+  dumps keep the inherited name. `ALTER INDEX RENAME` is a larger
+  project (`pg_get_indexdef` embeds the name).
+- **Deferred — legacy snapshots missing `attachedTo` (P2).** Format
+  is still v1. An old snapshot without the key vs live extract with
+  `attachedTo: null` is a set-delta (`from` absent). `replaceWhen:
+  (from) => from != null` treats `undefined` as replace, so every
+  standalone index would drop+recreate; `to === null` would also
+  throw in `attachedTo.alter` if that path ran. Upgrade by
+  re-extracting. Coercing missing `attachedTo` to `null` at snapshot
+  load is a format-compat follow-up, not this PR.
+
+## PR #475 review triage — overlay default grants
+
+Identity-sequence inject on live-OFF → dest-ON is **fixed** (#475): overlay
+`REVOKE ALL` wipes sort with CREATE SCHEMA in the plan (schema-stratum
+weight on wipe creates only), so `--layout ordered` follows that order,
+by-object files sort by plan `firstAt`, and grouped splits `adp_wipes.sql`
+(after `schema.sql`, before extensions) from late `default_privileges.sql`
+(after objects). Whole-file hoist of GRANT ADP was wrong: it created
+predating identity sequences under a later `GRANT USAGE`. Create-time ADP
+hygiene uses the resolved default owner when that owner edge was pruned, so
+a table that predated a schema ADP still gets `REVOKE ALL` in its own file.
+Recorded here so a later review does not re-open P2c as the same leak.
+Identity sequences stay unmodeled; per-object grant diffs on them remain
+won't-fix. A source identity sequence created *after* a positive `GRANT
+USAGE ON SEQUENCES` still will not regain that grant on load — the fact
+base has no create-order, so the GRANT file cannot be interleaved between
+two `CREATE TABLE`s. Follow-up: https://github.com/supabase/pg-toolbelt/issues/477.
+
+Deferred from the same review (not blocking):
+
+- **Explicit `plan()` overlay target.** Export vs policy-only is inferred
+  from whether `options.assumedDefaultGrants` is non-empty. A public-API
+  discriminator (`fresh-baseline` vs `live`) would make that obvious; today's
+  two callers (schema-export vs DB-to-DB policy) already pass the right
+  channel.
+- **ADP wipe merge-per-objtype.** Nine unconditional `REVOKE ALL` wipes per
+  supabase-profile export (eighteen with auto-expose ON) are correct and
+  no-op safe. `adp_wipes.sql` has a header; collapsing nine statements into
+  three (one per objtype) can wait. `mergeCoTargetRevokes` is object-ACL
+  only.
+- **Alpine fixture `GRANT ALL`.** The round-trip cell uses DML to match its
+  live SQL; full-set elision is covered in `assumed-default-grants` unit
+  tests. Catalog `aclexplode` on identity sequences is in the new alpine
+  cell, not a full-public dump on the DML fixture.
+- **Kind-literal helper / `postgres`-only overlay pin.** Cleanup; load runs
+  as `postgres`.
+- **Grouped `_cluster/adp_wipes.sql` vs `roles.sql`.** Shipped overlay tuples
+  name baseline roles (`anon`, …). A tuple whose creating role or grantee is
+  created by the export would need the wipe after `CREATE ROLE`.
+- **Overlay REVOKE elision vs dest GRANT OPTION.** When the desired privilege
+  set equals `_ownerDefault`, compaction drops the leading `REVOKE`. Overlay
+  tuples do not carry grant-option bits; a dest ADP that injected the same
+  privileges `WITH GRANT OPTION` would survive a plain `GRANT`. Not the
+  Supabase auto-expose injectee. Keep the revoke for overlay matches only if
+  we start modeling grant options on the tuples.
+
+
+## PR #484 review triage (Codex) — domain NOT NULL on PG 17+
+
+PostgreSQL 17+ catalogs a domain NOT NULL as a `pg_constraint` row
+(`contype = 'n'`). Both extractors (`types.ts` constraint facts,
+`dependencies.ts` `dcon` CTE) skip those rows so NOT NULL is modeled only by
+the domain's `notNull` attribute and hashes match across PG 14–18 (#482).
+
+Deferred from the review (not blocking):
+
+- **Comment on a domain NOT NULL constraint.** `COMMENT ON CONSTRAINT
+  <domain>_not_null ON DOMAIN d` (PG 17+ only) lives on the skipped row, so
+  it is neither diffed nor exported and a load of the export converges to
+  the comment-less state. This is a narrow PG 17+ regression for a NOT NULL
+  domain that exists on both sides: a comment-only change on that row used
+  to plan `COMMENT ON CONSTRAINT …` and now plans nothing. (Creating such a
+  domain from a PG 17+ source failed outright before #484, so the create
+  path only narrowed.) The loss is not silent: extract emits an info
+  `domain_not_null_comment_skipped` diagnostic for a commented `n` row. The
+  constraint's name is not modeled either (deliberate: PG 14–16 cannot
+  replay `ADD CONSTRAINT name NOT NULL`), so a faithful comment would need a
+  `notNullComment` domain attribute rendered against the auto-generated name
+  on PG 17+ only. Pick up if a user reports it.
+- **PG 18 `NOT ENFORCED` on domain NOT NULL.** Not reachable: PG 18 rejects
+  `specifying constraint enforceability not supported for domains` for every
+  domain constraint form, and `NOT NULL constraints cannot be marked NOT
+  ENFORCED` on `ALTER DOMAIN … ADD CONSTRAINT`. Every domain `n` row has
+  `conenforced = true` and mirrors `typnotnull`.
+- **Legacy snapshots carrying the `n` constraint fact (round 2).** A
+  snapshot captured by an earlier alpha from a PG 17+ database with a
+  NOT NULL domain serialized `constraint:<schema>.<domain>.<domain>_not_null`
+  (`type: "n"`). Diffed against a fresh extraction it reads as a removed
+  constraint: `drift` reports it, and a plan from that snapshot emits
+  `ALTER DOMAIN … DROP CONSTRAINT <domain>_not_null`, which on PG 17+ makes
+  the domain nullable. Recapture the snapshot. Snapshot compatibility across
+  extractor changes is not a contract today — `FORMAT_VERSION` has stayed at 1
+  through every extraction change since the rewrite, and legacy stamps are
+  tolerated rather than rejected (`cli/profile.ts`). The durable fix is
+  general: an extractor-version stamp on snapshots that `drift`/`plan` check
+  and refuse with recapture guidance, not a per-kind normalizer for this row.
+
+## Issue #487 follow-up — enum retype through an indirect enum source
+
+An enum → enum column retype now casts through `text` / `text[]`. The hop
+requires BOTH the column's released (source) and consumed (desired) type
+edges to land on an enum `type` fact. Deferred:
+
+- **Domain over an enum, or an extension-member enum, as the source or
+  target type.** The edge resolves to the `domain` / `extension` fact (no
+  `variant`), so the hop is skipped and the retype emits the direct cast,
+  failing with 42846 — e.g. enum → a domain over another enum still emits
+  `c::d_widget`. Resolving it needs the domain's base type or the member's
+  variant at plan time.
+- **User-defined enum → enum cast (PR #490 Codex, round 2).** The hop
+  applies to every enum → enum retype, so an explicit
+  `CREATE CAST (a_enum AS b_enum)` is bypassed. For a cast mapping
+  `'legacy'` → `'active'`:
+  - a target enum that also has `'legacy'` now silently keeps `'legacy'`;
+  - a target without it now fails at apply, where it used to succeed.
+
+  The proof does not catch the silent case: once the column's type
+  signature changes it only compares row counts (`proof/prove.ts`,
+  `contentMode: "count"`). Casts are unmodeled (`extract/unmodeled.ts`
+  reports them; no fact reaches the planner), so honouring one needs cast
+  facts in the plan-time view. Deferred: before #490 every enum → enum
+  retype without such a cast failed outright, and the case needs a
+  hand-written cross-enum cast. Enum → non-enum already keeps the direct
+  cast.
+
+## supabase/cli#6761 — view / matview column-level grants
+
+Column grants on views and materialized views (`pg_attribute.attacl`, relkind
+`v`/`m`) are now extracted as `acl` facts with a `column` qualifier, parented
+on the view (view columns are not facts). Previously tracked as
+supabase/pg-toolbelt#359, which was closed as a duplicate of #332 item 4
+(view column **comments**) and so left the grant half untracked.
+
+Deferred:
+
+- **Object-level `REVOKE ALL` wipes same-role column grants.** Pre-existing
+  for tables, and now reachable for views: PostgreSQL revokes matching column
+  privileges with any table-level revoke, and the planner neither orders the
+  column GRANT after it nor re-emits it on replace.
+  https://github.com/supabase/pg-toolbelt/issues/491 (next PR).
+- **Extension-member relations.** Column grants on extension-owned views stay
+  invisible, like extension-owned table columns today (`columnsFamily` also
+  filters `notExtensionMember`). A correct fix needs a column-aware
+  initial-privileges delta: `memberAclDeltaJson` hardcodes
+  `pg_init_privs.objsubid = 0`. Tables and views should be fixed together.
+- **View / matview column comments** (#332 item 4) need their own
+  representation; out of scope here.
+
+## Issue #483 review triage — table NOT NULL dangling edges on PG 18
+
+PG 18 catalogs a table column's NOT NULL as a `pg_constraint` row
+(`contype = 'n'`), the same change PG 17 made for domains (#482). The fix
+excludes those rows from the `tcon` branch of the dependency resolver and
+shares one predicate with the domain-side `dcon` exclusion, so the two cannot
+drift. Diagnostics only — the edge was already dropped before reaching the fact
+base, and the `depend-edges-oracle` snapshot is unchanged across PG 14–18.
+
+Deferred from the review (not blocking, pre-existing):
+
+- **`conislocal = false` constraints dangle the same way, on every version.**
+  `relations.ts` extracts only `contype IN ('p','u','f','c','x') AND
+  conislocal`, but the resolver's `tcon` branch resolves non-local rows too, so
+  an inherited or partition-child constraint produces the identical
+  `constraint:… -[depends]-> column:…` dangling edge and warning. Confirmed on
+  postgres:17-alpine with an `INHERITS` child:
+
+  ```
+  dangling_edge: edge constraint:app.c.p_id_check -[depends]-> column:app.c.id references a fact not in the base
+  ```
+
+  The review's probe saw the same for partition-child PK/CHECK rows on PG 18.
+  Not introduced or worsened by this change, but a user with inheritance or
+  partitions still sees warning noise after it. The mechanical fix is the same
+  shape (`AND con.conislocal` in `tcon`), but whether a non-local constraint
+  should instead resolve to its PARENT constraint is a modeling decision — an
+  inherited constraint is a real dependency of the child's column, just not one
+  the engine keys separately today. Needs a deliberate call, not a one-line
+  filter. Pick up if a user reports it, or alongside any other inheritance work.
+
+Codex round 1 (PR #485), both P2, both on the `tcon` filter:
+
+- **Commented table NOT NULL rows — FIXED here.** A `COMMENT ON CONSTRAINT
+  <table>_<col>_not_null ON <table>` is accepted on PG 18, and with the row
+  skipped as a fact the comment had nowhere to live. Extraction now emits an
+  info `table_not_null_comment_skipped`, mirroring the domain side. Verified on
+  postgres:18-alpine that the comment is accepted and that an UNcommented row
+  still extracts in silence.
+- **`NOT ENFORCED` on a table NOT NULL — DECLINED, not reachable.** The finding
+  claims such a constraint leaves the column nullable while the row persists.
+  PostgreSQL 18 rejects the syntax outright:
+
+  ```
+  ERROR:  NOT NULL constraints cannot be marked NOT ENFORCED
+  ```
+
+  Every contype 'n' row observed has `conenforced = true`, so the row is always
+  equivalent to `attnotnull`. This mirrors the same conclusion already recorded
+  for domains above.
+
+  What IS reachable is `NOT VALID`: `ALTER TABLE … ADD CONSTRAINT c NOT NULL col
+  NOT VALID` succeeds on PG 18 with `convalidated = false`, while `attnotnull`
+  is still set — so pg-delta renders a plain, validating `NOT NULL`, which fails
+  at apply if the table holds NULL rows. A user-chosen name for the constraint
+  is lost the same way. That is a genuine fidelity gap, out of scope for a
+  diagnostics-only PR, and tracked separately.
+
+## SUPABASE-API-8S4 — objects dropped mid-extraction
+
+Extraction now retries on a fresh snapshot when concurrent DDL drops an
+object after the snapshot was taken: on XX000 `cache lookup failed …` /
+`could not open relation with OID …`, and on a NULL result from the required
+`def` deparsers (constraint, index, view, trigger, rule, routine, domain
+constraint). After 3 attempts it throws `ConcurrentCatalogChangeError`.
+
+Deferred (not blocking):
+
+- **Optional expressions still NULL silently.** `pg_get_expr` returns NULL
+  (PG 17 probe) for a relation dropped after the snapshot, and the column
+  default (`relations.ts` `default_expr`), partition bound / key, policy
+  `USING` / `WITH CHECK`, and publication `WHERE` sites treat NULL as "absent".
+  The stale fact describes a relation that no longer exists, so the effect is
+  limited to a result that is already out of date. Closing it needs each query
+  to select whether the source expression exists (e.g. `ad.adbin IS NOT NULL`)
+  so a NULL deparse can be told apart from a real absence and retried.
+- **Concurrent DDL on a surviving table records wrong definitions.** Not
+  detected by the retry, and worse than stale: the table still exists. A
+  column dropped just before the constraints query makes
+  `pg_get_constraintdef` render the placeholder name
+  (`CHECK (("?dropped?column?" > 0))`, `FOREIGN KEY ("........pg.dropped.3........") …`);
+  a type dropped with `CASCADE` just before the columns query makes
+  `format_type` return `???`. Reproduced on PG 14, 17 and 18; predates the
+  retry. Candidate fix: treat those markers in deparse output as a concurrent
+  change and retry.
+- **Non-transient `cache lookup failed`.** A corrupt catalog or a buggy
+  extension deparser raises the same XX000 text; it now costs 3 attempts and
+  ends in `ConcurrentCatalogChangeError` with the original error as `cause`.

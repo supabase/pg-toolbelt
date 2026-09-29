@@ -1,7 +1,7 @@
 /** Rule definitions for tables and their column / default sub-objects. */
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { qid, rel } from "../render.ts";
-import type { ActionSpec, KindRules } from "../rules.ts";
+import type { ActionSpec, FactView, KindRules } from "../rules.ts";
 import {
   columnClause,
   columnRef,
@@ -24,6 +24,10 @@ export const tableRules: Record<string, KindRules> = {
   table: {
     weight: 4,
     cascadesToChildren: true,
+    // Partitions / INHERITS children are parented at the schema, not the
+    // parent table. Incoming inherit `depends` must force-rebuild them when
+    // the parent is replaced (DROP TABLE cascades them away).
+    rebuildable: true,
     defaclObjtype: "r",
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
@@ -51,11 +55,29 @@ export const tableRules: Record<string, KindRules> = {
         // its own PARTITION BY so sub-partitions can attach — otherwise the
         // middle layer is created as a plain table and its leaves fail to attach.
         if (partKey != null) createSql += ` PARTITION BY ${str(partKey)}`;
-        consumes.push({
+        const parentId: StableId = {
           kind: "table",
           schema: parentT.schema,
           name: parentT.name,
-        });
+        };
+        consumes.push(parentId);
+        // `CREATE INDEX … ON ONLY` / `ADD PRIMARY KEY` do not recurse onto
+        // partitions that already exist. PARTITION OF after those facts inherit
+        // them (and attaches child indexes). Consume so attach cannot run first.
+        for (const child of view.childrenOf(parentId)) {
+          if (child.id.kind === "index") consumes.push(child.id);
+          if (child.id.kind === "constraint") {
+            const ctype = p(child, "type");
+            if (ctype === "p" || ctype === "u") consumes.push(child.id);
+          }
+        }
+        // PARTITION OF materializes attached child indexes. Local-only
+        // indexes on the partition are still standalone CREATE INDEX.
+        for (const child of view.childrenOf(fact.id)) {
+          if (child.id.kind === "index" && p(child, "attachedTo") != null) {
+            alsoProduces.push(child.id);
+          }
+        }
       } else {
         // partitioned parents must inline their columns: the partition key
         // references them, so decomposed ADD COLUMN cannot work (§3.4
@@ -271,6 +293,20 @@ export const tableRules: Record<string, KindRules> = {
           // dropped in extract), so a plain widening leaves both sets empty.
           const consumes = dependencyConsumes(view, fact.id);
           const releases = dependencyConsumes(sourceView, fact.id);
+          // PostgreSQL has no enum-to-enum cast (42846), so an enum-to-enum
+          // retype hops through text — element-wise `text[]` for an array
+          // column (format_type renders arrays with a trailing `[]`). Only
+          // enum-to-enum: any other target keeps the direct cast so a
+          // user-defined cast (e.g. enum AS integer) still applies. The type
+          // edges resolve an array column to its element enum.
+          const isEnum = (v: FactView, ids: StableId[]) =>
+            ids.some((id) => v.get(id)?.payload["variant"] === "enum");
+          const hop =
+            isEnum(sourceView, releases) && isEnum(view, consumes)
+              ? str(from).endsWith("[]")
+                ? "::text[]"
+                : "::text"
+              : "";
           // A generated column also rejects the USING clause ("cannot specify
           // USING when altering type of generated column") — PostgreSQL
           // recomputes the value from the generation expression. That still
@@ -278,7 +314,7 @@ export const tableRules: Record<string, KindRules> = {
           const usingCast =
             isForeign || sourceGenerated
               ? ""
-              : ` USING ${qid(column)}::${str(to)}`;
+              : ` USING ${qid(column)}${hop}::${str(to)}`;
           const typeSpec: ActionSpec = {
             sql: `${target} TYPE ${str(to)}${usingCast}`,
             ...(isForeign ? {} : { rewriteRisk: true }),

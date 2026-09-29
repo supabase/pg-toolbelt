@@ -81,6 +81,11 @@ describe("policy: managed-schema invisibility", () => {
       );
       expect(hasUserStuff).toBe(true);
 
+      // Overlay hygiene must not REVOKE assumed roles the alpine dest never had.
+      expect(policyPlan.actions.map((a) => a.sql).join("\n")).not.toMatch(
+        /FROM "anon"/,
+      );
+
       // Plan WITHOUT policy: auth objects must appear
       const rawPlan = plan(sourceState.factBase, desiredState.factBase);
       const hasAuthInRaw = rawPlan.actions.some((a) =>

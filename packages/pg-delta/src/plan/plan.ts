@@ -11,7 +11,12 @@ import {
 import { subjectOf, type Delta } from "../core/diff.ts";
 import type { FactBase } from "../core/fact.ts";
 import { encodeId, isSatelliteId, type StableId } from "../core/stable-id.ts";
-import { flattenPolicy, type Policy } from "../policy/policy.ts";
+import {
+  flattenPolicy,
+  uniqueAssumedDefaultGrants,
+  type AssumedDefaultGrant,
+  type Policy,
+} from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 import {
   projectionAuditFrom,
@@ -69,6 +74,7 @@ export type {
   ProjectionAuditStage,
   ProjectionAuditSubject,
 } from "../policy/view.ts";
+export type { AssumedDefaultGrant } from "../policy/policy.ts";
 
 export interface Action {
   sql: string;
@@ -267,6 +273,12 @@ export interface PlanOptions {
    *  over an already-resolved view. */
   assumedSchemas?: string[];
   assumedRoles?: string[];
+  /** Overlay tuples for create-time REVOKE / ADP wipes. Distinct from
+   *  `assumedRoles` / `assumedSchemas` (those exempt the requirement guard).
+   *  Empty/absent option still applies policy tuples (hygiene REVOKEs on
+   *  creates). ADP wipes and "REVOKE roles the source lacks" fire only when
+   *  this option is non-empty (export / fresh-baseline). */
+  assumedDefaultGrants?: AssumedDefaultGrant[];
   /** the redaction mode used to extract the source/desired fact bases, stamped
    *  onto the artifact so `apply`/`prove` reconstruct the fingerprint identically
    *  (see `Plan.redactSecrets`). Omit on direct library plans. */
@@ -654,6 +666,25 @@ export function plan(
   const flatPolicy = options?.policy
     ? flattenPolicy(options.policy)
     : undefined;
+  const assumedDefaultGrants = uniqueAssumedDefaultGrants([
+    ...(flatPolicy?.assumedDefaultGrants ?? []),
+    ...(options?.assumedDefaultGrants ?? []),
+  ]);
+  // Export (`options.assumedDefaultGrants`) always REVOKEs overlay grantees —
+  // the load dest is an auto-expose baseline. Policy-only DB-to-DB only
+  // REVOKEs roles the apply target already has: assumedRoles skip the
+  // requirement guard, and alpine/stock Postgres has no `anon`.
+  const exportOverlay = (options?.assumedDefaultGrants ?? []).length > 0;
+  const overlayHygieneGrantees = new Set<string>();
+  for (const tuple of assumedDefaultGrants) {
+    if (
+      exportOverlay ||
+      tuple.grantee === "PUBLIC" ||
+      rawSource.has({ kind: "role", name: tuple.grantee })
+    ) {
+      overlayHygieneGrantees.add(tuple.grantee);
+    }
+  }
   const policyAssumedRoleNames = new Set(flatPolicy?.assumedRoles ?? []);
   const policyDefaultOwner = flatPolicy?.defaultOwner;
   const assumedPresentIds = new Set<string>();
@@ -727,6 +758,12 @@ export function plan(
     serializeRules,
     capability: options?.capability,
     rulesForId,
+    assumedDefaultGrants,
+    overlayAdpWipes: options?.assumedDefaultGrants ?? [],
+    overlayHygieneGrantees,
+    ...(options?.defaultOwner !== undefined
+      ? { defaultOwner: options.defaultOwner }
+      : {}),
   });
 
   // ── phase 4: order, segment-mark, compact, and report ─────────────────
@@ -746,6 +783,8 @@ export function plan(
     assumedRoleNames,
     assumedSchemaNames,
     assumedPresentIds,
+    assumedDefaultGrants,
+    overlayAdpWipes: options?.assumedDefaultGrants ?? [],
     capability: options?.capability,
     compact: options?.compact !== false,
     foldConstraints: options?.foldConstraints,

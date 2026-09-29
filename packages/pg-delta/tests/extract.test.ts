@@ -155,6 +155,7 @@ describe("extract: fixture ring", () => {
     expect(idx?.payload["def"] as string).toContain(
       "CREATE INDEX orders_user_idx",
     );
+    expect(idx?.payload["attachedTo"]).toBeNull();
     expect(fb().has({ kind: "index", schema: "app", name: "users_pkey" })).toBe(
       false,
     );

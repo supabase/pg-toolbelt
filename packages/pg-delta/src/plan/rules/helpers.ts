@@ -637,6 +637,22 @@ export function renderGrantSql(
   return `GRANT ${privs} ON ${grantTarget(target)} TO ${to}${option}`;
 }
 
+/** Canonical `REVOKE ALL ON <target> FROM <grantees>` — shared by `grantActions`,
+ *  create-time hygiene, and compaction's multi-grantee REVOKE merge. */
+export function renderRevokeAllSql(
+  target: StableId,
+  grantees: readonly string[],
+  opts?: { column?: string },
+): string {
+  const col = opts?.column;
+  const revokeAll =
+    col === undefined ? "REVOKE ALL" : `REVOKE ALL (${qid(col)})`;
+  const from = grantees
+    .map((g) => (g === "PUBLIC" ? "PUBLIC" : qid(g)))
+    .join(", ");
+  return `${revokeAll} ON ${grantTarget(target)} FROM ${from}`;
+}
+
 export function grantActions(fact: Fact, verb: "grant"): ActionSpec[] {
   const id = fact.id as {
     kind: "acl";
@@ -644,7 +660,6 @@ export function grantActions(fact: Fact, verb: "grant"): ActionSpec[] {
     grantee: string;
     column?: string;
   };
-  const grantee = id.grantee === "PUBLIC" ? "PUBLIC" : qid(id.grantee);
   const privileges = p(fact, "privileges") as string[];
   const grantable = new Set((p(fact, "grantable") as string[]) ?? []);
   const plain = privileges.filter((priv) => !grantable.has(priv));
@@ -655,13 +670,15 @@ export function grantActions(fact: Fact, verb: "grant"): ActionSpec[] {
   // (`SELECT (col)`) and REVOKE ALL takes the column list too. Object-level
   // grants render the bare privilege list.
   const col = id.column;
-  const revokeAll =
-    col === undefined ? "REVOKE ALL" : `REVOKE ALL (${qid(col)})`;
   const specs: ActionSpec[] = [
     // pg_dump's model: reset to a clean slate first — implicit default-
     // privilege grants on freshly created objects would otherwise linger
     {
-      sql: `${revokeAll} ON ${grantTarget(id.target)} FROM ${grantee}`,
+      sql: renderRevokeAllSql(
+        id.target,
+        [id.grantee],
+        col !== undefined ? { column: col } : {},
+      ),
       consumes,
     },
   ];

@@ -1,0 +1,5 @@
+---
+"@supabase/pg-delta": patch
+---
+
+`schema export --profile supabase` now preserves your live privileges when the export is loaded onto a fresh Supabase project. New projects grant `anon`, `authenticated` and `service_role` access to every new table, sequence and function by default; previously those grants silently appeared on objects that had them revoked in the source. The export writes `<schema>/adp_wipes.sql`, which resets those defaults after `CREATE SCHEMA` and before objects and extensions are created, and emits an explicit `REVOKE ALL` for any of those roles an object does not grant. Default privileges you declared yourself stay after objects are created. This holds for `--layout by-object`, `ordered`, and `grouped` (the CLI layout). Known limitation: privileges on the sequences behind `GENERATED … AS IDENTITY` columns are not tracked, so a role granted `USAGE` on such a sequence only through a default privilege will not have it after load. Inserting into the identity column does not need that privilege.

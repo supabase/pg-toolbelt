@@ -130,8 +130,12 @@ schema/
     roles.sql                 ← cluster-global roles/memberships appear under
     publications.sql             --scope cluster (the default --scope database
     extensions/pgcrypto.sql      omits them)
+    default_privileges.sql    ← GRANT default privileges with no schema
+    adp_wipes.sql             ← overlay REVOKE ALL when schema is omitted
   app/
     schema.sql
+    adp_wipes.sql             ← overlay REVOKE ALL before objects in this schema
+    default_privileges.sql    ← GRANT default privileges after objects
     tables/users.sql          ← columns, defaults, constraints, indexes,
     views/user_notes.sql         triggers and policies live with their relation
     functions/add.sql

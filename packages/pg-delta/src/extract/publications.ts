@@ -53,7 +53,7 @@ export const publicationsFamily: CatalogFamily = {
   name: "publications",
   statements: (version) => [publicationsSql(version.pgMajor)],
   apply: (ctx, rowSets) => {
-    const { facts, pushWithMeta, pushOwnerEdge } = ctx;
+    const { facts, pushWithMeta, pushOwnerEdge, edges } = ctx;
     for (const row of rowSets[0]!) {
       const publish: string[] = [];
       if (row["pubinsert"]) publish.push("insert");
@@ -88,18 +88,27 @@ export const publicationsFamily: CatalogFamily = {
             }[]
           | null) ?? [];
       for (const t of tables) {
+        const relId: StableId = {
+          kind: "publicationRel",
+          publication: pubName,
+          schema: t.schema,
+          table: t.name,
+        };
         facts.push({
-          id: {
-            kind: "publicationRel",
-            publication: pubName,
-            schema: t.schema,
-            table: t.name,
-          },
+          id: relId,
           parent: pubId,
           payload: {
             columns: t.columns == null ? null : t.columns.map(String),
             where: t.where ?? null,
           },
+        });
+        // pg_depend folds pubrel onto the publication; membership still
+        // vanishes with DROP TABLE, so the planner needs this depends to
+        // rebuild the member across a parent replace.
+        edges.push({
+          from: relId,
+          to: { kind: "table", schema: t.schema, name: t.name },
+          kind: "depends",
         });
       }
       for (const s of ((row["schemas"] as string[] | null) ?? []).map(String)) {

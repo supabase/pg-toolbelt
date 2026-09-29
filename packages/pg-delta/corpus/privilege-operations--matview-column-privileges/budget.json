@@ -1,0 +1,10 @@
+{
+  "a-to-b": {
+    "require": ["create:acl"],
+    "forbid": ["replacement:materializedView"]
+  },
+  "b-to-a": {
+    "require": ["drop:acl"],
+    "forbid": ["replacement:materializedView"]
+  }
+}
