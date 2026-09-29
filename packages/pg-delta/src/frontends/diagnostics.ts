@@ -28,12 +28,15 @@ import type { Diagnostic } from "../core/diagnostic.ts";
  *     in use (or is being dropped). Secret values and keys are not schema
  *     state; strict mode refuses rather than ship a plan that silently
  *     omits them.
+ *   - `excluded-by-cascade`: a desired object skipped because a prerequisite
+ *     the policy withholds is absent from the target.
  */
 export const STRICT_COVERAGE_CODES: ReadonlySet<string> = new Set([
   "unmodeled_kind",
   "unmodeled_drift",
   "unresolved_security_label",
   "vault_presence",
+  "excluded-by-cascade",
 ]);
 
 /**

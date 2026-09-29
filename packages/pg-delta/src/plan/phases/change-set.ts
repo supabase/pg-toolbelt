@@ -3,10 +3,13 @@
  *
  * Resolves the managed VIEW on both sides, performs a policy-filtered discovery
  * diff to accept renames, normalizes accepted role identities into desired-name
- * space, then diffs and filters the canonical pair for the actual plan. Pure
- * over its inputs; the resolved views + worklists + rename bookkeeping it
- * returns are the single input to the rest of the planner.
+ * space, then diffs and filters the canonical pair for the actual plan and
+ * reverts kept deltas stranded on a withheld prerequisite
+ * (./withheld-requirements.ts). Pure over its inputs; the resolved views +
+ * worklists + rename bookkeeping it returns are the single input to the rest
+ * of the planner.
  */
+import type { Diagnostic } from "../../core/diagnostic.ts";
 import { diff, type Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
@@ -29,6 +32,7 @@ import {
   type RenameMode,
 } from "../renames.ts";
 import type { RulesForId } from "../rules.ts";
+import { cascadeWithheldRequirements } from "./withheld-requirements.ts";
 
 /** Accepted rename facts stay physical so rename SQL renders old -> new. The
  * subtree identities are captured before role normalization for honest action
@@ -64,6 +68,17 @@ export interface ChangeSet {
    * come first, matching the reconstruction order `auditManagedViewProjection`
    * uses standalone. */
   projectionSuppressions: TracedSuppression[];
+  /** `excluded-by-cascade` warnings for kept deltas reverted because a
+   * prerequisite the policy withholds is absent from the target */
+  cascadeDiagnostics: Diagnostic[];
+}
+
+/** Names/ids the requirement guard treats as present at apply time; see
+ * `buildActionGraph`. */
+interface AmbientNames {
+  assumedRoleNames: ReadonlySet<string>;
+  assumedSchemaNames: ReadonlySet<string>;
+  assumedPresentIds: ReadonlySet<string>;
 }
 
 function groupDeltas(deltas: readonly Delta[]): {
@@ -126,6 +141,7 @@ export function buildChangeSet(
   rawDesired: FactBase,
   options: PlanOptions | undefined,
   rulesForId: RulesForId,
+  ambient: AmbientNames,
 ): ChangeSet {
   if (options?.policy) validatePolicy(options.policy);
   // A declared baseline must never be silently ignored: the caller must resolve
@@ -231,9 +247,25 @@ export function buildChangeSet(
   const desired = normalizeRoleIdentities(physicalDesired, roleRenameMap);
 
   const allDeltas = diff(source, desired);
-  const { kept: deltas, filtered: filteredDeltas } = options?.policy
+  const { kept: policyKept, filtered: policyFiltered } = options?.policy
     ? filterDeltas(allDeltas, options.policy, source, desired)
     : { kept: allDeltas, filtered: [] };
+  const {
+    kept: deltas,
+    cascaded,
+    diagnostics: cascadeDiagnostics,
+  } = cascadeWithheldRequirements({
+    rawSource,
+    rawDesired,
+    source,
+    desired,
+    deltas: policyKept,
+    projectionSuppressions,
+    roleRenameMap,
+    ...ambient,
+  });
+  const filteredDeltas =
+    cascaded.length === 0 ? policyFiltered : [...policyFiltered, ...cascaded];
   // The honest target is canonical desired with every filtered delta reverted
   // to canonical source. The physical source is retained only for fingerprinting.
   const projectedDesired = projectTarget(desired, filteredDeltas);
@@ -292,5 +324,6 @@ export function buildChangeSet(
     renameCandidates,
     acceptedRenames,
     projectionSuppressions,
+    cascadeDiagnostics,
   };
 }

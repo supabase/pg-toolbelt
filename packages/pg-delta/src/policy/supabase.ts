@@ -350,6 +350,7 @@ export const supabasePolicy: Policy = {
         all: [{ kind: "extension" }, { name: [...SUPABASE_SYSTEM_EXTENSIONS] }],
       },
       action: "exclude",
+      audit: { reasonCode: "supabase.system-extension" },
     },
 
     // Exclude platform-created publications (see SUPABASE_SYSTEM_PUBLICATIONS):
@@ -535,6 +536,7 @@ export const supabasePolicy: Policy = {
     {
       match: { schema: [...SUPABASE_SYSTEM_SCHEMAS] },
       action: "exclude",
+      audit: { reasonCode: "supabase.system-schema-object" },
     },
 
     // Rule 5 (old rule): exclude schema objects whose OWN name is a system schema.
@@ -546,6 +548,7 @@ export const supabasePolicy: Policy = {
         all: [{ kind: "schema" }, { name: [...SUPABASE_SYSTEM_SCHEMAS] }],
       },
       action: "exclude",
+      audit: { reasonCode: "supabase.system-schema" },
     },
 
     // Platform event triggers (`issue_*` / `pgrst_*` / `graphql_watch_*`).
@@ -573,6 +576,7 @@ export const supabasePolicy: Policy = {
     {
       match: { owner: [...SUPABASE_SYSTEM_ROLES] },
       action: "exclude",
+      audit: { reasonCode: "supabase.system-role-owned" },
     },
 
     // Rule 6b (this session): exclude default-privilege entries DECLARED FOR a

@@ -169,7 +169,8 @@ target* changes — it compiles to a view transformation, not a post-diff filter
   satellites on managed objects" (Supabase Rules 4,5,6,7,10) — become
   **fact-level projections** on both sides. Satellites and owner-edges then
   follow their target out *by pruning*, so Rules 5/7/10 evaporate (a satellite
-  rides out with its parent automatically). **Stranding is impossible here.**
+  rides out with its parent automatically). **Children cannot strand here;**
+  non-child dependents can — see Follow-up 4.
 - **Operation rules (`verb`-bearing)** — "never DROP this", "create-only" — are
   the only rules that need the diff, and each reduces to a **pre-diff adjustment
   of the desired view relative to source**: `don't-drop` = copy the fact into
@@ -402,3 +403,52 @@ Platform event triggers (`issue_*` / `pgrst_*` / `graphql_watch_*`) are
 hard-excluded by name. They have no user-managed children (unlike
 publication membership), so reference-only would only add owner/comment
 noise.
+
+### Follow-up 4 — scope is not a cascade: withheld prerequisites revert at plan time
+
+Scope projection removes a fact and its descendants from the view. It does not
+remove facts that merely *depend* on it — the projection only prunes the
+edge. So a kept dependent can require something the policy withholds: a user
+trigger on a reference-only `supabase_migrations.schema_migrations`
+(CLI-2300), a column default or view calling `pgsodium` (CLI-2342), a view over
+a Wrappers foreign table (CLI-2178). When the target lacks that prerequisite,
+the CREATE/ALTER cannot apply.
+
+Cascading the exclusion inside `resolveView` is wrong: it removes objects that
+exist on the target (the planner can no longer rebuild around them) and makes
+the two sides' views asymmetric. The decision is about *deltas*, so it is made
+at plan time (`plan/phases/withheld-requirements.ts`, inside `buildChangeSet`
+after `filterDeltas`):
+
+- Requirements of a kept `add`/`set`/`link` subject: its parent, its `depends`
+  targets in the **raw** desired catalog, and a security label's provider
+  extension (`pg_seclabel` has no `pg_depend`).
+- Satisfied: produced by a kept delta, present on the target (source view or
+  raw source), or ambient per the requirement guard (shared predicate).
+- Withheld: the desired-side projection attributes it to `policyScopeRule`,
+  `capability` or `referenceOnly` (an extension member only when its extension
+  is withheld), or this phase already reverted it. `managedBy`,
+  `managementScope` and `baseline` do not withhold.
+- Unsatisfied and withheld, on a new fact → the fact's deltas and its
+  subtree's move to `filteredDeltas` (fixpoint), with one
+  `excluded-by-cascade` warning per root in `plan.diagnostics`
+  (`--strict-coverage` blocks on it). The absent withheld requirement is
+  reverted too, from its highest absent withheld/reference-only ancestor, so
+  the plan target equals the applied state.
+- Unsatisfied and withheld, on an existing fact (`set`/`link`), or on a new
+  enforcement fact (a constraint or a RESTRICTIVE RLS policy) whose missing
+  requirement is not its own ancestor → `plan()` throws, naming the
+  requirement and its stage. Skipping would leave the old definition, missing
+  enforcement, or access the policy would deny, live. Every other kind
+  (defaults, labels, triggers, views, functions, permissive policies) is
+  skipped under new and live parents alike, so re-planning the applied result
+  skips the same facts again instead of throwing.
+- Unsatisfied but not withheld → untouched; the missing-requirement guard
+  still throws.
+
+This is the same honest revert verb rules use: `projectTarget`, the
+fingerprint and the proof rebuild the target from `filteredDeltas`, so
+`resolveView`, apply, prove and the artifact format are unchanged. With no
+withholding suppression (raw profile, corpus) the phase is the identity.
+Remove deltas are never reverted; the drop side (a live object the desired
+side cannot express) is a pending follow-up.

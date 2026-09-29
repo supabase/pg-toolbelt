@@ -27,6 +27,11 @@ const vaultPresence: Diagnostic = {
   severity: "warning",
   message: "vault secrets are not migrated",
 };
+const cascade: Diagnostic = {
+  code: "excluded-by-cascade",
+  severity: "warning",
+  message: "a trigger was not planned",
+};
 const err: Diagnostic = { code: "boom", severity: "error", message: "fatal" };
 
 describe("hasBlockingDiagnostics", () => {
@@ -65,6 +70,13 @@ describe("hasBlockingDiagnostics", () => {
     expect(
       hasBlockingDiagnostics([vaultPresence], { strictCoverage: true }),
     ).toBe(true);
+  });
+
+  test("excluded-by-cascade blocks ONLY in strict-coverage mode", () => {
+    expect(hasBlockingDiagnostics([cascade])).toBe(false);
+    expect(hasBlockingDiagnostics([cascade], { strictCoverage: true })).toBe(
+      true,
+    );
   });
 
   test("info/warning diagnostics do not block in the default mode", () => {

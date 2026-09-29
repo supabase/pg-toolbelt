@@ -82,6 +82,13 @@ export const USER_MAPPING_UNREADABLE = "user-mapping-unreadable";
  *  without a cross-layer import. */
 export const VAULT_PRESENCE = "vault_presence";
 
+/** Diagnostic code for a kept change the planner reverted because one of its
+ *  prerequisites is withheld by the policy (hidden or reference-only in the
+ *  desired view) and absent from the target, so its DDL could not apply.
+ *  Emitted at plan time as a warning on the skipped root fact; the reverted
+ *  deltas land in `filteredDeltas`. */
+export const EXCLUDED_BY_CASCADE = "excluded-by-cascade";
+
 /** Thrown by public API stubs for not-yet-implemented stages (stage 0). */
 export class NotImplementedError extends Error {
   constructor(feature: string) {
