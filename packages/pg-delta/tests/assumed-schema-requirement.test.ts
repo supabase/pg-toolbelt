@@ -5,9 +5,10 @@
  * target is kept reference-only on the desired side, so its creation is
  * suppressed; the requirement guard previously treated any id in an assumed
  * schema as ambient and let the dependent plan through, only to fail at apply
- * time against the missing relation. It must instead fail at PLAN time like any
- * other filtered-away requirement. An existing assumed-schema object
- * (`auth.users`-style, present on the target) stays satisfied via `source.has`.
+ * time against the missing relation. The dependent is instead skipped at PLAN
+ * time with an `excluded-by-cascade` warning (its prerequisite is withheld and
+ * absent). An existing assumed-schema object (`auth.users`-style, present on
+ * the target) stays satisfied via `source.has`.
  *
  * The fail-fast must NOT cover PLATFORM-provisioned members of assumed schemas
  * (Sentry SUPABASE-API-8CX): a DB-webhook trigger depends on
@@ -31,7 +32,7 @@ afterAll(async () => {
 });
 
 describe("assumed-schema requirement guard", () => {
-  test("a managed dependent on a non-existent assumed-schema object fails at plan time", async () => {
+  test("a managed dependent on a non-existent assumed-schema object is skipped at plan time", async () => {
     const cluster = await sharedCluster();
     const source = await cluster.createDb("assumed_req_src");
     const desired = await cluster.createDb("assumed_req_dst");
@@ -52,14 +53,18 @@ describe("assumed-schema requirement guard", () => {
       extract(desired.pool),
     ]);
 
-    // RED before the fix: this does NOT throw — the view plans through because
-    // `auth.extra` is treated as ambient, and apply would later fail against the
+    // Planning `CREATE VIEW public.needs_extra` would fail at apply against the
     // missing relation.
-    expect(() =>
-      plan(sourceState.factBase, desiredState.factBase, {
-        policy: supabasePolicy,
-      }),
-    ).toThrow(/missing requirement[\s\S]*auth.*extra/);
+    const thePlan = plan(sourceState.factBase, desiredState.factBase, {
+      policy: supabasePolicy,
+    });
+    expect(thePlan.actions.some((a) => /needs_extra/.test(a.sql))).toBe(false);
+    expect(
+      (thePlan.diagnostics ?? []).map((d) => [
+        d.code,
+        d.context?.["requirement"],
+      ]),
+    ).toContainEqual(["excluded-by-cascade", "column:auth.extra.id"]);
   }, 120_000);
 
   test("a DB-webhook trigger plans when the target lacks the platform's supabase_functions infra", async () => {

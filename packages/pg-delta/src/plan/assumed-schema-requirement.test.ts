@@ -19,7 +19,8 @@
  *    `supabase_functions.http_request()`, Sentry SUPABASE-API-8CX);
  *  - otherwise kept in `desired` (reference-only) but absent from `source` → the
  *    desired side wants something the target lacks and nothing will provision →
- *    NOT exempt → throws.
+ *    NOT exempt: the guard throws, and plan() skips the dependent with an
+ *    `excluded-by-cascade` warning before it reaches the guard.
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
@@ -193,23 +194,42 @@ describe("plan() — platform-provisioned members of assumed schemas", () => {
     ).toBe(false);
   });
 
-  test("the fail-fast is preserved when the assumed-schema dependency is owned by the default owner", () => {
+  /** The trigger is not planned: its dependency is withheld (reference-only)
+   *  and absent from the target, so plan() skips it with a warning. */
+  const expectTriggerSkipped = (p: ReturnType<typeof plan>): void => {
+    expect(p.actions.some((a) => /CREATE TRIGGER/i.test(a.sql))).toBe(false);
+    expect(
+      (p.diagnostics ?? []).map((d) => [
+        d.code,
+        d.subject,
+        d.context?.["requirement"],
+      ]),
+    ).toEqual([
+      [
+        "excluded-by-cascade",
+        trigger,
+        "function:supabase_functions.http_request()",
+      ],
+    ]);
+  };
+
+  test("the trigger is skipped when the assumed-schema dependency is owned by the default owner", () => {
     // A default-owner-owned (i.e. user-created) object in an assumed schema
-    // absent from the target still fails at plan time (PR #307 review P2) —
+    // absent from the target is not platform-provisioned (PR #307 review P2) —
     // nothing will provision it at apply time.
-    expect(() =>
+    expectTriggerSkipped(
       plan(sourceBase(), desiredBase("postgres"), {
         policy: supabasePolicy,
       }),
-    ).toThrow(/missing requirement/);
+    );
   });
 
-  test("the fail-fast is preserved when the assumed-schema dependency is owned by a user role", () => {
-    expect(() =>
+  test("the trigger is skipped when the assumed-schema dependency is owned by a user role", () => {
+    expectTriggerSkipped(
       plan(sourceBase(), desiredBase("app_admin"), {
         policy: supabasePolicy,
       }),
-    ).toThrow(/missing requirement/);
+    );
   });
 
   test("a custom options.defaultOwner does not turn default-owner-owned objects into platform ones", () => {
@@ -218,13 +238,13 @@ describe("plan() — platform-provisioned members of assumed schemas", () => {
     // supabase policy's declared default owner, so a postgres-owned object in
     // an assumed schema is user-created no matter what the run-level default
     // owner is — nothing will provision it (Codex P1 #2 on PR #407).
-    expect(() =>
+    expectTriggerSkipped(
       plan(sourceBase(), desiredBase("postgres"), {
         policy: supabasePolicy,
         scope: "database",
         defaultOwner: "custom_owner",
       }),
-    ).toThrow(/missing requirement/);
+    );
   });
 
   test("the exemption covers descendants of a platform-provisioned object", () => {
@@ -316,11 +336,11 @@ describe("plan() — platform-provisioned members of assumed schemas", () => {
     // feed the platform-provisioned discriminator: an assumed-schema object
     // owned by a pre-existing USER role is still user-created, and nothing
     // will provision it on the target (Codex P1 on PR #407).
-    expect(() =>
+    expectTriggerSkipped(
       plan(sourceBase(), desiredBase("app_admin"), {
         policy: supabasePolicy,
         assumedRoles: ["app_admin"],
       }),
-    ).toThrow(/missing requirement/);
+    );
   });
 });

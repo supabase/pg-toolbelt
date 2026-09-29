@@ -4,6 +4,10 @@
  * copy is owned by `postgres` (old-project shape). Apply as the non-superuser
  * `postgres` must not emit CREATE of the trigger that already exists.
  *
+ * E3 / CLI-2300: user objects whose prerequisite the policy withholds
+ * (pgsodium, a reference-only `supabase_migrations` table) and the branch
+ * lacks are skipped with a warning instead of failing the apply.
+ *
  * Same shape as the CLI baseline apply: branch is SOURCE, base is DESIRED,
  * apply as `postgres`. Gated on `runSupabaseBareTests`.
  */
@@ -82,6 +86,144 @@ describe.skipIf(!runSupabaseBareTests)(
         );
       } finally {
         await applier.end().catch(() => {});
+        await branch.drop();
+        await base.drop();
+      }
+    }, 120_000);
+
+    test("E3: a postgres-owned TCE table plans on a pgsodium-less branch without pgsodium references", async () => {
+      const branch: TestDb = await cluster.createDb("e3_branch");
+      const base: TestDb = await cluster.createDb("e3_base");
+      // Supabase hands `postgres` the database (so it owns `public`).
+      for (const db of [branch, base]) {
+        await cluster.adminPool.query(
+          `ALTER DATABASE "${db.name}" OWNER TO postgres`,
+        );
+      }
+      const applier = new pg.Pool({
+        connectionString: branch.postgresUri!,
+        max: 1,
+      });
+      applier.on("error", () => {});
+      // `base.pool` is supabase_admin: a table it creates is system-owned and
+      // the owner rule hides it regardless of the pgsodium references.
+      const baseAsPostgres = new pg.Pool({
+        connectionString: base.postgresUri!,
+        max: 1,
+      });
+      baseAsPostgres.on("error", () => {});
+      try {
+        await base.pool.query(`CREATE EXTENSION IF NOT EXISTS pgsodium`);
+        await baseAsPostgres.query(`
+          CREATE TABLE public.creds (
+            id int primary key,
+            secret text,
+            key_id uuid default (pgsodium.create_key()).id,
+            nonce bytea default pgsodium.crypto_aead_det_noncegen());
+        `);
+        await base.pool.query(`
+          SECURITY LABEL FOR pgsodium ON COLUMN public.creds.secret
+            IS 'ENCRYPT WITH KEY COLUMN key_id NONCE nonce';
+        `);
+
+        const profile = await resolveProfile(applier, supabaseProfile);
+        const [src, desired] = await Promise.all([
+          profile.extract(applier),
+          profile.extract(base.pool),
+        ]);
+        const migration = plan(src.factBase, desired.factBase, {
+          ...profile.planOptions,
+          renames: "off",
+          compact: true,
+        });
+        const report = await apply(migration, applier, {
+          ...profile.applyOptions,
+        });
+
+        expect(report.status).toBe("applied");
+        const sql = migration.actions.map((a) => a.sql);
+        expect(sql).toContainEqual(
+          expect.stringMatching(/^CREATE TABLE "public"\."creds"/),
+        );
+        expect(sql.some((s) => /pgsodium/i.test(s))).toBe(false);
+        expect(sql.some((s) => /CREATE EXTENSION/i.test(s))).toBe(false);
+        expect(
+          (migration.diagnostics ?? []).some(
+            (d) => d.code === "excluded-by-cascade",
+          ),
+        ).toBe(true);
+        const exists = await applier.query(
+          `SELECT to_regclass('public.creds') IS NOT NULL AS present`,
+        );
+        expect(exists.rows[0].present).toBe(true);
+      } finally {
+        await applier.end().catch(() => {});
+        await baseAsPostgres.end().catch(() => {});
+        await branch.drop();
+        await base.drop();
+      }
+    }, 120_000);
+
+    test("CLI-2300: a user trigger on postgres-owned schema_migrations is skipped on a branch without it", async () => {
+      const branch: TestDb = await cluster.createDb("cli2300_branch");
+      const base: TestDb = await cluster.createDb("cli2300_base");
+      // Supabase hands `postgres` the database (so it owns `public`).
+      for (const db of [branch, base]) {
+        await cluster.adminPool.query(
+          `ALTER DATABASE "${db.name}" OWNER TO postgres`,
+        );
+      }
+      const applier = new pg.Pool({
+        connectionString: branch.postgresUri!,
+        max: 1,
+      });
+      applier.on("error", () => {});
+      const baseAsPostgres = new pg.Pool({
+        connectionString: base.postgresUri!,
+        max: 1,
+      });
+      baseAsPostgres.on("error", () => {});
+      try {
+        await base.pool.query(
+          `CREATE SCHEMA supabase_migrations AUTHORIZATION postgres`,
+        );
+        await baseAsPostgres.query(`
+          CREATE TABLE supabase_migrations.schema_migrations (
+            version text PRIMARY KEY
+          );
+          CREATE FUNCTION public.on_mig() RETURNS trigger LANGUAGE plpgsql
+            AS $$ BEGIN RETURN NEW; END $$;
+          CREATE TRIGGER block_writes
+            BEFORE INSERT ON supabase_migrations.schema_migrations
+            FOR EACH ROW EXECUTE FUNCTION public.on_mig();
+        `);
+
+        const profile = await resolveProfile(applier, supabaseProfile);
+        const [src, desired] = await Promise.all([
+          profile.extract(applier),
+          profile.extract(base.pool),
+        ]);
+        const migration = plan(src.factBase, desired.factBase, {
+          ...profile.planOptions,
+          renames: "off",
+          compact: true,
+        });
+        const report = await apply(migration, applier, {
+          ...profile.applyOptions,
+        });
+
+        expect(report.status).toBe("applied");
+        const sql = migration.actions.map((a) => a.sql);
+        expect(sql.some((s) => /schema_migrations/i.test(s))).toBe(false);
+        expect(sql).toContainEqual(expect.stringMatching(/on_mig/));
+        expect(
+          (migration.diagnostics ?? []).some(
+            (d) => d.code === "excluded-by-cascade",
+          ),
+        ).toBe(true);
+      } finally {
+        await applier.end().catch(() => {});
+        await baseAsPostgres.end().catch(() => {});
         await branch.drop();
         await base.drop();
       }
