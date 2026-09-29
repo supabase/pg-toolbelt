@@ -427,13 +427,18 @@ after `filterDeltas`):
   raw source), or ambient per the requirement guard (shared predicate).
 - Withheld: the desired-side projection attributes it to `policyScopeRule`,
   `capability` or `referenceOnly` (an extension member only when its extension
-  is withheld), or this phase already reverted it — including a reverted
-  `set`, whose consumers were compiled against a definition that never
-  applies. `managedBy`, `managementScope` and `baseline` do not withhold.
-- Unsatisfied and withheld → the fact's deltas and its subtree's move to
-  `filteredDeltas` (fixpoint), with one `excluded-by-cascade` warning per
-  root in `plan.diagnostics`. Unsatisfied but not withheld → untouched; the
-  missing-requirement guard still throws.
+  is withheld), or this phase already reverted it. `managedBy`,
+  `managementScope` and `baseline` do not withhold.
+- Unsatisfied and withheld, on a new fact → the fact's deltas and its
+  subtree's move to `filteredDeltas` (fixpoint), with one
+  `excluded-by-cascade` warning per root in `plan.diagnostics`
+  (`--strict-coverage` blocks on it). An absent reference-only requirement is
+  reverted too, so the plan target equals the applied state.
+- Unsatisfied and withheld, on an existing fact (`set`/`link`) or a new
+  RESTRICTIVE RLS policy → `plan()` throws. Reverting would leave the old
+  definition, or access the policy would deny, live.
+- Unsatisfied but not withheld → untouched; the missing-requirement guard
+  still throws.
 
 This is the same honest revert verb rules use: `projectTarget`, the
 fingerprint and the proof rebuild the target from `filteredDeltas`, so

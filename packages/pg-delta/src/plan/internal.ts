@@ -73,8 +73,8 @@ export function ambientRequirements({
 }: AmbientRequirementInputs): {
   isAmbient: (id: StableId) => boolean;
   memberExtensionPresent: (memberKey: string) => boolean;
-  desiredMemberClosure: Map<string, StableId[]>;
-  sourceMemberClosure: Map<string, StableId[]>;
+  desiredMemberClosure: () => Map<string, StableId[]>;
+  sourceMemberClosure: () => Map<string, StableId[]>;
 } {
   // A reference target that is present-at-apply but kept out of the managed
   // view: built-in roles (pg_*/PUBLIC), policy-declared assumed roles, an
@@ -109,12 +109,12 @@ export function ambientRequirements({
     // referencing something the target lacks — a user-created object nothing will
     // provision — so it is not ambient: the withheld-requirement cascade skips
     // the dependent, or the guard fails at plan time, instead of letting apply
-    // fail against a missing relation (review P2).
+    // fail against a missing relation.
     return !desired.has(id);
   };
 
   // Extension-member closures (member object OR non-satellite descendant →
-  // owning extension ids), computed ONCE per side. A member is reference-only
+  // owning extension ids), computed at most once per side, on first use. A member is reference-only
   // (never produced/dropped by a standalone action) but is present-at-apply VIA
   // its extension, so it can satisfy a consume/depends requirement — but ONLY
   // when an owning extension is actually produced by this plan or already on the
@@ -122,11 +122,16 @@ export function ambientRequirements({
   // present, so the guard must still fire (surfacing the missing reference at
   // plan time, not apply time). Distinct from the assumed-schema `isAmbient`
   // case, which never exempts a kept-but-absent object.
-  const desiredMemberClosure = extensionMemberClosure(desired);
-  const sourceMemberClosure = extensionMemberClosure(source);
+  let desiredClosure: Map<string, StableId[]> | undefined;
+  let sourceClosure: Map<string, StableId[]> | undefined;
+  const desiredMemberClosure = (): Map<string, StableId[]> =>
+    (desiredClosure ??= extensionMemberClosure(desired));
+  const sourceMemberClosure = (): Map<string, StableId[]> =>
+    (sourceClosure ??= extensionMemberClosure(source));
   const memberExtensionPresent = (memberKey: string): boolean => {
     const exts =
-      desiredMemberClosure.get(memberKey) ?? sourceMemberClosure.get(memberKey);
+      desiredMemberClosure().get(memberKey) ??
+      sourceMemberClosure().get(memberKey);
     return (
       exts !== undefined &&
       exts.some((ext) => isProduced(encodeId(ext)) || source.has(ext))
@@ -310,12 +315,7 @@ export function buildActionGraph(
     return key;
   };
 
-  const {
-    isAmbient,
-    memberExtensionPresent,
-    desiredMemberClosure,
-    sourceMemberClosure,
-  } = ambientRequirements({
+  const ambient = ambientRequirements({
     source,
     desired,
     isProduced: (key) => producerOf.has(key),
@@ -323,6 +323,9 @@ export function buildActionGraph(
     assumedSchemaNames,
     assumedPresentIds,
   });
+  const { isAmbient, memberExtensionPresent } = ambient;
+  const desiredMemberClosure = ambient.desiredMemberClosure();
+  const sourceMemberClosure = ambient.sourceMemberClosure();
 
   // alter actions indexed by their primary fact (opts.consumes[0])
   const alterersOf = new Map<string, number[]>();

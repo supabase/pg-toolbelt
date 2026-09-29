@@ -434,7 +434,7 @@ export function plan(
   // platform hands the user, so objects it owns (and objects owned by user
   // roles) are USER-created: when the target lacks them, a dependent is
   // skipped by the withheld-requirement cascade or fails the requirement guard
-  // at plan time (PR #307 review P2). A system-role-owned member is covered by
+  // at plan time. A system-role-owned member is covered by
   // the same platform guarantee that makes its schema assumed, so a kept
   // dependent (a user webhook trigger) must plan even when the target has not
   // had the infra provisioned yet (Sentry SUPABASE-API-8CX). Threaded into the

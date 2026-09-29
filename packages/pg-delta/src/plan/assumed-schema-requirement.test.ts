@@ -215,8 +215,8 @@ describe("plan() — platform-provisioned members of assumed schemas", () => {
 
   test("the trigger is skipped when the assumed-schema dependency is owned by the default owner", () => {
     // A default-owner-owned (i.e. user-created) object in an assumed schema
-    // absent from the target is not platform-provisioned (PR #307 review P2) —
-    // nothing will provision it at apply time.
+    // absent from the target is not platform-provisioned — nothing will
+    // provision it at apply time.
     expectTriggerSkipped(
       plan(sourceBase(), desiredBase("postgres"), {
         policy: supabasePolicy,

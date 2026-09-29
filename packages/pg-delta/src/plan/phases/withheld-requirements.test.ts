@@ -1,11 +1,13 @@
 /**
  * Withheld-requirement cascade (CLI-2300 / CLI-2342 / CLI-2178).
  *
- * A kept CREATE/ALTER whose prerequisite the policy withholds, on a target that
+ * A kept CREATE whose prerequisite the policy withholds, on a target that
  * lacks that prerequisite, is reverted at plan time (moved to `filteredDeltas`)
  * with an `excluded-by-cascade` warning instead of throwing or emitting DDL
- * that fails at apply. Prerequisites present on the target, produced by the
- * plan, or ambient keep planning exactly as before. No DB.
+ * that fails at apply. A stranded change to an existing object, or a stranded
+ * restrictive RLS policy, is refused instead: skipping it would leave looser
+ * state live. Prerequisites present on the target, produced by the plan, or
+ * ambient keep planning exactly as before. No DB.
  */
 import { describe, expect, test } from "bun:test";
 import type { Diagnostic } from "../../core/diagnostic.ts";
@@ -137,6 +139,29 @@ describe("CLI-2300 — user trigger on a reference-only table the target lacks",
         (d) => d.verb === "add" && encodeId(d.fact.id) === encodeId(trigger),
       ),
     ).toBe(true);
+  });
+
+  test("the plan target fingerprint matches the state the plan produces", () => {
+    // The branch has the schema but not the table. After apply it holds the
+    // desired catalog minus the skipped trigger and the absent table.
+    const source = buildFactBase(
+      [f(postgres), f(publicSchema), f(migSchema)],
+      [],
+    );
+    const p = plan(source, desired(), { policy: supabasePolicy });
+    const applied = buildFactBase(
+      desired()
+        .facts()
+        .filter(
+          (fact) =>
+            ![trigger, migTable, migCol].some(
+              (id) => encodeId(id) === encodeId(fact.id),
+            ),
+        ),
+      [],
+    );
+    const replan = plan(applied, desired(), { policy: supabasePolicy });
+    expect(replan.source.fingerprint).toBe(p.target.fingerprint);
   });
 
   test("the table present on the target: the trigger still plans", () => {
@@ -340,7 +365,7 @@ describe("CLI-2178 — view over a policy-suppressed foreign table", () => {
   });
 });
 
-describe("a reverted redefinition does not satisfy its new consumers", () => {
+describe("stranded changes to existing objects are refused, not reverted", () => {
   const t: StableId = { kind: "table", schema: "public", name: "t" };
   const colA: StableId = {
     kind: "column",
@@ -348,15 +373,15 @@ describe("a reverted redefinition does not satisfy its new consumers", () => {
     table: "t",
     name: "a",
   };
-  const v: StableId = { kind: "view", schema: "public", name: "v" };
-  const w: StableId = { kind: "view", schema: "public", name: "w" };
+  const shared = (): Fact[] => [
+    f(publicSchema),
+    f(t, publicSchema, tablePayload()),
+    f(colA, t, colPayload("text", 1)),
+  ];
 
-  test("v's pgsodium redefinition and the new view w over it are both skipped", () => {
-    const shared = (): Fact[] => [
-      f(publicSchema),
-      f(t, publicSchema, tablePayload()),
-      f(colA, t, colPayload("text", 1)),
-    ];
+  test("a view redefinition that newly requires pgsodium throws", () => {
+    const v: StableId = { kind: "view", schema: "public", name: "v" };
+    const w: StableId = { kind: "view", schema: "public", name: "w" };
     const source = buildFactBase(
       [
         ...shared(),
@@ -380,17 +405,82 @@ describe("a reverted redefinition does not satisfy its new consumers", () => {
         { from: w, to: v, kind: "depends" },
       ],
     );
-    const p = plan(source, desired, { policy: supabasePolicy });
-    const sql = sqlOf(p);
-    expect(sql.some((s) => /"public"\."w"/.test(s))).toBe(false);
-    expect(sql.some((s) => /"public"\."v"/.test(s))).toBe(false);
-    expect(cascadeSubjects(p)).toEqual([v, w].map(encodeId).sort());
-    const onW = cascades(p).find(
-      (d) => d.subject !== undefined && encodeId(d.subject) === encodeId(w),
+    expect(() => plan(source, desired, { policy: supabasePolicy })).toThrow(
+      /view:public\.v[\s\S]*extension:pgsodium[\s\S]*supabase\.system-extension/,
     );
-    expect(onW?.context?.["requirement"]).toBe(encodeId(v));
-    // the source definition of v stays the plan target
-    expect(p.target.fingerprint).toBe(p.source.fingerprint);
+  });
+
+  test("an RLS policy tightened onto a pgsodium function throws instead of keeping the looser policy", () => {
+    const pol: StableId = {
+      kind: "policy",
+      schema: "public",
+      table: "t",
+      name: "read",
+    };
+    const policyFact = (usingExpr: string): Fact =>
+      f(pol, t, {
+        cmd: "r",
+        permissive: true,
+        roles: ["authenticated"],
+        usingExpr,
+        checkExpr: null,
+      });
+    const source = buildFactBase([...shared(), policyFact("true")], []);
+    const desired = buildFactBase(
+      [
+        ...shared(),
+        pgsodiumFact(),
+        policyFact("(pgsodium.crypto_aead_det_decrypt(a) IS NOT NULL)"),
+      ],
+      [{ from: pol, to: pgsodium, kind: "depends" }],
+    );
+    expect(() => plan(source, desired, { policy: supabasePolicy })).toThrow(
+      /policy:public\.t\.read[\s\S]*extension:pgsodium/,
+    );
+  });
+});
+
+describe("new RLS policies whose prerequisite is withheld", () => {
+  const t: StableId = { kind: "table", schema: "public", name: "t" };
+  const pol: StableId = {
+    kind: "policy",
+    schema: "public",
+    table: "t",
+    name: "gate",
+  };
+  const run = (permissive: boolean) => {
+    const source = buildFactBase(
+      [f(publicSchema), f(t, publicSchema, tablePayload())],
+      [],
+    );
+    const desired = buildFactBase(
+      [
+        f(publicSchema),
+        f(t, publicSchema, tablePayload()),
+        pgsodiumFact(),
+        f(pol, t, {
+          cmd: "r",
+          permissive,
+          roles: ["authenticated"],
+          usingExpr: "(pgsodium.crypto_aead_det_noncegen() IS NOT NULL)",
+          checkExpr: null,
+        }),
+      ],
+      [{ from: pol, to: pgsodium, kind: "depends" }],
+    );
+    return () => plan(source, desired, { policy: supabasePolicy });
+  };
+
+  test("a restrictive policy throws: skipping it would widen access", () => {
+    expect(run(false)).toThrow(
+      /policy:public\.t\.gate[\s\S]*extension:pgsodium/,
+    );
+  });
+
+  test("a permissive policy is skipped with a warning", () => {
+    const p = run(true)();
+    expect(sqlOf(p).some((s) => /CREATE POLICY/i.test(s))).toBe(false);
+    expect(cascadeSubjects(p)).toEqual([encodeId(pol)]);
   });
 });
 

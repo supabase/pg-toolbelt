@@ -184,9 +184,13 @@ describe.skipIf(!runSupabaseBareTests)(
       });
       baseAsPostgres.on("error", () => {});
       try {
-        await base.pool.query(
-          `CREATE SCHEMA supabase_migrations AUTHORIZATION postgres`,
-        );
+        // The branch has the schema but not the table, so the plan target's
+        // fingerprint can be checked against the applied state.
+        for (const db of [branch, base]) {
+          await db.pool.query(
+            `CREATE SCHEMA supabase_migrations AUTHORIZATION postgres`,
+          );
+        }
         await baseAsPostgres.query(`
           CREATE TABLE supabase_migrations.schema_migrations (
             version text PRIMARY KEY
@@ -221,6 +225,13 @@ describe.skipIf(!runSupabaseBareTests)(
             (d) => d.code === "excluded-by-cascade",
           ),
         ).toBe(true);
+        const applied = await profile.extract(applier);
+        const replan = plan(applied.factBase, desired.factBase, {
+          ...profile.planOptions,
+          renames: "off",
+          compact: true,
+        });
+        expect(replan.source.fingerprint).toBe(migration.target.fingerprint);
       } finally {
         await applier.end().catch(() => {});
         await baseAsPostgres.end().catch(() => {});

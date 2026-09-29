@@ -1,24 +1,12 @@
 /**
- * Withheld-requirement cascade (docs/architecture/managed-view-architecture.md,
- * "Scope is not a cascade").
+ * Withheld-requirement cascade (managed-view-architecture.md, Follow-up 4).
  *
- * Policy projection hides facts; it never cascades to their dependents. A kept
- * add/set/link can therefore require something the policy withholds from the
- * desired view (hard-pruned, capability-excluded, or reference-only). When the
- * target lacks that prerequisite and the plan does not produce it, the DDL
- * cannot apply. This phase reverts such deltas — the fact and its whole
- * subtree — into `filteredDeltas` with an `excluded-by-cascade` warning, so
- * `projectTarget` / fingerprint / proof see the honest target.
- *
- * Requirements are the fact's parent, its `depends` targets in the RAW desired
- * catalog (projection prunes edges to hidden facts), and a security label's
- * provider extension (pg_seclabel records no pg_depend). A requirement is
- * satisfied when a kept delta produces it, it exists on the target (source view
- * or raw source), or it is ambient per the requirement guard. A requirement
- * whose own delta this phase reverted satisfies nothing, even when present: its
- * consumers were compiled against a definition that never applies.
- * Unsatisfied requirements the policy does not withhold are left to the guard,
- * which still throws. `remove` deltas are never reverted here.
+ * A kept CREATE whose requirement (parent, raw-desired `depends` target, or
+ * security-label provider extension) the policy withholds and the target lacks
+ * cannot apply, so it is reverted with its subtree into `filteredDeltas` and
+ * reported. Reverting anything else would leave looser state live, so a
+ * stranded change to an existing object, or a stranded restrictive RLS policy,
+ * throws instead. Unwithheld requirements are left to the requirement guard.
  */
 import type { Diagnostic } from "../../core/diagnostic.ts";
 import { EXCLUDED_BY_CASCADE } from "../../core/diagnostic.ts";
@@ -37,6 +25,7 @@ import {
 import { ambientRequirements } from "../internal.ts";
 import { subtreeIds } from "../renames.ts";
 import { securityLabelProviderExtension } from "../rules/metadata.ts";
+import { isRestrictivePolicy } from "../rules/policies.ts";
 
 /** Projection stages that take a fact out of the user's hands. `managedBy`
  * (intent replay provisions it), `managementScope` (assumed roles cover it) and
@@ -165,6 +154,10 @@ export function cascadeWithheldRequirements(
 
   const requirements = new Map<string, StableId[]>();
   const diagnostics: Diagnostic[] = [];
+  const refusals: string[] = [];
+  // Absent reference-only requirements stay in the desired view; revert them
+  // too so the plan target matches what apply produces.
+  const absentReferences = new Map<string, Delta>();
   let changed = true;
   while (changed) {
     changed = false;
@@ -184,18 +177,32 @@ export function cascadeWithheldRequirements(
             ? undefined
             : withheldCause(requirementKey));
         if (cause === undefined) continue;
+        const why =
+          upstream === undefined
+            ? `which the policy withholds (${cause.reasonCode}) and the target lacks`
+            : `which this plan does not apply (${cause.reasonCode})`;
+        const fact = desired.get(id);
+        if (
+          !keptAdds.has(key) ||
+          (fact !== undefined && isRestrictivePolicy(fact))
+        ) {
+          refusals.push(`  - ${key} requires ${requirementKey}, ${why}`);
+          break;
+        }
         for (const member of subtreeIds(desired, id)) {
           const memberKey = encodeId(member);
           if (!reverted.has(memberKey)) reverted.set(memberKey, cause);
+        }
+        const absent =
+          upstream === undefined ? desired.get(requirement) : undefined;
+        if (absent !== undefined && !absentReferences.has(requirementKey)) {
+          absentReferences.set(requirementKey, { verb: "add", fact: absent });
         }
         diagnostics.push({
           code: EXCLUDED_BY_CASCADE,
           severity: "warning",
           subject: id,
-          message:
-            upstream === undefined
-              ? `${key} was not planned: it requires ${requirementKey}, which the policy withholds (${cause.reasonCode}) and the target lacks`
-              : `${key} was not planned: it requires ${requirementKey}, which this plan does not apply (${cause.reasonCode})`,
+          message: `${key} was not planned: it requires ${requirementKey}, ${why}`,
           context: {
             requirement: requirementKey,
             stage: cause.stage,
@@ -206,6 +213,14 @@ export function cascadeWithheldRequirements(
         break;
       }
     }
+  }
+  if (refusals.length > 0) {
+    throw new Error(
+      `plan: these changes depend on objects the policy withholds and the target lacks; ` +
+        `skipping them would leave looser state live (an old definition, or access a ` +
+        `restrictive policy would deny). Provide the prerequisite on the target or drop ` +
+        `the change from the desired state:\n${[...new Set(refusals)].sort().join("\n")}`,
+    );
   }
   if (reverted.size === 0) {
     return { kept: deltas, cascaded: [], diagnostics: [] };
@@ -220,5 +235,6 @@ export function cascadeWithheldRequirements(
       kept.push(delta);
     }
   }
+  cascaded.push(...absentReferences.values());
   return { kept, cascaded, diagnostics };
 }

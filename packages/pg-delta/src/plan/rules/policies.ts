@@ -1,8 +1,14 @@
 /** Rule definitions for row-level security policies. */
+import type { Fact } from "../../core/fact.ts";
 import type { StableId } from "../../core/stable-id.ts";
 import { qid, rel } from "../render.ts";
 import type { KindRules } from "../rules.ts";
 import { p, policySql } from "./helpers.ts";
+
+/** A RESTRICTIVE policy narrows access; omitting it widens access. */
+export function isRestrictivePolicy(fact: Fact): boolean {
+  return fact.id.kind === "policy" && p(fact, "permissive") === false;
+}
 
 export const policyRules: Record<string, KindRules> = {
   policy: {
