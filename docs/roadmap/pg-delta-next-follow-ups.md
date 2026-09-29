@@ -2132,3 +2132,31 @@ cycle; both reproduce on `main` before #534 too.
   through `DROP EXTENSION`), so it has no drop root and the bridge pass skips
   it. It needs extension members mapped to their extension's drop root. No
   shipped extension defines such a function; it takes a custom extension.
+
+## CLI-2300 / CLI-2342 / CLI-2178 — withheld-requirement cascade
+
+A kept `add` whose prerequisite the policy withholds and the target lacks is
+reverted into `filteredDeltas` with an `excluded-by-cascade` warning; stranded
+`set` / `link` on existing facts and new constraints / RESTRICTIVE policies
+throw instead (see `managed-view-architecture.md` Follow-up 4).
+
+Deferred (not blocking):
+
+- **Drop side (CLI-2342 second half).** Live has pgsodium TCE artefacts, files
+  cannot express them (the shadow lacks pgsodium), so the plan DROPs them.
+  Planned as a stacked PR: retain a `remove` only when a withheld prerequisite
+  is absent from raw desired and survives the plan, nothing in the fact's
+  transitive source dependency closure has a kept delta, every ancestor is in
+  the projected target, and the whole subtree plus its link/unlink deltas are
+  reverted together.
+- **Reference-only desired facts absent on the target.** Outside the cascade
+  (e.g. a webhook's `supabase_functions.http_request` satisfied through
+  `assumedPresentIds`, or an absent assumed schema), the fact stays in the
+  projected target, so `plan.target.fingerprint` differs from the applied
+  state. Predates this change; `provePlan`'s drift diff skips reference-only
+  facts, so it does not report it.
+- **Export of TCE artefacts.** `schema export` still emits pgsodium-dependent
+  defaults / views / labels that a pgsodium-less shadow cannot load.
+- **`CREATE UNIQUE INDEX` is not treated as enforcement.** Its only uniqueness
+  signal is the `def` text; a structured `unique` field on the index fact would
+  let the refusal cover it.
