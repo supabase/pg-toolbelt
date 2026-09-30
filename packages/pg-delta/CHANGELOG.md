@@ -1,5 +1,14 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.56
+
+### Patch Changes
+
+- 20be5c5: Stop `plan` / `diff` from printing spurious `dangling_edge` warnings for partitioned and inherited tables. Objects PostgreSQL materializes from a parent (inherited columns, cloned partition constraints and FK clones, copied defaults, cloned triggers) and identity sequences are never facts: dependencies on them now resolve to the modeled parent/owner, and their own dependencies (which mirror the owner's) are no longer emitted. A view, FK or index over a partition now also depends on that partition, so changing a partition's bound rebuilds them instead of failing with "cannot drop table … because other objects depend on it".
+- bdedeb4: Replace the partitioned table when a partition key column changes type or collation, or is dropped. Postgres rejects `ALTER COLUMN ... TYPE` and `DROP COLUMN` on a column in the partition key of its table or of any sub-partition. These plans failed to apply with "cannot alter column ... because it is part of the partition key of relation ..." (or "cannot drop column ..."). pg-delta now reads key columns from `pg_depend` at extract time and replaces the partitioned table instead. The replace drops the table's rows, so the plan flags it as destructive. A sub-partition keyed on a column its parent gains in the same plan is now created after that `ADD COLUMN`.
+- Updated dependencies [73aafae]
+  - @supabase/pg-topo@1.0.0-alpha.7
+
 ## 1.0.0-alpha.55
 
 ### Patch Changes
