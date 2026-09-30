@@ -43,6 +43,9 @@ beforeAll(async () => {
     -- local objects over inherited partition columns
     create index messages_2024_at_idx on public.messages_2024 (inserted_at);
     create view public.recent as select id, body from public.messages_2025_h0;
+    -- a reference to the identity column's backing sequence
+    create view public.next_id as
+      select nextval('public.messages_id_seq'::regclass) as id;
     create table public.pins (
       msg_id bigint, msg_at timestamptz,
       foreign key (msg_id, msg_at) references public.messages_2024 (id, inserted_at)
@@ -124,6 +127,7 @@ describe("inherited partition/child objects in pg_depend edges", () => {
         "view:public.child_v -> column:public.base.v",
         "view:public.child_v -> column:public.other.w",
         "view:public.child_v -> table:public.child",
+        "view:public.next_id -> column:public.messages.id",
         "view:public.recent -> column:public.messages.body",
         "view:public.recent -> column:public.messages.id",
         "view:public.recent -> table:public.messages_2025_h0",
