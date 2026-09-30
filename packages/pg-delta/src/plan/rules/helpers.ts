@@ -653,6 +653,40 @@ export function renderRevokeAllSql(
   return `${revokeAll} ON ${grantTarget(target)} FROM ${from}`;
 }
 
+/** Column-level acl ids of the same (target, grantee) as an object-level acl,
+ *  collected across the given views — what `REVOKE ALL ON <rel> FROM <role>`
+ *  wipes along with the object-level grant
+ *  (https://www.postgresql.org/docs/current/sql-revoke.html). Column acls
+ *  hang off the column fact (tables) or off the relation itself (views /
+ *  materialized views). */
+export function columnAclIdsFor(
+  id: { target: StableId; grantee: string },
+  ...views: FactView[]
+): StableId[] {
+  const out: StableId[] = [];
+  const seen = new Set<string>();
+  const targetKey = encodeId(id.target);
+  const take = (child: Fact): void => {
+    const cid = child.id;
+    if (cid.kind !== "acl" || cid.column === undefined) return;
+    if (cid.grantee !== id.grantee || encodeId(cid.target) !== targetKey)
+      return;
+    const key = encodeId(cid);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(cid);
+  };
+  for (const view of views) {
+    for (const child of view.childrenOf(id.target)) {
+      take(child);
+      if (child.id.kind === "column") {
+        for (const grandchild of view.childrenOf(child.id)) take(grandchild);
+      }
+    }
+  }
+  return out;
+}
+
 export function grantActions(fact: Fact, verb: "grant"): ActionSpec[] {
   const id = fact.id as {
     kind: "acl";

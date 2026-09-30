@@ -622,7 +622,7 @@ re-raised in a later review, reply with a link here.
 | P1b | `SET MAXVALUE` ordered before `TYPE` widening on identity columns | reproduced, new | regression class (old engine had no identity-bounds emitter) | **blocker** → ✅ [#379](https://github.com/supabase/pg-toolbelt/pull/379) |
 | P2a | `relam` / `reltablespace` invisible to diff | real, tracked | shared pre-existing gap | subsumed by the Wave 3 entries above |
 | P2b | `pg_parameter_acl` (PG15+) silently dropped | real, untracked | shared pre-existing gap | probe + docs → ✅ [#380](https://github.com/supabase/pg-toolbelt/pull/380) |
-| P2c | identity sequence grants | not a bug | identical behavior in old engine | **closed won't-fix** (export hoist in #475) |
+| P2c | identity sequence grants | real, fixed | identical behavior in old engine | ✅ modeled as `acl` satellites of the identity column (#477) |
 | P3 | no outside-observer verification gate | absent | never existed in either engine | post-cutover — tracked in [backlog.md](backlog.md) § Validation |
 
 Notes:
@@ -640,12 +640,16 @@ Notes:
   `unmodeled_kind` probe list — silently invisible, violating the completeness
   module's own contract. Now a probe (with `minVersion` version gating);
   modeling the grant as a fact remains add-when-needed.
-- **P2c rationale:** identity sequences are still not facts, so per-object grant
-  diffs on them are out of scope (same as the legacy engine). #475 sorts overlay
-  `REVOKE ALL` with CREATE SCHEMA in the plan (and files `adp_wipes.sql` ahead
-  of objects/extensions in every layout) so a dest auto-expose baseline no
-  longer injects those grants at `CREATE TABLE` / `CREATE EXTENSION` time.
-  Positive ADP `GRANT`s stay at plan order.
+- **P2c:** identity sequences are still not facts of their own, but their grants
+  are: the columns extractor reads the backing sequence's `relacl` and emits
+  `acl` satellites whose parent is the column and whose target is the sequence
+  (#477). They plan as `GRANT` / `REVOKE ON SEQUENCE`, export into the owning
+  table's file, and get default-privilege hygiene on `CREATE TABLE`. The owner's
+  untouched default is skipped at extract (the sequence is never a co-created
+  object for the default-ACL elision). #475 separately sorts overlay `REVOKE ALL`
+  with CREATE SCHEMA so a dest auto-expose baseline does not inject at
+  `CREATE TABLE` / `CREATE EXTENSION` time; positive ADP `GRANT`s stay at plan
+  order.
 - **Still open (discovered during #379):** a desired identity bound pinned
   exactly at the source type's max (e.g. `bigint … (MAXVALUE 2147483647)` from
   an `integer` identity) produces **no** `identity` delta, yet PostgreSQL
@@ -1753,11 +1757,12 @@ predating identity sequences under a later `GRANT USAGE`. Create-time ADP
 hygiene uses the resolved default owner when that owner edge was pruned, so
 a table that predated a schema ADP still gets `REVOKE ALL` in its own file.
 Recorded here so a later review does not re-open P2c as the same leak.
-Identity sequences stay unmodeled; per-object grant diffs on them remain
-won't-fix. A source identity sequence created *after* a positive `GRANT
-USAGE ON SEQUENCES` still will not regain that grant on load — the fact
-base has no create-order, so the GRANT file cannot be interleaved between
-two `CREATE TABLE`s. Follow-up: https://github.com/supabase/pg-toolbelt/issues/477.
+The remaining gap — a source identity sequence granted `USAGE` only through
+a positive `GRANT USAGE ON SEQUENCES` default lost it on load, because the
+fact base had no create-order to interleave the GRANT between two `CREATE
+TABLE`s — is closed by modeling the sequence's grants as `acl` satellites of
+the identity column (https://github.com/supabase/pg-toolbelt/issues/477): the
+explicit `GRANT ON SEQUENCE` now rides in the table's file.
 
 Deferred from the same review (not blocking):
 
@@ -1828,25 +1833,62 @@ Deferred from the review (not blocking):
   general: an extractor-version stamp on snapshots that `drift`/`plan` check
   and refuse with recapture guidance, not a per-kind normalizer for this row.
 
+## PR #478 review triage (Codex) — identity-sequence privileges
+
+PR #478 models grants on an identity column's backing sequence as `acl`
+satellites of the column (target = the sequence). Four rounds fixed real
+gaps (inlined columns of a replaced partitioned parent, the owner's default
+row, in-place `ADD IDENTITY`, owner resolution through the table in the
+REVOKE elision). Deferred from round five (not blocking):
+
+- **Creating role for foreign-owned CREATE.** Hygiene passes the desired
+  owner as the role whose default privileges fire on create; for a table
+  owned by a role other than the applier, PostgreSQL applies the applier's
+  defaults before `OWNER TO`. This is the contract every kind's hygiene uses
+  (`ownerOf(fact.id) ?? defaultOwner` in `action-emitter.ts`), not specific
+  to identity sequences, which follow their table. Fixing it means threading
+  the applier role through hygiene for all kinds in one change.
+- **Identity lifecycle statement noise (jgoux, P3).** A plain ADD IDENTITY
+  is one statement again (the alter's materialized sequence counts as
+  co-created). Still verbose: the owner's `REVOKE ALL` before DROP IDENTITY
+  (an acl drop is not folded into an alter's `alsoDestroys`) and the three
+  extra statements around an identity-sequence rename (the renamed sequence
+  keeps its ACL, so it must not count as created). Both converge.
+- **Policy filtering an identity `set` delta but not the sequence acl.** An
+  operation-level policy that drops a column's plain→identity set delta while
+  admitting the sequence's `acl` adds would leave `GRANT ON SEQUENCE` for a
+  sequence the projected target never creates. Same shape as a column-level
+  grant whose column add is filtered; `projectTarget` prunes orphaned
+  subtrees, not satellites coupled to a parent's attribute value. No shipped
+  policy filters at that grain.
+
 ## Issue #487 follow-up — enum retype through an indirect enum source
 
-Retyping a column away from an enum now casts through `text` / `text[]`,
-keyed on the column's released edge landing on an enum `type` fact.
-Deferred:
+An enum → enum column retype now casts through `text` / `text[]`. The hop
+requires BOTH the column's released (source) and consumed (desired) type
+edges to land on an enum `type` fact. Deferred:
 
-- **Domain over an enum, or an extension-member enum, as the source type.**
-  The released edge resolves to the `domain` / `extension` fact (no
-  `variant`), so a retype to another enum still emits the direct cast and
-  fails with 42846. Resolving it needs the domain's base type or the
-  member's variant at plan time.
-- **User-defined enum → enum cast (PR #490 Codex, round 2).** The text
-  hop applies to every enum → enum retype, so an explicit
-  `CREATE CAST (a_enum AS b_enum)` is bypassed. Casts are unmodeled
-  (`extract/unmodeled.ts` reports them; no fact reaches the planner), so
-  honouring one needs cast facts in the plan-time view. Deferred: before
-  #490 every enum → enum retype without such a cast failed outright, and
-  the case needs a hand-written cross-enum cast. Enum → non-enum already
-  keeps the direct cast.
+- **Domain over an enum, or an extension-member enum, as the source or
+  target type.** The edge resolves to the `domain` / `extension` fact (no
+  `variant`), so the hop is skipped and the retype emits the direct cast,
+  failing with 42846 — e.g. enum → a domain over another enum still emits
+  `c::d_widget`. Resolving it needs the domain's base type or the member's
+  variant at plan time.
+- **User-defined enum → enum cast (PR #490 Codex, round 2).** The hop
+  applies to every enum → enum retype, so an explicit
+  `CREATE CAST (a_enum AS b_enum)` is bypassed. For a cast mapping
+  `'legacy'` → `'active'`:
+  - a target enum that also has `'legacy'` now silently keeps `'legacy'`;
+  - a target without it now fails at apply, where it used to succeed.
+
+  The proof does not catch the silent case: once the column's type
+  signature changes it only compares row counts (`proof/prove.ts`,
+  `contentMode: "count"`). Casts are unmodeled (`extract/unmodeled.ts`
+  reports them; no fact reaches the planner), so honouring one needs cast
+  facts in the plan-time view. Deferred: before #490 every enum → enum
+  retype without such a cast failed outright, and the case needs a
+  hand-written cross-enum cast. Enum → non-enum already keeps the direct
+  cast.
 
 ## supabase/cli#6761 — view / matview column-level grants
 
@@ -1858,11 +1900,25 @@ supabase/pg-toolbelt#359, which was closed as a duplicate of #332 item 4
 
 Deferred:
 
-- **Object-level `REVOKE ALL` wipes same-role column grants.** Pre-existing
-  for tables, and now reachable for views: PostgreSQL revokes matching column
-  privileges with any table-level revoke, and the planner neither orders the
-  column GRANT after it nor re-emits it on replace.
-  https://github.com/supabase/pg-toolbelt/issues/491 (next PR).
+- **Object-level `REVOKE ALL` wipes same-role column grants** — FIXED
+  (https://github.com/supabase/pg-toolbelt/issues/491). PostgreSQL revokes
+  matching column privileges with any table-level revoke. The `acl` rule now
+  declares the same-grantee column acls as `implicitlyDestroys` of the
+  object-level acl; the emitter attaches them to the leading REVOKE's
+  `destroys` (so the graph orders every column GRANT after it) and
+  replacement expansion recreates the surviving column acls. Corpus:
+  `privilege-operations--column-grant-under-default-privileges`,
+  `privilege-operations--object-grant-change-keeps-column-grants`,
+  `privilege-operations--object-grant-removed-keeps-column-grants`.
+- **Column rename + object-level grant change in one plan** (renames
+  `auto` / `prompt` only; predates #491). An accepted column rename cancels
+  both column-acl ids out of the add / remove sets, so the implicit-wipe
+  survivor check skips them, and the wipe's reproduce edge orders the
+  object-level `REVOKE ALL` before the `RENAME COLUMN`: the renamed column's
+  grant is lost. Fix direction: treat a wiped desired-side column acl produced
+  by an accepted rename as a survivor and re-grant it after both the rename
+  and the wipe. Pinned by the `test.failing` case in
+  `src/plan/column-grant-revoke-order.test.ts`.
 - **Extension-member relations.** Column grants on extension-owned views stay
   invisible, like extension-owned table columns today (`columnsFamily` also
   filters `notExtensionMember`). A correct fix needs a column-aware
@@ -1959,6 +2015,44 @@ Deferred (not blocking):
 - **Non-transient `cache lookup failed`.** A corrupt catalog or a buggy
   extension deparser raises the same XX000 text; it now costs 3 attempts and
   ends in `ConcurrentCatalogChangeError` with the original error as `cause`.
+
+## Inherited-object dependency edges — review triage
+
+The pg_depend resolver now skips partition/inheritance-derived objects
+(inherited columns, cloned constraints and FK clones, copied defaults,
+cloned triggers) as dependents, and resolves the referenceable ones
+(inherited columns, cloned PK/UNIQUE/EXCLUDE) to the parent's modeled fact
+plus the child relation, removing the `dangling_edge` flood on partitioned
+tables. Deferred:
+
+- **Deferred — partition-level default overrides are unmodeled.** A
+  partition (or legacy child) whose inherited column carries its own
+  `ALTER … SET DEFAULT` differing from the parent is invisible to diff and
+  proof. The old `dangling_edge` warning fired for *every* copied default,
+  so it never isolated overrides; a real signal needs a dedicated
+  attribute-level check (compare child `pg_attrdef` to the parent's).
+- **Deferred — multi-level legacy inheritance.** A view over a
+  grandchild's inherited column still dangles: legacy ancestry is resolved
+  one `pg_inherits` hop (partitions use `pg_partition_root()` at any depth).
+  A recursive walk was avoided because its row estimate pushes the resolver
+  over `jit_above_cost` on small catalogs.
+- **Deferred — replacing a partition of an FK-referenced partitioned
+  table.** PostgreSQL refuses `DROP TABLE <partition>` while an FK
+  references the partitioned parent (the per-partition FK clone depends on
+  it), so a partition bound change on such a table fails at apply. Needs a
+  `DETACH PARTITION` (or FK drop/re-add) strategy in the planner; unrelated
+  to edge resolution.
+- **Deferred — same-name column from several legacy parents.** A child
+  column merged from two parents that both define it locally resolves to
+  the first parent (`inhseqno`) only, so a view over it depends on that
+  parent's column alone. Rare; a fan-out to every defining parent would fix
+  it.
+- **Deferred (pre-existing) — replacing a directly published partition.**
+  The publication's pg_depend edge on a leaf partition is attributed to the
+  publication, but publications are not `rebuildable`
+  (`src/plan/rules/publications.ts`), so a partition drop + recreate can
+  lose its publication membership. Needs a corpus case and a publication
+  membership re-add on table replace.
 
 ## PR #500 review triage (Codex) — pg-topo range types
 

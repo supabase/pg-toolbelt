@@ -38,6 +38,31 @@ describe("schema export projects the managed view", () => {
     expect(dump).not.toContain("auth"); // platform schema/table excluded
   });
 
+  test("an extension that creates its own platform schema exports a bare CREATE EXTENSION (pgmq)", () => {
+    // `pgmq` is platform-assumed (never exported) but absent from a fresh
+    // Supabase database; only the control-file default can create it on load.
+    const fb = buildFactBase(
+      [
+        { id: { kind: "schema", name: "pgmq" }, payload: {} },
+        {
+          id: { kind: "extension", name: "pgmq" },
+          payload: {
+            schema: "pgmq",
+            _relocatable: false,
+            _controlSchema: "pgmq",
+          },
+        },
+      ],
+      [],
+    );
+    const files = exportSqlFiles(resolveView(fb, supabasePolicy), {
+      layout: "by-object",
+    });
+    const ext = files.find((f) => f.name === "_cluster/extensions/pgmq.sql");
+    expect(ext?.sql).toContain(`CREATE EXTENSION "pgmq";`);
+    expect(ext?.sql).not.toMatch(/SCHEMA/i);
+  });
+
   test("without a policy the raw fact base is exported (identity projection)", () => {
     const fb = buildFactBase(facts, []);
     const dump = exportSqlFiles(resolveView(fb, undefined), {

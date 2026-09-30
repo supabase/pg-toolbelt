@@ -1,0 +1,13 @@
+{
+  "a-to-b": {
+    "require": [
+      "create:table",
+      "create:view",
+      "create:materializedView",
+      "create:acl"
+    ]
+  },
+  "b-to-a": {
+    "require": ["drop:table", "drop:view", "drop:materializedView"]
+  }
+}

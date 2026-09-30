@@ -109,10 +109,16 @@ kind that honours a `SCHEMA` clause.)
 *Principle: a serialize param that describes the object is a missing fact field.*
 
 *(Since superseded in two details: the `SCHEMA` clause is now derived from the
-target schema's PRESENCE at plan time — see the extension create rule and its
-da8ce04 regression note — and `extrelocatable` rides on the fact as non-hashed
-`_relocatable` metadata (it is a property of the installed version, i.e. version
-churn — CLI-2219), read only by the replace-vs-alter decision for schema moves.)*
+target schema's PRESENCE at plan time — see the extension create rule — and
+`extrelocatable` rides on the fact as non-hashed `_relocatable` metadata (it is a
+property of the installed version, i.e. version churn — CLI-2219), read only by
+the replace-vs-alter decision for schema moves. When the default version's
+control file pins the schema (non-hashed `_controlSchema`) and the target already
+holds it — possibly only as an assumed, reference-only fact — the clause is
+omitted and Postgres finds or creates the pinned schema itself: the export's
+pristine source assumes platform schemas such as `pgmq` that a fresh Supabase
+database lacks. A schema the plan creates keeps the clause, so an export loads
+in any file order.)*
 
 ### 3. Applier capability becomes a probed fact; the view is capability-restricted
 

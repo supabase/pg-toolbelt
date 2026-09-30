@@ -104,6 +104,37 @@ export async function fetchDependencyRows(
       UNION
       SELECT refclassid, refobjid, refobjsubid FROM dep
     ),
+    -- "Derived" objects are never facts: what PostgreSQL clones from a parent
+    -- onto an inheritance/partition child (inherited columns, non-local
+    -- constraints incl. FK clones, their defaults, cloned triggers), plus an
+    -- identity sequence, folded into its column.
+    --  - dependent: the edge is skipped; its deps mirror the owner's, and
+    --    re-pointing them would make parent objects depend on the partition.
+    --  - referenced: the kinds other objects can depend on (inherited column,
+    --    cloned PK/UNIQUE/EXCLUDE, identity sequence) resolve to the modeled
+    --    owner; an inherited column / cloned constraint also yields
+    --    an edge to the child relation itself (anchor) — pg_depend records only
+    --    column-level deps, so without it a partition replace would not
+    --    rebuild a view or FK over it. Other derived kinds keep their own id.
+    -- Ancestry avoids a recursive CTE over pg_inherits, whose row estimate
+    -- pushes the plan cost into JIT territory on small catalogs.
+    proot AS (
+      SELECT c.oid, pg_partition_root(c.oid) AS root
+      FROM pg_class c WHERE c.relispartition
+    ),
+    -- inherited column -> the same-named local column it comes from
+    colanc AS (
+      SELECT DISTINCT ON (att.attrelid, att.attnum)
+             att.attrelid AS oid, att.attnum AS subid, pa.attrelid AS ancrel
+      FROM pg_attribute att
+      LEFT JOIN proot pr ON pr.oid = att.attrelid
+      LEFT JOIN pg_inherits i ON pr.oid IS NULL AND i.inhrelid = att.attrelid
+      JOIN pg_attribute pa ON pa.attrelid = COALESCE(pr.root, i.inhparent)
+                          AND pa.attname = att.attname
+                          AND pa.attislocal AND NOT pa.attisdropped
+      WHERE NOT att.attislocal AND att.attnum > 0 AND NOT att.attisdropped
+      ORDER BY att.attrelid, att.attnum, i.inhseqno
+    ),
     -- one derived table per resolver branch, each built once over its catalog
     rel AS (
       SELECT rc.oid, rc.relkind, json_build_object('kind',
@@ -117,24 +148,51 @@ export async function fetchDependencyRows(
       FROM pg_class rc JOIN pg_namespace rn ON rn.oid = rc.relnamespace
       WHERE rc.relkind IN ('r','p','f','v','m','i','I','S')
     ),
-    cbi AS (
-      -- a constraint-backed index resolves to its constraint, not the index
-      SELECT con.conindid AS oid,
-             json_build_object('kind','constraint','schema',cn.nspname,
-                               'table',cc.relname,'name',con.conname) AS id
-      FROM pg_constraint con
-      JOIN pg_class cc ON cc.oid = con.conrelid
-      JOIN pg_namespace cn ON cn.oid = cc.relnamespace
-      WHERE con.contype IN ('p','u','x') AND con.conindid <> 0
-    ),
     col AS (
       SELECT att.attrelid AS oid, att.attnum AS subid,
              json_build_object('kind','column','schema',rn.nspname,
-                               'table',rc.relname,'name',att.attname) AS id
+                               'table',rc.relname,'name',att.attname) AS id,
+             NOT att.attislocal AS derived,
+             orel.id AS anchor
       FROM pg_attribute att
-      JOIN pg_class rc ON rc.oid = att.attrelid AND rc.relkind IN ('r','p','f')
+      JOIN pg_class oc ON oc.oid = att.attrelid AND oc.relkind IN ('r','p','f')
+      LEFT JOIN rel orel ON NOT att.attislocal AND orel.oid = att.attrelid
+      LEFT JOIN colanc ca ON ca.oid = att.attrelid AND ca.subid = att.attnum
+      JOIN pg_class rc ON rc.oid = COALESCE(ca.ancrel, att.attrelid)
       JOIN pg_namespace rn ON rn.oid = rc.relnamespace
       WHERE att.attnum > 0 AND NOT att.attisdropped
+    ),
+    tcon AS (
+      SELECT con.oid, json_build_object('kind','constraint','schema',cn.nspname,
+                               'table',cc.relname,'name',mc.conname) AS id,
+             NOT con.conislocal AS derived,
+             orel.id AS anchor
+      FROM pg_constraint con
+      LEFT JOIN rel orel ON NOT con.conislocal AND orel.oid = con.conrelid
+      -- a partition's cloned PK/UNIQUE/EXCLUDE resolves to the root constraint
+      -- backed by the root of its (attached) index
+      LEFT JOIN proot pi ON pi.oid = con.conindid AND NOT con.conislocal
+                        AND con.contype IN ('p','u','x')
+      LEFT JOIN pg_constraint rcon ON rcon.conindid = pi.root
+                                  AND rcon.contype = con.contype
+      JOIN pg_constraint mc ON mc.oid = COALESCE(rcon.oid, con.oid)
+      JOIN pg_class cc ON cc.oid = mc.conrelid
+      JOIN pg_namespace cn ON cn.oid = cc.relnamespace
+      WHERE con.conrelid <> 0 AND ${NOT_NULL_IS_NOT_A_FACT}
+    ),
+    cbi AS (
+      -- a constraint-backed index resolves to its constraint, not the index
+      SELECT con.conindid AS oid, tcon.id, tcon.derived, tcon.anchor
+      FROM pg_constraint con JOIN tcon ON tcon.oid = con.oid
+      WHERE con.contype IN ('p','u','x') AND con.conindid <> 0
+    ),
+    idseq AS (
+      SELECT s.oid, col.id
+      FROM pg_class s
+      JOIN pg_depend d ON d.classid = 'pg_class'::regclass AND d.objid = s.oid
+                      AND d.refclassid = 'pg_class'::regclass AND d.deptype = 'i'
+      JOIN col ON col.oid = d.refobjid AND col.subid = d.refobjsubid
+      WHERE s.relkind = 'S'
     ),
     proc AS (
       -- prokind 'w' (window functions) is extracted as a function fact
@@ -151,14 +209,6 @@ export async function fetchDependencyRows(
                              ORDER BY t.ord)::text[]) AS id
       FROM pg_proc pp JOIN pg_namespace pn ON pn.oid = pp.pronamespace
       WHERE pp.prokind IN ('f','p','a','w')
-    ),
-    tcon AS (
-      SELECT con.oid, json_build_object('kind','constraint','schema',cn.nspname,
-                               'table',cc.relname,'name',con.conname) AS id
-      FROM pg_constraint con
-      JOIN pg_class cc ON cc.oid = con.conrelid
-      JOIN pg_namespace cn ON cn.oid = cc.relnamespace
-      WHERE con.conrelid <> 0 AND ${NOT_NULL_IS_NOT_A_FACT}
     ),
     dcon AS (
       SELECT con.oid, json_build_object('kind','constraint','schema',dn.nspname,
@@ -268,7 +318,8 @@ export async function fetchDependencyRows(
     ),
     adef AS (
       SELECT ad.oid, json_build_object('kind','default','schema',dn.nspname,
-                               'table',dc.relname,'name',da.attname) AS id
+                               'table',dc.relname,'name',da.attname) AS id,
+             NOT da.attislocal AS derived
       FROM pg_attrdef ad
       JOIN pg_class dc ON dc.oid = ad.adrelid
       JOIN pg_namespace dn ON dn.oid = dc.relnamespace
@@ -303,7 +354,8 @@ export async function fetchDependencyRows(
     ),
     trg AS (
       SELECT tg.oid, json_build_object('kind','trigger','schema',tn.nspname,
-                               'table',tc.relname,'name',tg.tgname) AS id
+                               'table',tc.relname,'name',tg.tgname) AS id,
+             tg.tgparentid <> 0 AS derived
       FROM pg_trigger tg
       JOIN pg_class tc ON tc.oid = tg.tgrelid
       JOIN pg_namespace tn ON tn.oid = tc.relnamespace
@@ -319,7 +371,7 @@ export async function fetchDependencyRows(
       SELECT e.classid, e.objid, e.objsubid,
         CASE
           WHEN e.classid = 'pg_class'::regclass AND e.objsubid = 0
-            THEN COALESCE(cbi.id, comptype.id, rel.id)
+            THEN COALESCE(cbi.id, comptype.id, idseq.id, rel.id)
           WHEN e.classid = 'pg_class'::regclass AND e.objsubid > 0
             -- a real column; a composite type's attribute resolves to its type;
             -- else a view/matview column resolves to its relation
@@ -343,7 +395,20 @@ export async function fetchDependencyRows(
           WHEN e.classid = 'pg_trigger'::regclass THEN trg.id
           WHEN e.classid = 'pg_namespace'::regclass THEN nsp.id
           ELSE NULL
-        END AS id
+        END AS id,
+        CASE
+          WHEN e.classid = 'pg_class'::regclass AND e.objsubid = 0
+            THEN COALESCE(cbi.derived, idseq.oid IS NOT NULL)
+          WHEN e.classid = 'pg_class'::regclass AND e.objsubid > 0 THEN col.derived
+          WHEN e.classid = 'pg_constraint'::regclass THEN tcon.derived
+          WHEN e.classid = 'pg_attrdef'::regclass THEN adef.derived
+          WHEN e.classid = 'pg_trigger'::regclass THEN trg.derived
+        END AS derived,
+        CASE
+          WHEN e.classid = 'pg_class'::regclass AND e.objsubid = 0 THEN cbi.anchor
+          WHEN e.classid = 'pg_class'::regclass AND e.objsubid > 0 THEN col.anchor
+          WHEN e.classid = 'pg_constraint'::regclass THEN tcon.anchor
+        END AS anchor
       FROM endpoints e
       LEFT JOIN rel    ON rel.oid    = e.objid AND e.classid = 'pg_class'::regclass
       LEFT JOIN cbi    ON cbi.oid    = e.objid AND e.classid = 'pg_class'::regclass AND e.objsubid = 0
@@ -353,6 +418,7 @@ export async function fetchDependencyRows(
       LEFT JOIN dcon   ON dcon.oid   = e.objid AND e.classid = 'pg_constraint'::regclass
       LEFT JOIN typ    ON typ.oid    = e.objid AND e.classid = 'pg_type'::regclass
       LEFT JOIN comptype ON comptype.oid = e.objid AND e.classid = 'pg_class'::regclass
+      LEFT JOIN idseq  ON idseq.oid  = e.objid AND e.classid = 'pg_class'::regclass AND e.objsubid = 0
       LEFT JOIN extm   ON extm.classid = e.classid AND extm.objid = e.objid
       LEFT JOIN coll   ON coll.oid   = e.objid AND e.classid = 'pg_collation'::regclass
       LEFT JOIN pol    ON pol.oid    = e.objid AND e.classid = 'pg_policy'::regclass
@@ -366,14 +432,16 @@ export async function fetchDependencyRows(
       LEFT JOIN trg    ON trg.oid    = e.objid AND e.classid = 'pg_trigger'::regclass
       LEFT JOIN nsp    ON nsp.oid    = e.objid AND e.classid = 'pg_namespace'::regclass
     )
-    SELECT rd.id AS dependent, rr.id AS referenced
+    SELECT rd.id AS dependent, ref.id AS referenced
     FROM dep
     JOIN resolved rd ON rd.classid = dep.classid
                     AND rd.objid = dep.objid
                     AND rd.objsubid = dep.objsubid
     JOIN resolved rr ON rr.classid = dep.refclassid
                     AND rr.objid = dep.refobjid
-                    AND rr.objsubid = dep.refobjsubid`);
+                    AND rr.objsubid = dep.refobjsubid
+    CROSS JOIN LATERAL (VALUES (rr.id), (rr.anchor)) AS ref(id)
+    WHERE rd.derived IS NOT TRUE AND ref.id IS NOT NULL`);
 }
 
 /**

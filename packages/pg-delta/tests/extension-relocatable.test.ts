@@ -20,6 +20,9 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { extract } from "../src/extract/extract.ts";
+import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
+import { buildSchemaExport } from "../src/frontends/schema-export.ts";
+import { rawProfile } from "../src/integrations/profile.ts";
 import { plan } from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import {
@@ -139,4 +142,79 @@ describe("extension SCHEMA clause derived from relocatable (e2e)", () => {
     expect(verdict.driftDeltas).toEqual([]);
     expect(verdict.ok).toBe(true);
   }, 240_000);
+});
+
+describe("control-file-pinned install schema is extracted as metadata", () => {
+  const controlSchemaOf = (
+    state: Awaited<ReturnType<typeof extract>>,
+    name: string,
+  ): unknown =>
+    state.factBase
+      .facts()
+      .find((f) => f.id.kind === "extension" && f.id.name === name)?.payload[
+      "_controlSchema"
+    ];
+
+  test("pinned by the installed and default versions → recorded; unpinned → absent", async () => {
+    const cluster = await relocProbeCluster();
+    const db = await cluster.createDb("ext_pin_probe");
+    dbs.push(db);
+    await db.pool.query(`
+      CREATE EXTENSION pgdelta_pin_probe;
+      CREATE EXTENSION hstore;
+    `);
+    const state = await extract(db.pool);
+    expect(controlSchemaOf(state, "pgdelta_pin_probe")).toBe("pgdelta_pin");
+    expect(controlSchemaOf(state, "hstore")).toBeUndefined();
+  }, 120_000);
+
+  test("pinned only by the installed (non-default) version → absent", async () => {
+    // A bare CREATE EXTENSION installs the default version, which is unpinned
+    // here, so the pin cannot justify dropping the SCHEMA clause.
+    const cluster = await relocProbeCluster();
+    const db = await cluster.createDb("ext_pin_skew_probe");
+    dbs.push(db);
+    await db.pool.query(
+      `CREATE EXTENSION pgdelta_pin_skew_probe VERSION '1.0'`,
+    );
+    const { rows } = await db.pool.query(
+      `SELECT extnamespace::regnamespace::text AS schema FROM pg_extension WHERE extname = 'pgdelta_pin_skew_probe'`,
+    );
+    expect(rows[0].schema).toBe("pgdelta_pin_skew");
+    const state = await extract(db.pool);
+    expect(controlSchemaOf(state, "pgdelta_pin_skew_probe")).toBeUndefined();
+  }, 120_000);
+
+  test("installed version no longer installable on this image → the default version's pin still counts", async () => {
+    // An image upgrade that drops the installed version's install script keeps
+    // `extversion`, so pg_available_extension_versions has no row for it.
+    const cluster = await relocProbeCluster();
+    const db = await cluster.createDb("ext_pin_gone_probe");
+    dbs.push(db);
+    await db.pool.query(`CREATE EXTENSION pgdelta_pin_probe`);
+    await db.pool.query(
+      `UPDATE pg_extension SET extversion = '0.9' WHERE extname = 'pgdelta_pin_probe'`,
+    );
+    const state = await extract(db.pool);
+    expect(controlSchemaOf(state, "pgdelta_pin_probe")).toBe("pgdelta_pin");
+  }, 120_000);
+
+  test("a raw export that creates the pinned schema replays in lexicographic file order", async () => {
+    const cluster = await relocProbeCluster();
+    const src = await cluster.createDb("ext_pin_export_src");
+    const shadow = await cluster.createDb("ext_pin_export_shadow");
+    dbs.push(src, shadow);
+    await src.pool.query(`CREATE EXTENSION pgdelta_pin_probe`);
+    const { files } = await buildSchemaExport(src.pool, {
+      profile: rawProfile,
+    });
+    const lexical = files
+      .filter((f) => !/cluster[_/]roles/.test(f.name))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    await loadSqlFiles(lexical, shadow.pool);
+    const { rows } = await shadow.pool.query(
+      `SELECT extnamespace::regnamespace::text AS schema FROM pg_extension WHERE extname = 'pgdelta_pin_probe'`,
+    );
+    expect(rows).toEqual([{ schema: "pgdelta_pin" }]);
+  }, 120_000);
 });
