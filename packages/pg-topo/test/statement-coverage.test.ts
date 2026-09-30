@@ -108,6 +108,25 @@ describe("statement coverage", () => {
     expect(orderedSql.at(-1)).toContain("create table app.slots");
   }, 120000);
 
+  test("keeps quoted type names that differ from a built-in only by case", async () => {
+    const result = await analyzeAndSort([
+      `create table public.items (label text default public.label('x'::"Text"));`,
+      `create function public.label(v public."Text") returns text language sql immutable as $$ select v::text $$;`,
+      `create type public."Text" as enum ('x');`,
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+
+    expect(unresolved).toHaveLength(0);
+    expect(executionErrors).toHaveLength(0);
+    expect(result.ordered.at(-1)?.sql).toContain("create table public.items");
+  }, 120000);
+
   test("orders range type after custom subtype", async () => {
     const result = await analyzeAndSort([
       "create type app.price_range as range (subtype = app.price);",
