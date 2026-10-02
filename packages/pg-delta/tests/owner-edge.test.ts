@@ -9,13 +9,16 @@
  * Docker required.
  */
 import { afterAll, describe, expect, test } from "bun:test";
+import pg from "pg";
+import { apply } from "../src/apply/apply.ts";
 import { buildFactBase, type Fact } from "../src/core/fact.ts";
-import type { StableId } from "../src/core/stable-id.ts";
+import { encodeId, type StableId } from "../src/core/stable-id.ts";
 import { extract } from "../src/extract/extract.ts";
+import { rawProfile, resolveProfile } from "../src/integrations/profile.ts";
 import { plan } from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import type { Policy } from "../src/policy/policy.ts";
-import type { ApplierCapability } from "../src/policy/capability.ts";
+import { CAPABILITY_OWNER } from "../src/policy/capability.ts";
 import {
   isolatedClusterPair,
   sharedCluster,
@@ -387,12 +390,13 @@ describe("owner edge: table rename + owner-role rename carries ownership (P1 #2)
 // ---------------------------------------------------------------------------
 // Test (d): owner residue (follow-up 1). A non-superuser applier that is not a
 // member of an object's owner role cannot run ALTER … OWNER TO. The owner can't
-// be silently skipped (acldefault is owner-relative → no convergence), so the
-// planner FAILS FAST with an actionable error, surfaced before any apply.
+// be silently skipped (acldefault is owner-relative → no convergence). plan()
+// keeps the owner ALTERs and flags each one, so a read-only diff still renders;
+// apply() refuses the flagged plan before any statement runs.
 // ---------------------------------------------------------------------------
 
-describe("owner edge: owner residue — applier can't set owner → fail fast", () => {
-  test("a non-superuser capability rejects a plan that must set an unsettable owner", async () => {
+describe("owner edge: owner residue — applier can't set owner", () => {
+  test("default resolveProfile probe: plan warns, apply refuses before any statement", async () => {
     const cluster = await sharedCluster();
     const src = await cluster.createDb("cap_owner_src");
     const dst = await cluster.createDb("cap_owner_dst");
@@ -400,33 +404,160 @@ describe("owner edge: owner residue — applier can't set owner → fail fast", 
     await cluster.adminPool
       .query(`CREATE ROLE cap_other_owner NOLOGIN`)
       .catch(() => {});
-    // desired: a schema + table owned by cap_other_owner
+    await cluster.adminPool
+      .query(`CREATE ROLE cap_applier LOGIN PASSWORD 'pw' NOSUPERUSER`)
+      .catch(() => {});
+    // source: a function already owned by cap_other_owner
+    await src.pool.query(`
+        CREATE FUNCTION public.cap_f() RETURNS int LANGUAGE sql AS 'select 1';
+        ALTER FUNCTION public.cap_f() OWNER TO cap_other_owner;
+      `);
+    // desired: new schema + table owned by cap_other_owner (owner link deltas),
+    // and the function's return type changed (drop + recreate keeps the owner)
     await dst.pool.query(`
         CREATE SCHEMA caps AUTHORIZATION cap_other_owner;
         CREATE TABLE caps.t (id int);
         ALTER TABLE caps.t OWNER TO cap_other_owner;
+        CREATE FUNCTION public.cap_f() RETURNS bigint LANGUAGE sql AS 'select 1::bigint';
+        ALTER FUNCTION public.cap_f() OWNER TO cap_other_owner;
       `);
 
-    const [srcState, dstState] = await Promise.all([
-      extract(src.pool),
-      extract(dst.pool),
-    ]);
+    const applierPool = new pg.Pool({
+      connectionString: src.uri.replace("test:test@", "cap_applier:pw@"),
+      max: 1,
+    });
+    applierPool.on("error", () => {});
+    try {
+      // no restrictToApplier option: the default probe is what the branch diff uses
+      const ctx = await resolveProfile(applierPool, rawProfile);
+      expect(ctx.planOptions.capability?.isSuperuser).toBe(false);
+      const [srcState, dstState] = await Promise.all([
+        ctx.extract(src.pool),
+        ctx.extract(dst.pool),
+      ]);
 
-    // an applier that is a member of NO role (so it cannot set owner to
-    // cap_other_owner). isSuperuser:false forces the capability check.
-    const capability: ApplierCapability = {
-      role: "applier",
-      isSuperuser: false,
-      memberOf: [],
-    };
+      const thePlan = plan(
+        srcState.factBase,
+        dstState.factBase,
+        ctx.planOptions,
+      );
+      expect(
+        (thePlan.diagnostics ?? [])
+          .filter((d) => d.code === CAPABILITY_OWNER)
+          .map((d) => (d.subject ? encodeId(d.subject) : ""))
+          .sort(),
+      ).toMatchInlineSnapshot(`
+        [
+          "function:public.cap_f()",
+          "schema:caps",
+          "table:caps.t",
+        ]
+      `);
+      expect(
+        thePlan.actions.filter((a) => a.sql.includes("OWNER TO")).length,
+      ).toBe(3);
 
-    expect(() =>
-      plan(srcState.factBase, dstState.factBase, { capability }),
-    ).toThrow(/cannot set owner/);
-
-    // a superuser applier (or none) plans fine — the objects + owner ALTERs land
-    expect(() => plan(srcState.factBase, dstState.factBase)).not.toThrow();
+      const err = await apply(thePlan, applierPool).catch((e: unknown) => e);
+      expect(String(err)).toMatch(
+        /apply: cannot set owner of .* to role "cap_other_owner"/,
+      );
+      const untouched = await src.pool.query(
+        `SELECT (SELECT count(*) FROM pg_namespace WHERE nspname = 'caps')::int AS schemas,
+                pg_get_function_result('public.cap_f()'::regprocedure) AS result`,
+      );
+      expect(untouched.rows[0]).toEqual({ schemas: 0, result: "integer" });
+    } finally {
+      await applierPool.end().catch(() => {});
+    }
   }, 120_000);
+});
+
+// ---------------------------------------------------------------------------
+// Test (e): a CREATEROLE applier that can grant itself the owner role gets a
+// runnable plan: GRANT r TO applier → ALTER … OWNER TO r → REVOKE, ordered
+// after the owner's CREATE grant on the schema. Mirrors a Supabase branch
+// diff: the owner role is new on the base, which the applier (postgres-like,
+// non-superuser) probes.
+// ---------------------------------------------------------------------------
+
+describe("owner edge: CREATEROLE applier makes the owner ALTER runnable", () => {
+  test("plan has no owner warning, applies as the applier, and converges", async () => {
+    const [clusterA, clusterB] = await isolatedClusterPair();
+    const src = await clusterA.createDb("own_wrap_src");
+    const dst = await clusterB.createDb("own_wrap_dst");
+    dbs.push(src, dst);
+    for (const c of [clusterA, clusterB]) {
+      await c.adminPool
+        .query(`CREATE ROLE own_applier LOGIN PASSWORD 'pw' CREATEROLE`)
+        .catch(() => {});
+    }
+    // the applier owns the base database (so it can GRANT on public, PG15+)
+    const srcName = (await src.pool.query(`SELECT current_database() AS d`))
+      .rows[0].d as string;
+    await clusterA.adminPool.query(
+      `ALTER DATABASE "${srcName}" OWNER TO own_applier`,
+    );
+    const pgMajor = Number(
+      (await src.pool.query(`SHOW server_version_num`)).rows[0]
+        .server_version_num,
+    );
+    // desired: the owner role, its CREATE on public (implicit via PUBLIC on
+    // PG14), and a function it owns
+    await clusterB.adminPool
+      .query(`CREATE ROLE own_rpc_owner NOLOGIN`)
+      .catch(() => {});
+    await dst.pool.query(`
+        ${pgMajor >= 150000 ? "GRANT CREATE ON SCHEMA public TO own_rpc_owner;" : ""}
+        CREATE FUNCTION public.own_f() RETURNS int LANGUAGE sql AS 'select 1';
+        ALTER FUNCTION public.own_f() OWNER TO own_rpc_owner;
+        -- a second object: each wrapper's REVOKE drops only the applier's own
+        -- grant, so the next GRANT still has ADMIN (PG16+)
+        CREATE FUNCTION public.own_g() RETURNS int LANGUAGE sql AS 'select 2';
+        ALTER FUNCTION public.own_g() OWNER TO own_rpc_owner;
+      `);
+
+    const applierPool = new pg.Pool({
+      connectionString: src.uri.replace("test:test@", "own_applier:pw@"),
+      max: 1,
+    });
+    applierPool.on("error", () => {});
+    try {
+      const ctx = await resolveProfile(applierPool, rawProfile);
+      const [srcState, dstState] = await Promise.all([
+        ctx.extract(applierPool),
+        ctx.extract(dst.pool),
+      ]);
+      const thePlan = plan(
+        srcState.factBase,
+        dstState.factBase,
+        ctx.planOptions,
+      );
+      expect(thePlan.diagnostics).toBeUndefined();
+      expect(
+        thePlan.actions.some(
+          (a) => a.sql === 'GRANT "own_rpc_owner" TO "own_applier"',
+        ),
+      ).toBe(true);
+
+      const report = await apply(thePlan, applierPool);
+      expect(report.error).toBeUndefined();
+      expect(report.status).toBe("applied");
+      const owner = await src.pool.query(
+        `SELECT proname, proowner::regrole::text AS owner FROM pg_proc
+          WHERE proname IN ('own_f', 'own_g') ORDER BY 1`,
+      );
+      expect(owner.rows).toEqual([
+        { proname: "own_f", owner: "own_rpc_owner" },
+        { proname: "own_g", owner: "own_rpc_owner" },
+      ]);
+
+      const after = await ctx.extract(applierPool);
+      const again = plan(after.factBase, dstState.factBase, ctx.planOptions);
+      expect(again.actions.map((a) => a.sql)).toEqual([]);
+    } finally {
+      await applierPool.end().catch(() => {});
+    }
+  }, 180_000);
 });
 
 // ---------------------------------------------------------------------------

@@ -24,6 +24,37 @@ describe("probeApplierCapability (integration)", () => {
     expect(cap.memberOf).toContain(cap.role);
   }, 60_000);
 
+  test("a CREATEROLE creator can SET only roles it is granted and reports the roles it can grant", async () => {
+    const cluster = await sharedCluster();
+    const db = await cluster.createDb("cap_creator_probe");
+    await cluster.adminPool
+      .query(`CREATE ROLE cap_creator LOGIN PASSWORD 'pw' CREATEROLE`)
+      .catch(() => {});
+    const pool = new pg.Pool({
+      connectionString: db.uri.replace("test:test@", "cap_creator:pw@"),
+      max: 1,
+    });
+    pool.on("error", () => {});
+    try {
+      await pool.query(`DROP ROLE IF EXISTS cap_made`);
+      await pool.query(`CREATE ROLE cap_made NOLOGIN`);
+      const cap = await probeApplierCapability(pool);
+      // PG16+ records an ADMIN-only grant (no SET) for the creator; ALTER …
+      // OWNER TO needs SET, so the role must not count as settable.
+      expect(cap.memberOf).not.toContain("cap_made");
+      // grantable: ADMIN OPTION on PG16+, any non-superuser role before
+      expect(cap.adminOf).toContain("cap_made");
+      expect(cap.adminOf).not.toContain("test");
+      expect(cap.createroleSelfGrant).toBe(
+        (cap.pgMajor ?? 0) >= 16 ? "" : undefined,
+      );
+    } finally {
+      await pool.query(`DROP ROLE IF EXISTS cap_made`).catch(() => {});
+      await pool.end().catch(() => {});
+      await db.drop();
+    }
+  }, 60_000);
+
   // The capability FDW-ACL gate is keyed on isSuperuser. This pins the rule it
   // rests on (Supabase Rule 9's stated rationale): a non-superuser cannot GRANT
   // on a FOREIGN DATA WRAPPER, so its ACL is not user-replayable.

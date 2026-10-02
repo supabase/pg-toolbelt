@@ -126,8 +126,12 @@ export function buildActionGraph(
   // the relation being rebuilt must not be pinned before that relation's DROP
   // (it consumes the re-CREATE, so DROP → CREATE → leader → DROP would cycle).
   implicitDestroys: ReadonlyMap<number, ReadonlySet<string>> = new Map(),
+  // explicit `[before, after]` edges from the emitter (see FinalizeInput);
+  // seeded first so the alter-after-dependency pass never closes a cycle
+  // through them
+  orderAfter: ReadonlyArray<readonly [number, number]> = [],
 ): Array<[number, number]> {
-  const edges: Array<[number, number]> = [];
+  const edges: Array<[number, number]> = orderAfter.map(([b, a]) => [b, a]);
 
   // Memoized "can applying this fact's expression execute a user routine?" —
   // reachability in the DESIRED state over `depends` edges PLUS the parent→child
@@ -1274,18 +1278,13 @@ export function elideDefaultAclCreates(
  * Detected STRUCTURALLY (no SQL parsing — guardrail): the owner ALTER has
  * `verb === "alter"`, produces/destroys/releases nothing, consumes exactly the
  * created object id + one role id, the kind has an `ownerAlterPrefix` rule, and
- * the desired graph carries an `owner` edge object → role. `canSetOwner` already
- * fail-fasts at emit time, so every surviving owner ALTER here is one the applier
- * could run; Rule 2's "keep when owner ≠ applier" only fires for the
- * capability-undefined and superuser-applier cases.
+ * the desired graph carries an `owner` edge object → role.
  *
- * The fold also re-checks `canSetOwner` locally (when capability is known): both
- * the schema AUTHORIZATION form and the two-statement form carry the same
- * capability requirement, so an applier that cannot set the owner can run
- * NEITHER. Folding such a pair would be harmless against a converging plan (it
- * fails identically either way), but the local check keeps the pass
- * self-contained — correct even if a future caller runs it without the emit-time
- * fail-fast — instead of silently depending on that upstream guard.
+ * The fold re-checks `canSetOwner` (when capability is known): an owner ALTER
+ * the applier cannot run stays a separate statement carrying its
+ * `capability.owner` warning, which apply() refuses. Both the schema
+ * AUTHORIZATION form and the two-statement form need the same capability, so
+ * folding would not make it runnable.
  */
 export function foldCoCreateOwnership(
   actions: readonly Action[],

@@ -482,8 +482,7 @@ describe("foldCoCreateOwnership", () => {
     // a restricted applier (`test`, not a superuser, not a member of `bob`)
     // cannot run AUTHORIZATION bob NOR ALTER … OWNER TO bob. The fold's safety
     // invariant must be local: do not collapse an ALTER we cannot prove the
-    // applier could execute (in the real pipeline emit's canSetOwner fail-fast
-    // runs first; this keeps the fold self-contained if called without it).
+    // applier could execute.
     const s = schemaId("myschema");
     const desired = buildFactBase(
       [{ id: s, payload: {} }, roleFact("bob")],
