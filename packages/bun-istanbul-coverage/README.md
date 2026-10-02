@@ -141,4 +141,4 @@ Each CI job runs tests with the preload and uploads `.nyc_output/` as an artifac
 
 ## License
 
-MIT
+[PostgreSQL License](./LICENSE)

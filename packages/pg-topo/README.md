@@ -242,3 +242,7 @@ Individual scripts from `package.json`:
 - `knip:fix`
 
 This repo includes test-support runtime validation against live PostgreSQL containers (Testcontainers) to verify sorted output execution in integration fixtures.
+
+## License
+
+[PostgreSQL License](./LICENSE)

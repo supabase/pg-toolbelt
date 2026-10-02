@@ -100,4 +100,4 @@ Use [ISSUES.md](./ISSUES.md) for issue-writing guidance, especially for `pg-delt
 
 ## License
 
-MIT
+[PostgreSQL License](./LICENSE)

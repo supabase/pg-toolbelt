@@ -302,4 +302,4 @@ co-created ownership into the `CREATE`.
 
 ## License
 
-MIT
+[PostgreSQL License](./LICENSE)

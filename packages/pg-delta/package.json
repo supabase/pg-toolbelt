@@ -12,7 +12,7 @@
   ],
   "homepage": "https://github.com/supabase/pg-toolbelt",
   "bugs": "https://github.com/supabase/pg-toolbelt/issues",
-  "license": "MIT",
+  "license": "PostgreSQL",
   "author": "Supabase",
   "repository": {
     "type": "git",
