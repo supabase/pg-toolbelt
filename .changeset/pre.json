@@ -156,6 +156,7 @@
     "plan-id-content-hash",
     "planner-projection-dedup",
     "postgis-relocation-guard",
+    "postgresql-license",
     "probe-server-version-once",
     "prove-autoseed-outcomes",
     "prove-projection-audit",
