@@ -1,5 +1,11 @@
 # @supabase/pg-topo
 
+## 1.0.0-alpha.8
+
+### Patch Changes
+
+- 6845a0b: Relicense under the PostgreSQL License (previously MIT). Both packages now ship a `LICENSE` file and declare `"license": "PostgreSQL"` in `package.json`.
+
 ## 1.0.0-alpha.7
 
 ### Patch Changes
