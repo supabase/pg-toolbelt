@@ -543,34 +543,32 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.schemas).toEqual([]);
   });
 
-  test("seeds the assumed orioledb extension before the platform table using it", () => {
-    // The OrioleDB image defaults every table to the `orioledb` access method,
-    // so the seed must CREATE EXTENSION orioledb before replaying `auth.users`.
-    const schemaExtensions: StableId = { kind: "schema", name: "extensions" };
-    const orioledb: StableId = { kind: "extension", name: "orioledb" };
-    const users: StableId = { kind: "table", schema: "auth", name: "users" };
+  test("omits an assumed extension whose install schema is managed", () => {
+    // Extraction records no extension -> schema edge, so the managed-dependency
+    // rule cannot see that `app` is created later by the user files; a bare
+    // CREATE EXTENSION would land in the wrong schema.
+    const ext: StableId = { kind: "extension", name: "platform_ext" };
+    const extOnlyPolicy: Policy = {
+      id: "test-ext-only",
+      filter: [
+        {
+          match: { all: [{ kind: "extension" }, { name: "platform_ext" }] },
+          action: "exclude",
+        },
+      ],
+      assumedExtensions: ["platform_ext"],
+    };
     const target = buildFactBase(
-      [
-        f(schemaAuth),
-        f(schemaExtensions),
-        f(orioledb, extensionPayload("extensions", true)),
-        { id: users, parent: schemaAuth, payload: { persistence: "p" } },
-      ],
-      [
-        { from: orioledb, to: schemaExtensions, kind: "depends" },
-        { from: users, to: orioledb, kind: "depends" },
-      ],
+      [f(schemaApp), f(ext, extensionPayload("app", true))],
+      [],
     );
     const seed = deriveAssumedSchemaSeed(target, {
-      policy: supabasePolicy,
-      assumedSchemas: supabaseAssumedSchemas,
+      policy: extOnlyPolicy,
+      assumedSchemas: [],
       assumedRoles: [],
+      assumedExtensions: ["platform_ext"],
     });
-    const createExt = seed.sql.indexOf('CREATE EXTENSION "orioledb"');
-    expect(createExt).toBeGreaterThanOrEqual(0);
-    expect(seed.sql.indexOf('CREATE TABLE "auth"."users"')).toBeGreaterThan(
-      createExt,
-    );
+    expect(seed.sql).toBe("");
   });
 
   test("an assumed SHELL keeps its inherited managed dependency (publication members)", () => {

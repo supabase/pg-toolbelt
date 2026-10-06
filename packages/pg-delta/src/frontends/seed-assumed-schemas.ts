@@ -240,6 +240,21 @@ export function deriveAssumedSchemaSeed(
     if (candidateIds.has(to) || view.referenceOnly.has(to)) continue;
     excludedIds.add(from);
   }
+  //     An assumed extension's install schema is the same kind of dependency,
+  //     but extraction carries it only as the structured `schema` payload (no
+  //     extension -> schema edge), so the edge pass above cannot see it.
+  for (const fct of candidateFacts) {
+    if (fct.id.kind !== "extension") continue;
+    const schema = fct.payload["schema"];
+    if (typeof schema !== "string") continue;
+    const schemaKey = encodeId({ kind: "schema", name: schema });
+    if (candidateIds.has(schemaKey) || view.referenceOnly.has(schemaKey)) {
+      continue;
+    }
+    // absent from the view (e.g. pg_catalog): ambient on the same cluster
+    if (view.getByEncoded(schemaKey) === undefined) continue;
+    excludedIds.add(encodeId(fct.id));
+  }
 
   // (2) whole routines that carry a superuser-only SET header clause (they can't
   //     be CREATEd by a non-superuser), decided from structured `_configGucs` —

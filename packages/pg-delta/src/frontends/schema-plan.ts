@@ -552,8 +552,8 @@ export async function planSchemaFiles(
     const profileAssumedSchemas = flatProfile?.assumedSchemas ?? [];
     const profileAssumedPublications = flatProfile?.assumedPublications ?? [];
     const profileAssumedExtensions = flatProfile?.assumedExtensions ?? [];
-    // gate on ANY assumed kind: a profile assuming only publications still
-    // needs its shadow seeded (Codex review on #373)
+    // gate on ANY assumed kind: a profile assuming only publications or
+    // extensions still needs its shadow seeded
     if (
       profileAssumedSchemas.length > 0 ||
       profileAssumedPublications.length > 0 ||
