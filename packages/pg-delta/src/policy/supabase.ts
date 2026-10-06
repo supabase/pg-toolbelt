@@ -159,6 +159,11 @@ export const SUPABASE_SYSTEM_EXTENSIONS = [
   // handler/validator), so the extension and its FDWs are platform-managed
   // together.
   "wrappers",
+  // Installed by the OrioleDB image, whose server-wide
+  // `default_table_access_method = orioledb` makes every plain CREATE TABLE
+  // depend on it. Also in `assumedExtensions`, so it stays reference-only:
+  // the co-located shadow seed installs it before the platform tables.
+  "orioledb",
 ] as const;
 
 /** Supabase platform-created publications: provisioned at project init (by the
@@ -263,6 +268,14 @@ export const supabasePolicy: Policy = {
   // files load (#370). `supabase_realtime_messages_publication` is
   // deliberately absent — no user-managed membership, so it hard-prunes.
   assumedPublications: ["supabase_realtime"],
+
+  // Platform-installed extensions that user and platform tables depend on
+  // without declaring them. The system-extension exclude rule below projects
+  // `orioledb` out of the managed view; naming it here downgrades that to
+  // REFERENCE-ONLY so it is never created or dropped, yet the co-located shadow
+  // seed installs it before replaying `auth.*` (whose tables use its access
+  // method).
+  assumedExtensions: ["orioledb"],
 
   // Platform-managed schemas assumed to exist at apply time. Rules 4/5 below
   // project their schema OBJECT out of the managed view, but a kept user object
@@ -399,6 +412,28 @@ export const supabasePolicy: Policy = {
       action: "exclude",
       audit: {
         reasonCode: "supabase.system-publication-satellite",
+        classification: "acknowledged",
+      },
+    },
+
+    // Same for a platform extension kept reference-only by `assumedExtensions`
+    // (`orioledb`): its target survives projection, so without this rule its
+    // control-file comment would stay managed and diff against user files.
+    {
+      match: {
+        all: [
+          { kind: "comment" },
+          {
+            target: {
+              kind: "extension",
+              name: [...SUPABASE_SYSTEM_EXTENSIONS],
+            },
+          },
+        ],
+      },
+      action: "exclude",
+      audit: {
+        reasonCode: "supabase.system-extension-satellite",
         classification: "acknowledged",
       },
     },
