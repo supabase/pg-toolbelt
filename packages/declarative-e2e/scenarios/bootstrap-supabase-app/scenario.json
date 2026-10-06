@@ -1,0 +1,6 @@
+{
+  "issue": "https://github.com/supabase/pg-toolbelt/pull/513",
+  "tags": ["smoke"],
+  "pg": [15, 17],
+  "orioledb": true
+}

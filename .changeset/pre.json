@@ -4,7 +4,8 @@
   "initialVersions": {
     "@supabase/pg-delta": "0.0.0",
     "@supabase/pg-topo": "0.1.1",
-    "@supabase/bun-istanbul-coverage": "1.0.0-alpha.0"
+    "@supabase/bun-istanbul-coverage": "1.0.0-alpha.0",
+    "@supabase/declarative-e2e": "0.0.0"
   },
   "changesets": [
     "add-catalog-export-subpath",

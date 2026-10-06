@@ -1,0 +1,7 @@
+{
+  "migration": "some",
+  "contains": [
+    "create or replace function public.touch_updated_at()",
+    "create trigger items_touch_updated_at"
+  ]
+}

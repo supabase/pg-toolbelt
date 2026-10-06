@@ -1,0 +1,4 @@
+{
+  "migration": "some",
+  "contains": ["create trigger t"]
+}

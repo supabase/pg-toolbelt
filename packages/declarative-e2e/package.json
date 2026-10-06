@@ -1,0 +1,18 @@
+{
+  "name": "@supabase/declarative-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Declarative-schema scenarios run through the Supabase CLI against this repo's pg-delta",
+  "license": "PostgreSQL",
+  "author": "Supabase",
+  "type": "module",
+  "scripts": {
+    "setup-cli": "bun scripts/setup-cli.ts",
+    "test": "bun test tests/",
+    "check-types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.9",
+    "typescript": "^5.9.3"
+  }
+}

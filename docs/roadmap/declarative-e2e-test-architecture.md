@@ -1,10 +1,10 @@
 # Declarative-schema scenario tests (Supabase CLI)
 
-- **Status**: In progress (2026-10-06). The suite is built in `supabase/cli`
-  (branch `avallete/declarative-scenarios-e2e`, not yet merged).
-- **Lives in**: `supabase/cli`,
-  `apps/cli/src/commands/db/schema/declarative/scenarios.e2e.test.ts`, with
-  fixtures and the format reference in `.../declarative/fixtures/scenarios/README.md`.
+- **Status**: In progress (2026-10-06).
+- **Lives in**: `packages/declarative-e2e` (runner, scenarios, format README),
+  run by `.github/workflows/declarative-e2e.yml`. A first Effect-based copy also
+  exists on the `supabase/cli` branch `avallete/declarative-scenarios-e2e`; the
+  decision to keep or drop it is open.
 
 ## Why
 
@@ -19,6 +19,7 @@ one: an unchanged `generate` → `sync` revoked a column grant.
 
 ```mermaid
 flowchart TD
+  P["setup-cli: clone supabase/cli develop,<br/>install workspace pg-delta tarball"] --> S
   S["db start (one DB per target)"] --> R["per scenario: db reset<br/>with remote.sql as first migration"]
   R --> B["generate --local --overwrite<br/>(when remote.sql exists)"]
   B --> C1{"sync --no-apply:<br/>No schema changes found?"}
@@ -28,8 +29,9 @@ flowchart TD
   C2 --> L
 ```
 
-- It drives the real `supabase` binary. Shadows, baselines, export layout, and
-  formatting are the CLI's own code.
+- It drives the Supabase CLI from source (`develop`) with this checkout's pg-delta,
+  so a pg-delta PR is checked in the CLI's real workflow before release. Shadows,
+  baselines, export layout, and formatting are the CLI's own code.
 - Each scenario is a folder: `scenario.json`, an optional `remote.sql`, and
   `steps/<nn-name>/` with `step.json` plus optional `schemas/**` overlays.
 - Checks are properties, not golden SQL: no-change re-sync, short migration
@@ -55,13 +57,13 @@ flowchart TD
   - enum values;
   - the `_custom/` escape hatch;
   - the Supabase starter app (`auth.users` trigger, RLS) on PG15 and PG17.
+- **Regressions guarded:**
+  - #512, column grants under default privileges.
+  - #513, OrioleDB. Before it, the export re-created the preinstalled `orioledb`
+    extension, so the first sync failed with `extension "orioledb" already
+    exists`.
 - **Known issues:**
-  - #512, column grants under default privileges. Fixed on `main`; the
-    marker comes off with the CLI's pg-delta bump.
   - #510, a trigger `WHEN` with a 3+ column row comparison never converges.
-  - OrioleDB: the export re-creates the preinstalled `orioledb` extension,
-    so the first sync fails with `extension "orioledb" already exists`.
-    Likely cause: `orioledb` is missing from `SUPABASE_SYSTEM_EXTENSIONS`.
 
 ## Rules
 
@@ -69,13 +71,15 @@ flowchart TD
   test **and** a CLI scenario. See "Declarative schemas (Supabase CLI)" in
   `.github/agents/pg-toolbelt.md`.
 - pg-delta changes to export, load, plan files, ACLs, ordering, or the Supabase
-  profile run the CLI suite against the PR's `pkg-pr-new` preview before they
-  are called done.
+  profile run `DECLARATIVE_SCENARIOS=all` locally before they are called done.
+  CI runs the smoke set on PRs and everything nightly.
 
 ## Open items
 
-- A CI job in `supabase/cli` that runs `DECLARATIVE_SCENARIOS=all` nightly and
-  on PRs that change the pg-delta version. Today only the smoke set runs per PR.
+- CLI-side changes (adapter, shadows, baselines) are not gated: `supabase/cli` CI
+  could check out `packages/declarative-e2e` and run it against its own build.
+- The job tracks CLI `develop`, so a CLI regression can turn it red without any
+  pg-delta change. It is not a required check.
 - `_custom/` SQL is loaded into the shadow only and never migrated to the
   target. Decide whether that is the intended contract.
 - Rewriting an exported table file without its GRANT lines revokes the

@@ -1,0 +1,6 @@
+{
+  "migration": "some",
+  "contains": ["add column email text"],
+  "destructive": false,
+  "rowCounts": { "public.customers": 3 }
+}

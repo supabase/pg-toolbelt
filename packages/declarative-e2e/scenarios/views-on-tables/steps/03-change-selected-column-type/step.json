@@ -1,0 +1,5 @@
+{
+  "migration": "some",
+  "contains": ["type bigint"],
+  "notContains": ["drop table"]
+}

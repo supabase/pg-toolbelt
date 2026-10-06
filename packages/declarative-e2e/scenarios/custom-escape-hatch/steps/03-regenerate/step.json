@@ -1,0 +1,5 @@
+{
+  "command": "generate",
+  "migration": "none",
+  "unchanged": ["_custom/text_search.sql"]
+}

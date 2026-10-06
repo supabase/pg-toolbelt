@@ -1,0 +1,5 @@
+{
+  "migration": "some",
+  "contains": ["add column website text"],
+  "notContains": ["drop "]
+}

@@ -1,0 +1,8 @@
+create table public.todos (
+  id bigint generated always as identity primary key,
+  user_id uuid not null default auth.uid(),
+  title text not null,
+  is_public boolean not null default false
+);
+
+alter table public.todos enable row level security;

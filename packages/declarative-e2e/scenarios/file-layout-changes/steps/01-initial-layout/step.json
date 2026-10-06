@@ -1,0 +1,11 @@
+{
+  "migration": "some",
+  "contains": [
+    "create table public.posts",
+    "create index posts_author_id_idx on public.posts",
+    "create policy authors read posts on public.posts",
+    "create table public.comments",
+    "create index comments_post_id_idx on public.comments",
+    "create view public.post_comment_counts"
+  ]
+}

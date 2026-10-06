@@ -1,0 +1,4 @@
+{
+  "migration": "some",
+  "contains": ["grant update (body) on table public.notes to authenticated"]
+}

@@ -1,0 +1,5 @@
+{
+  "migration": "some",
+  "contains": ["is_public"],
+  "notContains": ["drop table"]
+}

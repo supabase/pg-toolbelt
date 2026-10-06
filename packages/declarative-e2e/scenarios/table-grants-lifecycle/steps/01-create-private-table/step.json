@@ -1,0 +1,7 @@
+{
+  "migration": "some",
+  "contains": [
+    "create table public.notes",
+    "on table public.notes from anon, authenticated"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "migration": "some",
+  "contains": [
+    "create type public.shipment_status as enum",
+    "create table public.shipments"
+  ]
+}

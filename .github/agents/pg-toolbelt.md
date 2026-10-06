@@ -20,6 +20,7 @@ Bun-based monorepo containing PostgreSQL tooling packages.
 
 - **packages/pg-delta** (`@supabase/pg-delta`): PostgreSQL schema-diff and migration engine (a clean-room rewrite; the CLI binary is `pgdelta`). It extracts two schemas into a normalized, content-addressed **fact base** using a live/shadow Postgres, diffs generically, emits an ordered DDL plan, and **proves** the plan converges (state + data preservation) on a clone. See `packages/pg-delta/README.md` and `docs/architecture/` for depth.
 - **packages/pg-topo** (`@supabase/pg-topo`): Topological sorting for SQL DDL statements. Pure library that accepts SQL content strings, extracts dependencies, and produces a deterministic execution order. Includes an optional filesystem adapter for discovering/reading `.sql` files. It is an **optional peer** of pg-delta (used only by the reorder-assist / `schema lint` frontends), never by the diffing core.
+- **packages/declarative-e2e** (private, unpublished): declarative-schema scenarios run through the Supabase CLI (cloned from `develop`, run from source) with this checkout's pg-delta. See "Declarative schemas (Supabase CLI)" below.
 
 ## Quick Reference
 
@@ -202,6 +203,7 @@ The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`)
   - `pg-delta-corpus` — the proof loop (`tests/engine.test.ts`), matrix of **PG 14–18 × 10 shards** (`PGDELTA_TEST_IMAGE` + `PGDELTA_NEXT_SHARD`), each shard running scenarios with in-job concurrency (`PGDELTA_NEXT_CONCURRENCY=4`, matched to the 4-vCPU public-repo runners).
   - `pg-delta-integration` — everything except the corpus loop, matrix of **PG 14–18 × 5 file groups**. The wall-time-dominating files are pinned to groups 0/1 in the workflow's split script; all other files (including new ones) round-robin into groups 2/3/4. If a test file grows to dominate its group (check the job timings), move it to a pinned group.
   - `pg-delta-integration-pg15-compat` / `pg-delta-integration-pg17-compat` — stable status-check names (for branch protection) that aggregate the corpus + integration matrices.
+- `.github/workflows/declarative-e2e.yml` runs `packages/declarative-e2e` (declarative-schema scenarios through the Supabase CLI built from `develop` with this checkout's pg-delta). The smoke set runs on PRs touching pg-delta, and every scenario runs nightly or on manual dispatch. It is not a required check.
 - `check-types` and `format-and-lint` build `@supabase/pg-topo` first, because pg-delta type-checks its optional peer through pg-topo's gitignored `dist/*.d.ts`.
 - Changesets automate releases on merge to main; `release-preview` publishes a `pkg-pr-new` preview of both packages.
 
@@ -448,15 +450,23 @@ corpus does not exercise (the #475 grouped-export grant regression, fixed in
   re-sync to "No schema changes found", and an edit must produce a minimal,
   correctly-ordered migration.
 - Declarative bugs reported through the CLI get the engine regression test here
-  **and** a scenario in the CLI suite
-  (`supabase/cli`: `apps/cli/src/commands/db/schema/declarative/fixtures/scenarios/`,
-  see its README). Until the fix ships in a release the CLI pins, the scenario
-  carries `knownIssue`.
-- Before calling such a change done, run that CLI suite against this PR's
-  `pkg-pr-new` preview: in a CLI checkout set `@supabase/pg-delta` to the
-  preview URL, `pnpm install`, build, then
-  `DECLARATIVE_SCENARIOS=all bun --bun vitest run --project e2e src/commands/db/schema/declarative/scenarios.e2e.test.ts`
-  from `apps/cli` (Docker required). Do not commit the CLI dependency change.
+  **and** a scenario in `packages/declarative-e2e/scenarios/` (format in its
+  README). That package runs the Supabase CLI (`develop`, from source) against
+  this checkout's pg-delta, so the scenario follows the same RED → GREEN cycle as
+  the fix. A scenario for a bug this PR does not fix carries `knownIssue`; the
+  suite fails once it passes, so the fix PR removes it.
+- Before calling such a change done, run the suite locally (Docker, git, pnpm,
+  and npm required):
+
+  ```bash
+  cd packages/declarative-e2e
+  bun run setup-cli                       # re-run after every pg-delta change
+  bun test tests/                         # smoke set
+  DECLARATIVE_SCENARIOS=all bun test tests/
+  ```
+
+  CI (`.github/workflows/declarative-e2e.yml`) runs the smoke set on PRs that
+  touch pg-delta and every scenario nightly.
 
 ### Snapshot Assertions
 

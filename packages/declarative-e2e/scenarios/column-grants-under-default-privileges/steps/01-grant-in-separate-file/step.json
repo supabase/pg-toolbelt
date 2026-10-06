@@ -1,0 +1,5 @@
+{
+  "migration": "some",
+  "contains": ["grant select (display_name) on table public.probe to anon"],
+  "notContains": ["public_value"]
+}

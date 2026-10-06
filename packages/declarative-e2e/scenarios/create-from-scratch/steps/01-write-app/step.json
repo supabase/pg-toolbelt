@@ -1,0 +1,16 @@
+{
+  "migration": "some",
+  "contains": [
+    "create type public.task_status as enum",
+    "create table public.projects",
+    "create table public.tasks",
+    "create index tasks_project_id_idx",
+    "create view public.open_tasks",
+    "create or replace function public.set_updated_at()",
+    "create trigger tasks_set_updated_at",
+    "alter table public.tasks enable row level security",
+    "create policy members read tasks",
+    "comment on table public.tasks"
+  ],
+  "notContains": ["auth.", "storage."]
+}

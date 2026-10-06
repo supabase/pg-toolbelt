@@ -1,0 +1,5 @@
+{
+  "migration": "some",
+  "contains": ["drop policy read own todos"],
+  "notContains": ["drop table"]
+}
