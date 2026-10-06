@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
+import { extensionPayload } from "../extract/schemas.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import { supabasePolicy } from "../policy/supabase.ts";
 import { deriveAssumedSchemaSeed } from "./seed-assumed-schemas.ts";
@@ -540,6 +541,36 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.sql).toContain('CREATE PUBLICATION "platform_pub"');
     expect(seed.facts).toBe(1);
     expect(seed.schemas).toEqual([]);
+  });
+
+  test("seeds the assumed orioledb extension before the platform table using it", () => {
+    // The OrioleDB image defaults every table to the `orioledb` access method,
+    // so the seed must CREATE EXTENSION orioledb before replaying `auth.users`.
+    const schemaExtensions: StableId = { kind: "schema", name: "extensions" };
+    const orioledb: StableId = { kind: "extension", name: "orioledb" };
+    const users: StableId = { kind: "table", schema: "auth", name: "users" };
+    const target = buildFactBase(
+      [
+        f(schemaAuth),
+        f(schemaExtensions),
+        f(orioledb, extensionPayload("extensions", true)),
+        { id: users, parent: schemaAuth, payload: { persistence: "p" } },
+      ],
+      [
+        { from: orioledb, to: schemaExtensions, kind: "depends" },
+        { from: users, to: orioledb, kind: "depends" },
+      ],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: supabasePolicy,
+      assumedSchemas: supabaseAssumedSchemas,
+      assumedRoles: [],
+    });
+    const createExt = seed.sql.indexOf('CREATE EXTENSION "orioledb"');
+    expect(createExt).toBeGreaterThanOrEqual(0);
+    expect(seed.sql.indexOf('CREATE TABLE "auth"."users"')).toBeGreaterThan(
+      createExt,
+    );
   });
 
   test("an assumed SHELL keeps its inherited managed dependency (publication members)", () => {
