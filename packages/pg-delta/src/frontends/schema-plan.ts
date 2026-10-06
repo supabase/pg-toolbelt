@@ -30,6 +30,7 @@ import { plan, type Plan, type PlanOptions } from "../plan/plan.ts";
 import type { RenameMode } from "../plan/renames.ts";
 import { flattenPolicy } from "../policy/policy.ts";
 import type { ManagementScope } from "../policy/view.ts";
+import { planSubjects, settleDesired } from "./settle-desired.ts";
 import { scanTokens } from "./sql-format/tokenizer.ts";
 import type { ExportManifest } from "./export-manifest.ts";
 import {
@@ -743,11 +744,33 @@ export async function planSchemaFiles(
     redactSecrets,
   };
 
-  const thePlan = plan(targetResult.factBase, loadResult.factBase, planOptions);
+  let thePlan = plan(targetResult.factBase, loadResult.factBase, planOptions);
+  // Only definitions this plan would emit can carry first-deparse text the
+  // target will not reproduce; a converged plan is empty and skips this.
+  const touched = planSubjects(thePlan);
+  const settle =
+    touched.size === 0
+      ? undefined
+      : await settleDesired(
+          shadowPool,
+          targetResult.factBase,
+          loadResult.factBase,
+          {
+            extract: async (pool) =>
+              ctx.extract(pool, { redactSecrets, source: "sqlFiles" }),
+            only: touched,
+          },
+        );
+  if (settle !== undefined && settle.settled.length > 0) {
+    thePlan = plan(targetResult.factBase, settle.factBase, planOptions);
+  }
 
   return {
     plan: thePlan,
-    loadDiagnostics: loadResult.diagnostics,
+    loadDiagnostics: [
+      ...loadResult.diagnostics,
+      ...(settle?.diagnostics ?? []),
+    ],
     targetDiagnostics: targetResult.diagnostics,
     driftDiagnostics,
     skipped: prepared.skipped,
