@@ -23,6 +23,9 @@ performance, then DX.
   (`schema pull / diff / generate / apply / push`). V1 work packages have
   shipped (#414, #416, #418–#421, #423); remaining items are WP5 (not V1)
   and WP6 (deferred).
+- **[declarative-e2e-test-architecture.md](declarative-e2e-test-architecture.md)** —
+  end-to-end declarative-schema scenarios run through the Supabase CLI (in
+  progress): what they cover, known issues they pin, and open items.
 
 ## How the engine got here
 

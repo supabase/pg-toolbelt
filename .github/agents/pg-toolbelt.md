@@ -433,6 +433,31 @@ All code changes must be covered by tests:
   is a constraint interplay) — not the default.
 - Author tests **before** the production change per **Test-Driven Fixes** above — a new test that has never failed does not prove the regression was real.
 
+### Declarative schemas (Supabase CLI)
+
+The Supabase CLI's declarative-schema workflow (`db schema declarative generate`
+/ `sync`) is the main consumer of export, load, plan, and grant handling. It runs
+pg-delta with the **grouped** export layout, the Supabase profile, Supabase
+default privileges, and the non-superuser `postgres` role — a combination the
+corpus does not exercise (the #475 grouped-export grant regression, fixed in
+#512, only showed up there).
+
+- When a change touches `src/frontends/**` (export, load, plan files), ACL /
+  default-privilege handling, statement ordering, or the Supabase profile, ask
+  how it plays with a user's declarative files: an unchanged export must
+  re-sync to "No schema changes found", and an edit must produce a minimal,
+  correctly-ordered migration.
+- Declarative bugs reported through the CLI get the engine regression test here
+  **and** a scenario in the CLI suite
+  (`supabase/cli`: `apps/cli/src/commands/db/schema/declarative/fixtures/scenarios/`,
+  see its README). Until the fix ships in a release the CLI pins, the scenario
+  carries `knownIssue`.
+- Before calling such a change done, run that CLI suite against this PR's
+  `pkg-pr-new` preview: in a CLI checkout set `@supabase/pg-delta` to the
+  preview URL, `pnpm install`, build, then
+  `DECLARATIVE_SCENARIOS=all bun --bun vitest run --project e2e src/commands/db/schema/declarative/scenarios.e2e.test.ts`
+  from `apps/cli` (Docker required). Do not commit the CLI dependency change.
+
 ### Snapshot Assertions
 
 Prefer `toMatchInlineSnapshot` over `toBe` or `toEqual` when asserting SQL output in integration tests. Inline snapshots make the expected SQL immediately visible in the test file, improving readability and making regressions obvious at a glance.
