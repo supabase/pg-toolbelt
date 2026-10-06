@@ -52,7 +52,7 @@ const AGENT_ENV_KEYS = [
 interface KnownIssue {
   readonly url: string;
   readonly failsAt: string;
-  readonly message?: string;
+  readonly message?: string | readonly string[];
   readonly target?: string;
 }
 
@@ -131,7 +131,7 @@ async function readConfig<T>(
 const knownIssueShape: Shape = {
   url: isString,
   failsAt: isString,
-  message: isString,
+  message: (value) => isString(value) || isStrings(value),
   target: isString,
 };
 
@@ -689,7 +689,9 @@ async function runTarget(
         error instanceof ScenarioCheckError &&
         !error.unexpected &&
         error.step === known.failsAt &&
-        (known.message === undefined || error.message.includes(known.message));
+        [known.message ?? []]
+          .flat()
+          .every((fragment) => error.message.includes(fragment));
       if (isKnown) {
         console.error(
           `scenario ${scenario.name} (${label}): known issue ${known.url}`,
@@ -703,7 +705,7 @@ async function runTarget(
           : `${report}\n(knownIssue expects a check failure at "${known.failsAt}"${
               known.message === undefined
                 ? ""
-                : ` containing "${known.message}"`
+                : ` containing ${JSON.stringify([known.message].flat())}`
             })`,
       );
     }

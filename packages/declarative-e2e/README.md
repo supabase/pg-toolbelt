@@ -47,7 +47,9 @@ Each directory under `scenarios/` is one scenario:
   that makes this scenario fail.
   - The scenario must fail a check at the step label `failsAt`:
     `bootstrap (converge)`, `<step>`, or `<step> (converge)`.
-  - When `message` is set, the failure detail must contain it.
+  - When `message` is set (a string or an array of strings), the failure
+    detail must contain each fragment. Converge failures start with `sync did
+    not converge (exit N)`, so `(exit 0)` separates a wrong plan from a crash.
   - Any other failure is a real failure, including `reset`, `bootstrap`, and
     unexpected errors.
   - `target` (for example `"pg 17 orioledb"`) limits it to one target; other
