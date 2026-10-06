@@ -20,8 +20,22 @@ const ext = (name: string, schema: string): Fact => ({
 const pgGraphql: StableId = { kind: "extension", name: "pg_graphql" };
 const pgTrgm: StableId = { kind: "extension", name: "pg_trgm" };
 const wrappers: StableId = { kind: "extension", name: "wrappers" };
+const orioledb: StableId = { kind: "extension", name: "orioledb" };
 
 describe("supabase policy — platform extensions", () => {
+  test("keeps orioledb reference-only and projects out its comment", () => {
+    // The OrioleDB image's tables depend on `orioledb`, so it must survive for
+    // the shadow seed, but neither it nor its platform comment is ever diffed.
+    const comment: StableId = { kind: "comment", target: orioledb };
+    const fb = buildFactBase(
+      [ext("orioledb", "extensions"), { id: comment, payload: { text: "x" } }],
+      [],
+    );
+    const view = resolveView(fb, supabasePolicy);
+    expect(view.isReferenceOnly(orioledb)).toBe(true);
+    expect(view.get(comment)).toBeUndefined();
+  });
+
   test("projects out pg_graphql but keeps a user extension", () => {
     const fb = buildFactBase(
       [ext("pg_graphql", "graphql"), ext("pg_trgm", "extensions")],

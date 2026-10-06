@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
+import { extensionPayload } from "../extract/schemas.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import { supabasePolicy } from "../policy/supabase.ts";
 import { deriveAssumedSchemaSeed } from "./seed-assumed-schemas.ts";
@@ -540,6 +541,34 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.sql).toContain('CREATE PUBLICATION "platform_pub"');
     expect(seed.facts).toBe(1);
     expect(seed.schemas).toEqual([]);
+  });
+
+  test("omits an assumed extension whose install schema is managed", () => {
+    // Extraction records no extension -> schema edge, so the managed-dependency
+    // rule cannot see that `app` is created later by the user files; a bare
+    // CREATE EXTENSION would land in the wrong schema.
+    const ext: StableId = { kind: "extension", name: "platform_ext" };
+    const extOnlyPolicy: Policy = {
+      id: "test-ext-only",
+      filter: [
+        {
+          match: { all: [{ kind: "extension" }, { name: "platform_ext" }] },
+          action: "exclude",
+        },
+      ],
+      assumedExtensions: ["platform_ext"],
+    };
+    const target = buildFactBase(
+      [f(schemaApp), f(ext, extensionPayload("app", true))],
+      [],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: extOnlyPolicy,
+      assumedSchemas: [],
+      assumedRoles: [],
+      assumedExtensions: ["platform_ext"],
+    });
+    expect(seed.sql).toBe("");
   });
 
   test("an assumed SHELL keeps its inherited managed dependency (publication members)", () => {

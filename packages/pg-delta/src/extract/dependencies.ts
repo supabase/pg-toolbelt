@@ -382,6 +382,8 @@ export async function fetchDependencyRows(
           WHEN e.classid = 'pg_opclass'::regclass THEN extm.id
           WHEN e.classid = 'pg_opfamily'::regclass THEN extm.id
           WHEN e.classid = 'pg_operator'::regclass THEN extm.id
+          -- a table's access method (e.g. orioledb): built-in heap stays NULL
+          WHEN e.classid = 'pg_am'::regclass THEN extm.id
           WHEN e.classid = 'pg_collation'::regclass THEN coll.id
           WHEN e.classid = 'pg_policy'::regclass THEN pol.id
           WHEN e.classid = 'pg_event_trigger'::regclass THEN evt.id

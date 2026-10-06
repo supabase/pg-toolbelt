@@ -35,6 +35,14 @@ const PG_IMAGE = process.env["PGDELTA_TEST_IMAGE"] ?? "postgres:17-alpine";
 export const SUPABASE_IMAGE =
   process.env["PGDELTA_SUPABASE_TEST_IMAGE"] ?? "supabase/postgres:17.6.1.167";
 
+/** OrioleDB variant of the Supabase image. Its server-wide
+ *  `default_table_access_method = orioledb` makes a plain CREATE TABLE fail in
+ *  any database lacking the extension, so it cannot stand in for
+ *  `SUPABASE_IMAGE` in tests that create tables in fresh databases. */
+export const ORIOLEDB_IMAGE =
+  process.env["PGDELTA_ORIOLEDB_TEST_IMAGE"] ??
+  "supabase/postgres:17.11.0.002-orioledb";
+
 /**
  * Self-gate for heavy bare-Supabase-image tests (`supabaseCluster()`).
  *
@@ -359,8 +367,10 @@ export async function createTestDb(prefix = "t"): Promise<TestDb> {
  * heavy, so this is a separate lazy singleton from the stock alpine cluster.
  * Connects as `supabase_admin`; databases are the isolation unit, as usual.
  */
-async function startSupabaseCluster(): Promise<Cluster> {
-  const container = await new GenericContainer(SUPABASE_IMAGE)
+async function startSupabaseCluster(
+  image: string = SUPABASE_IMAGE,
+): Promise<Cluster> {
+  const container = await new GenericContainer(image)
     .withEnvironment({
       POSTGRES_USER: "supabase_admin",
       POSTGRES_PASSWORD: "postgres",
@@ -421,6 +431,14 @@ let supabaseShared: Promise<Cluster> | null = null;
 export async function supabaseCluster(): Promise<Cluster> {
   supabaseShared ??= startSupabaseCluster();
   return supabaseShared;
+}
+
+let orioledbShared: Promise<Cluster> | null = null;
+/** Lazy singleton on `ORIOLEDB_IMAGE`, provisioned like `supabaseCluster()`.
+ *  Gate with `runSupabaseBareTests` (same major as the bare image). */
+export async function orioledbCluster(): Promise<Cluster> {
+  orioledbShared ??= startSupabaseCluster(ORIOLEDB_IMAGE);
+  return orioledbShared;
 }
 
 /** A fresh, standalone Supabase-image container (its own cluster, NOT the shared
@@ -654,12 +672,14 @@ export async function stopAllClusters(): Promise<void> {
   const pending = [
     shared,
     supabaseShared,
+    orioledbShared,
     seclabelShared,
     relocProbeShared,
   ].filter((p): p is Promise<Cluster> => p !== null);
   const pairPending = isolatedPair;
   shared = null;
   supabaseShared = null;
+  orioledbShared = null;
   seclabelShared = null;
   relocProbeShared = null;
   isolatedPair = null;
