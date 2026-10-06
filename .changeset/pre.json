@@ -132,6 +132,7 @@
     "nonsuperuser-shadow-seed",
     "olive-melons-repair",
     "order-rls-policies-after-referenced-tables",
+    "orioledb-shadow-seed",
     "parameter-acl-unmodeled-probe",
     "parse-column-acl-ids",
     "partition-family-drop-cycle",
