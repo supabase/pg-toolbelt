@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pg from "pg";
 import { apply } from "../src/apply/apply.ts";
+import { encodeId } from "../src/core/stable-id.ts";
 import {
   buildSchemaExport,
   planSchemaFiles,
@@ -190,6 +191,58 @@ describe("public schema frontends", () => {
       ).toEqual([]);
     } finally {
       await Promise.all([target.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+
+  test("planSchemaFiles converges on a definition Postgres rewrites on replay (#510)", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_settle_target");
+    const shadows = [
+      await cluster.createDb("frontend_settle_shadow1"),
+      await cluster.createDb("frontend_settle_shadow2"),
+    ];
+    try {
+      const files: SqlFile[] = [
+        {
+          name: "t.sql",
+          sql: `
+            CREATE SCHEMA app;
+            CREATE TABLE app.tt (a int, b int, c int);
+            CREATE FUNCTION app.tf() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$;
+            CREATE TRIGGER t AFTER UPDATE ON app.tt FOR EACH ROW
+              WHEN ((OLD.a, OLD.b, OLD.c) IS DISTINCT FROM (NEW.a, NEW.b, NEW.c))
+              EXECUTE FUNCTION app.tf();
+          `,
+        },
+      ];
+      const options = { profile: rawProfile, scope: "database" as const };
+      const first = await planSchemaFiles(
+        target.pool,
+        shadows[0]!.pool,
+        files,
+        options,
+      );
+      const report = await apply(first.plan, target.pool, first.applyOptions);
+      expect(report.status).toBe("applied");
+
+      const second = await planSchemaFiles(
+        target.pool,
+        shadows[1]!.pool,
+        files,
+        options,
+      );
+      expect(second.plan.actions.map((a) => a.sql)).toEqual([]);
+      const rewritten = second.loadDiagnostics.filter(
+        (d) => d.code === "deparse_rewritten",
+      );
+      expect(rewritten.map((d) => encodeId(d.subject!))).toEqual([
+        "trigger:app.tt.t",
+      ]);
+      expect(rewritten[0]!.message).toContain(
+        "WHEN (((old.a IS DISTINCT FROM new.a) OR (old.b IS DISTINCT FROM new.b) OR (old.c IS DISTINCT FROM new.c)))",
+      );
+    } finally {
+      await Promise.all([target.drop(), ...shadows.map((s) => s.drop())]);
     }
   }, 120_000);
 

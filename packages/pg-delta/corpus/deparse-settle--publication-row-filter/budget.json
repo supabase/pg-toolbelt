@@ -1,0 +1,5 @@
+{
+  "a-to-b": {
+    "forbid": ["replacement:publicationRel", "alter:publicationRel"]
+  }
+}
