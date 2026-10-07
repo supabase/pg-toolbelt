@@ -1,9 +1,11 @@
 /**
  * Prepares a Supabase CLI checkout that runs from source against this repo's pg-delta.
  *
- * Clones (or fast-forwards) supabase/cli at SUPABASE_CLI_REF (default `develop`) into
- * SUPABASE_CLI_DIR (default `.cli/cli`), installs the working tree's pg-delta as a packed
- * tarball in place of the CLI's pinned version, and writes `.cli/bin/supabase`.
+ * Clones supabase/cli at SUPABASE_CLI_REF (default `develop`) into SUPABASE_CLI_DIR
+ * (default `.cli/cli`), installs the working tree's pg-delta as a packed tarball in place
+ * of the CLI's pinned version, and writes `.cli/bin/supabase`. A later run force-resets
+ * that checkout (local edits and untracked files are lost), so it only reuses a directory
+ * this script cloned and refuses any other existing checkout.
  *
  * Requires git, pnpm, npm, and bun on PATH.
  */
@@ -29,13 +31,25 @@ const binPath = path.join(packageDir, ".cli", "bin", "supabase");
 
 const exists = async (file: string) => Bun.file(file).exists();
 
+// Inside .git/, so neither `git clean` nor the checkout's own files can remove or fake it.
+const managedMarker = path.join(cliDir, ".git", "declarative-e2e-managed");
+
 if (await exists(path.join(cliDir, ".git", "HEAD"))) {
+  if (!(await exists(managedMarker))) {
+    throw new Error(
+      `${cliDir} is a git checkout this script did not create; refusing to force-reset it. Point SUPABASE_CLI_DIR at a new directory.`,
+    );
+  }
   await $`git -C ${cliDir} fetch --depth 1 origin ${cliRef}`;
   await $`git -C ${cliDir} checkout --force FETCH_HEAD`;
   await $`git -C ${cliDir} clean -fdx -e node_modules`;
 } else {
   await mkdir(path.dirname(cliDir), { recursive: true });
   await $`git clone --depth 1 --branch ${cliRef} https://github.com/supabase/cli.git ${cliDir}`;
+  await writeFile(
+    managedMarker,
+    "created by packages/declarative-e2e/scripts/setup-cli.ts\n",
+  );
 }
 const cliSha = (await $`git -C ${cliDir} rev-parse HEAD`.text()).trim();
 

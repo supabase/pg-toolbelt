@@ -21,7 +21,9 @@ DECLARATIVE_SCENARIO=column-changes bun test tests/
 `setup-cli` options:
 
 - `SUPABASE_CLI_REF`: CLI branch or tag, default `develop`.
-- `SUPABASE_CLI_DIR`: checkout location, default `.cli/cli`.
+- `SUPABASE_CLI_DIR`: checkout location, default `.cli/cli`. Use a directory
+  `setup-cli` creates. Re-runs force-reset it, so it refuses any existing
+  checkout it did not clone, including your own `supabase/cli` clone.
 - Re-run `setup-cli` after changing pg-delta. The CLI loads the packed tarball,
   not the live sources.
 

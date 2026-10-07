@@ -1,4 +1,0 @@
-{
-  "migration": "some",
-  "contains": ["create table public.authors"]
-}
