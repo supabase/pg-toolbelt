@@ -72,6 +72,21 @@ jobs:
         env:
           SUPABASE_CLI_REF: ${{ inputs.cli_ref || 'develop' }}
         run: bun run setup-cli
+      - name: Resolve the Supabase CLI commit
+        id: cli
+        run: echo "sha=$(git -C packages/declarative-e2e/.cli/cli rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # Native Postgres and its prepared database snapshot; a cold cache adds ~40s to every stack
+      # start. The fallback stays within one artifact catalog so old binaries never accumulate.
+      - name: Cache stack artifacts
+        if: matrix.backend == 'stack'
+        uses: actions/cache@v4
+        with:
+          # The daemon identity belongs to this runner's Docker, not the next one's.
+          path: |
+            ~/.supabase/cache/stack
+            !~/.supabase/cache/stack/docker-daemon-identity.json
+          key: declarative-e2e-stack-${{ runner.os }}-${{ hashFiles('packages/declarative-e2e/.cli/cli/packages/stack/src/Artifacts.ts') }}-${{ steps.cli.outputs.sha }}
+          restore-keys: declarative-e2e-stack-${{ runner.os }}-${{ hashFiles('packages/declarative-e2e/.cli/cli/packages/stack/src/Artifacts.ts') }}-
       - name: Run scenarios
         working-directory: packages/declarative-e2e
         env:
