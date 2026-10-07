@@ -37,11 +37,11 @@ const DEPARSED_ATTRS: Readonly<Record<string, readonly string[]>> = {
   constraint: ["def"],
   default: ["expr"],
   domain: ["default"],
-  function: ["def"],
+  function: ["def", "argSignature"],
   index: ["def"],
   materializedView: ["def"],
   policy: ["usingExpr", "checkExpr"],
-  procedure: ["def"],
+  procedure: ["def", "argSignature"],
   publicationRel: ["where"],
   rule: ["def"],
   trigger: ["def"],
@@ -66,16 +66,23 @@ const UNSETTLED = "\u0000unsettled";
  *  this is not worth more rebuilds. */
 const MAX_REPLAYS = 5;
 
-function deparsedAttrs(fact: Fact): string[] {
-  const attrs = DEPARSED_ATTRS[fact.id.kind] ?? [];
-  // A string-bodied routine's `def` is stored as written.
+/** The deparsed attributes whose text differs between the two sides. */
+function differingAttrs(before: Fact, fact: Fact): string[] {
+  const attrs = (DEPARSED_ATTRS[fact.id.kind] ?? []).filter(
+    (attr) =>
+      typeof fact.payload[attr] === "string" &&
+      before.payload[attr] !== fact.payload[attr],
+  );
+  // A string-bodied routine stores its body as written; only the parameter
+  // defaults in its header are deparsed, and they show in `argSignature`.
   if (
     (fact.id.kind === "function" || fact.id.kind === "procedure") &&
-    fact.payload["_sqlBody"] !== true
+    fact.payload["_sqlBody"] !== true &&
+    !attrs.includes("argSignature")
   ) {
     return [];
   }
-  return attrs.filter((attr) => typeof fact.payload[attr] === "string");
+  return attrs;
 }
 
 /** Encoded ids a plan creates, rebuilds, or alters in place. */
@@ -207,9 +214,7 @@ export async function settleDesired(
     if (options.only !== undefined && !options.only.has(key)) continue;
     const before = current.get(fact.id);
     if (before === undefined) continue;
-    const attrs = deparsedAttrs(fact).filter(
-      (attr) => before.payload[attr] !== fact.payload[attr],
-    );
+    const attrs = differingAttrs(before, fact);
     if (attrs.length === 0) continue;
     const textsOf = (f: Fact): Texts =>
       Object.fromEntries(
@@ -450,12 +455,16 @@ function patch(base: FactBase, texts: ReadonlyMap<string, Texts>): FactBase {
 }
 
 function quoted(texts: Texts): string {
-  return Object.entries(texts)
-    .map(
-      ([attr, text]) =>
-        `  ${CLAUSE_OF[attr] === undefined ? "" : `${CLAUSE_OF[attr]} `}${text}`,
-    )
-    .join("\n");
+  return (
+    Object.entries(texts)
+      // a routine's `def` already prints its header
+      .filter(([attr]) => attr !== "argSignature")
+      .map(
+        ([attr, text]) =>
+          `  ${CLAUSE_OF[attr] === undefined ? "" : `${CLAUSE_OF[attr]} `}${text}`,
+      )
+      .join("\n")
+  );
 }
 
 /**
