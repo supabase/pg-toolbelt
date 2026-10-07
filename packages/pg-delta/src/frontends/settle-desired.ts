@@ -29,6 +29,7 @@ import { buildFactBase, type Fact, type FactBase } from "../core/fact.ts";
 import { canonicalize, type PayloadValue } from "../core/hash.ts";
 import { encodeId } from "../core/stable-id.ts";
 import { readFactsScoped } from "../extract/scoped-read.ts";
+import { connectWithErrorListener } from "../pg-client.ts";
 import { plan, type Plan } from "../plan/plan.ts";
 
 /** Payload attributes holding Postgres-deparsed SQL, by fact kind. */
@@ -146,13 +147,29 @@ function sameContext(
   // dependency on the view itself; that edge points at the very text being
   // compared, not at its context.
   const self = encodeId(fact.id);
-  const refs = (fb: FactBase): string[] =>
-    fb
-      .outgoingEdges(fact.id)
+  const id = fact.id;
+  const refs = (fb: FactBase): string[] => {
+    const edges = [...fb.outgoingEdges(id)];
+    // A row filter's column dependencies are recorded on the publication, not
+    // on its member, so take the member table's columns from there.
+    if (id.kind === "publicationRel") {
+      edges.push(
+        ...fb
+          .outgoingEdges({ kind: "publication", name: id.publication })
+          .filter(
+            (edge) =>
+              edge.to.kind === "column" &&
+              edge.to.schema === id.schema &&
+              edge.to.table === id.table,
+          ),
+      );
+    }
+    return edges
       .filter((edge) => edge.kind === "depends")
       .map((edge) => encodeId(edge.to))
       .filter((to) => to !== self)
       .sort();
+  };
   const desiredRefs = refs(desired);
   if (refs(current).join("\n") !== desiredRefs.join("\n")) return false;
   return desiredRefs.every((to) => {
@@ -243,12 +260,22 @@ export async function settleDesired(
   const outcomes = new Map<string, Outcome>();
   let client: PoolClient | undefined;
   try {
-    client = await desiredPool.connect();
+    client = await connectWithErrorListener(desiredPool);
     await client.query("BEGIN");
     await client.query("SET LOCAL search_path TO 'pg_catalog'");
     let pending = candidates;
     while (pending.length > 0) {
-      const replayed = await replayAll(client, desired, pending);
+      // A replay resolves against everything else its batch rebuilds, so the
+      // sides are replayed apart: a desired-side text must not resolve against
+      // a dependency rebuilt from the target's text.
+      const replayed = new Map<string, Texts | Error>();
+      for (const side of ["desired", "target"] as const) {
+        const batch = pending.filter((c) => c.side === side);
+        if (batch.length === 0) continue;
+        for (const [key, result] of await replayAll(client, desired, batch)) {
+          replayed.set(key, result);
+        }
+      }
       const still: Candidate[] = [];
       for (const c of pending) {
         const outcome = advance(c, replayed.get(c.key)!);
