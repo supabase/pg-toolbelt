@@ -246,6 +246,59 @@ describe("public schema frontends", () => {
     }
   }, 120_000);
 
+  test("planSchemaFiles quotes the stable spelling when the target is one replay ahead (#510)", async () => {
+    // Nested rows expand one level per parse. After one sync the target holds
+    // the second printout and the files load the first, so the files' first
+    // replay already matches the target; the warning must still quote the
+    // third, stable printout.
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_settle_n_target");
+    const shadows = [
+      await cluster.createDb("frontend_settle_n_shadow1"),
+      await cluster.createDb("frontend_settle_n_shadow2"),
+    ];
+    try {
+      const files: SqlFile[] = [
+        {
+          name: "t.sql",
+          sql: `
+            CREATE SCHEMA app;
+            CREATE TABLE app.t (a int, b int, c int, d int, e int,
+              CONSTRAINT ck CHECK (((a, b), (c, d), e) IS DISTINCT FROM ((1, 2), (3, 4), 5)));
+          `,
+        },
+      ];
+      const options = { profile: rawProfile, scope: "database" as const };
+      const first = await planSchemaFiles(
+        target.pool,
+        shadows[0]!.pool,
+        files,
+        options,
+      );
+      const report = await apply(first.plan, target.pool, first.applyOptions);
+      expect(report.status).toBe("applied");
+
+      const second = await planSchemaFiles(
+        target.pool,
+        shadows[1]!.pool,
+        files,
+        options,
+      );
+      expect(second.plan.actions.map((a) => a.sql)).toEqual([]);
+      const rewritten = second.loadDiagnostics.filter(
+        (d) => d.code === "deparse_rewritten",
+      );
+      expect(rewritten.map((d) => encodeId(d.subject!))).toEqual([
+        "constraint:app.t.ck",
+      ]);
+      expect(rewritten[0]!.message).toContain(
+        "CHECK (((a IS DISTINCT FROM 1) OR (b IS DISTINCT FROM 2) OR ((c IS DISTINCT FROM 3) OR (d IS DISTINCT FROM 4)) OR (e IS DISTINCT FROM 5)))",
+      );
+    } finally {
+      await Promise.all([target.drop(), ...shadows.map((s) => s.drop())]);
+    }
+  }, 120_000);
+
   test("planSchemaFiles treats a target holding a less-replayed spelling as unchanged (#510)", async () => {
     // The target was built by a hand-written migration (Postgres keeps BETWEEN
     // nested under the outer AND); the files hold what `schema export` prints
