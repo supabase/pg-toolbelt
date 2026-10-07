@@ -175,7 +175,6 @@ async function proveOn(
       desiredWork,
       sourceState.factBase,
       (await extractState(desiredWork)).factBase,
-      { extract: extractState },
     );
     const settleFailures = settle.diagnostics.filter(
       (d) => d.code === "deparse_settle_failed",

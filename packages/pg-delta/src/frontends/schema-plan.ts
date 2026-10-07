@@ -755,13 +755,9 @@ export async function planSchemaFiles(
           shadowPool,
           targetResult.factBase,
           loadResult.factBase,
-          {
-            extract: async (pool) =>
-              ctx.extract(pool, { redactSecrets, source: "sqlFiles" }),
-            only: touched,
-          },
+          { only: touched },
         );
-  if (settle !== undefined && settle.settled.length > 0) {
+  if (settle?.changed === true) {
     thePlan = plan(targetResult.factBase, settle.factBase, planOptions);
   }
 
