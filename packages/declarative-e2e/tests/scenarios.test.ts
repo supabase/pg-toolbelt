@@ -306,8 +306,10 @@ function cliEnv(): Record<string, string> {
   }
   env["SUPABASE_NO_UPDATE_NOTIFIER"] = "1";
   env["SUPABASE_TELEMETRY_DISABLED"] = "1";
-  // The project's config.toml selects the backend; an inherited override would mask it.
+  // Each project's config.toml selects the backend and names its containers; inherited
+  // overrides would mask that, and a shared project id collides across parallel databases.
   delete env["SUPABASE_EXPERIMENTAL_STACK"];
+  delete env["SUPABASE_PROJECT_ID"];
   return env;
 }
 
@@ -861,10 +863,9 @@ describe(`declarative schema scenarios (${BACKEND} backend)`, () => {
           `${CLI} not found; run \`bun run setup-cli\``,
         ).toBe(true);
         const failures = await runTarget(target, selected);
-        expect(
-          failures,
-          `${failures.length} scenario(s) failed on ${label}`,
-        ).toEqual([]);
+        expect(failures, `${failures.length} failure(s) on ${label}`).toEqual(
+          [],
+        );
       },
       budget,
     );
