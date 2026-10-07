@@ -64,6 +64,8 @@ flowchart TD
     exists`.
 - **Known issues:**
   - #510, a trigger `WHEN` with a 3+ column row comparison never converges.
+  - #517 (fix in #520): `REVOKE ALL ON SCHEMA public FROM anon, PUBLIC` is
+    lost by the export, so the unchanged re-sync grants `USAGE` back.
 
 ## Rules
 
