@@ -711,8 +711,21 @@ async function runTarget(
     }
     return failures;
   } finally {
-    await supabase(projectDir, ["stop", "--no-backup"]).catch(() => undefined);
-    await rm(projectDir, { recursive: true, force: true });
+    const stop = await supabase(projectDir, ["stop", "--no-backup"]).catch(
+      (error: unknown): CommandResult => ({
+        exitCode: -1,
+        stdout: "",
+        stderr: error instanceof Error ? error.message : JSON.stringify(error),
+      }),
+    );
+    // The project directory is what `supabase stop` needs to find the stack again.
+    if (stop.exitCode === 0) {
+      await rm(projectDir, { recursive: true, force: true });
+    } else {
+      console.error(
+        `supabase stop failed (exit ${stop.exitCode}); kept ${projectDir}. Clean up with: ${CLI} stop --no-backup --workdir ${projectDir}\n${commandOutput(stop)}`,
+      );
+    }
   }
 }
 
