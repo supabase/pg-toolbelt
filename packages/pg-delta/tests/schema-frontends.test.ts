@@ -9,6 +9,7 @@ import { join } from "node:path";
 import pg from "pg";
 import { apply } from "../src/apply/apply.ts";
 import { encodeId } from "../src/core/stable-id.ts";
+import { extract } from "../src/extract/extract.ts";
 import {
   buildSchemaExport,
   planSchemaFiles,
@@ -24,6 +25,7 @@ import {
   rawProfile,
   type IntegrationProfile,
 } from "../src/integrations/index.ts";
+import { settleDesired } from "../src/frontends/settle-desired.ts";
 import type { Policy } from "../src/policy/policy.ts";
 import { isolatedClusterPair, sharedCluster } from "./containers.ts";
 
@@ -296,6 +298,103 @@ describe("public schema frontends", () => {
       );
     } finally {
       await Promise.all([target.drop(), ...shadows.map((s) => s.drop())]);
+    }
+  }, 120_000);
+
+  test("planSchemaFiles replays a dependent against the desired definitions only (#510)", async () => {
+    // base really changes type; dependent only differs by spelling, so it is
+    // replayed while base is replayed on the target side. Rebuilt against base's
+    // numeric target definition, dependent would pick up numeric casts.
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_settle_d_target");
+    const shadows = [
+      await cluster.createDb("frontend_settle_d_shadow1"),
+      await cluster.createDb("frontend_settle_d_shadow2"),
+    ];
+    const views = (base: string): string => `
+      CREATE SCHEMA app;
+      CREATE VIEW app.base AS SELECT 1::${base} AS n;
+      CREATE VIEW app.dependent AS
+        SELECT n + 1 AS x FROM app.base WHERE n BETWEEN 0 AND 10 AND n >= 0;
+    `;
+    try {
+      await target.pool.query(views("numeric"));
+      const files: SqlFile[] = [{ name: "v.sql", sql: views("integer") }];
+      const options = { profile: rawProfile, scope: "database" as const };
+      const first = await planSchemaFiles(
+        target.pool,
+        shadows[0]!.pool,
+        files,
+        options,
+      );
+      const report = await apply(first.plan, target.pool, first.applyOptions);
+      expect(report.status).toBe("applied");
+      const { rows } = await target.pool.query(
+        `SELECT format_type(atttypid, atttypmod) AS type FROM pg_attribute
+         WHERE attrelid = 'app.dependent'::regclass AND attname = 'x'`,
+      );
+      expect(rows).toEqual([{ type: "integer" }]);
+
+      const second = await planSchemaFiles(
+        target.pool,
+        shadows[1]!.pool,
+        files,
+        options,
+      );
+      expect(second.plan.actions.map((a) => a.sql)).toEqual([]);
+    } finally {
+      await Promise.all([target.drop(), ...shadows.map((s) => s.drop())]);
+    }
+  }, 120_000);
+
+  test("settleDesired survives a connection error event while it holds its client (#510)", async () => {
+    // pg-pool drops its idle `error` listener on checkout, so a dropped
+    // connection would crash the process unless the holder listens.
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_settle_e_target");
+    const shadow = await cluster.createDb("frontend_settle_e_shadow");
+    try {
+      await target.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (a int, b int, CONSTRAINT t_check CHECK (b BETWEEN 0 AND 10 AND a >= 0));
+      `);
+      await shadow.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (a int, b int, CONSTRAINT t_check CHECK ((((b >= 0) AND (b <= 10)) AND (a >= 0))));
+      `);
+      const current = (await extract(target.pool)).factBase;
+      const desired = (await extract(shadow.pool)).factBase;
+      const emitting = {
+        connect: (
+          callback?: (
+            error: Error | undefined,
+            client: pg.PoolClient | undefined,
+            release: (error?: Error | boolean) => void,
+          ) => void,
+        ) => {
+          const emitSoon = (client: pg.PoolClient): void => {
+            setTimeout(() => client.emit("error", new Error("dropped")), 0);
+          };
+          if (callback === undefined) {
+            return shadow.pool.connect().then((client) => {
+              emitSoon(client);
+              return client;
+            });
+          }
+          shadow.pool.connect((error, client, release) => {
+            if (client !== undefined) emitSoon(client);
+            callback(error, client, release);
+          });
+          return undefined;
+        },
+      } as unknown as pg.Pool;
+
+      const settled = await settleDesired(emitting, current, desired);
+      expect(
+        settled.diagnostics.map((d) => [d.code, encodeId(d.subject!)]),
+      ).toEqual([["deparse_target_unsettled", "constraint:app.t.t_check"]]);
+    } finally {
+      await Promise.all([target.drop(), shadow.drop()]);
     }
   }, 120_000);
 
