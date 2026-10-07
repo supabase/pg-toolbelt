@@ -246,6 +246,43 @@ describe("public schema frontends", () => {
     }
   }, 120_000);
 
+  test("planSchemaFiles treats a target holding a less-replayed spelling as unchanged (#510)", async () => {
+    // The target was built by a hand-written migration (Postgres keeps BETWEEN
+    // nested under the outer AND); the files hold what `schema export` prints
+    // for it, which loads flat. Same meaning, so nothing may be rebuilt.
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_settle_b_target");
+    const shadow = await cluster.createDb("frontend_settle_b_shadow");
+    try {
+      await target.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (a int, b int, CONSTRAINT t_check CHECK (b BETWEEN 0 AND 10 AND a >= 0));
+      `);
+      const files: SqlFile[] = [
+        {
+          name: "t.sql",
+          sql: `
+            CREATE SCHEMA app;
+            CREATE TABLE app.t (a int, b int, CONSTRAINT t_check CHECK ((((b >= 0) AND (b <= 10)) AND (a >= 0))));
+          `,
+        },
+      ];
+      const planned = await planSchemaFiles(target.pool, shadow.pool, files, {
+        profile: rawProfile,
+        scope: "database",
+      });
+      expect(planned.plan.actions.map((a) => a.sql)).toEqual([]);
+      const settleDiagnostics = planned.loadDiagnostics
+        .filter((d) => d.code.startsWith("deparse_"))
+        .map((d) => [d.code, d.severity, encodeId(d.subject!)]);
+      expect(settleDiagnostics).toEqual([
+        ["deparse_target_unsettled", "info", "constraint:app.t.t_check"],
+      ]);
+    } finally {
+      await Promise.all([target.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+
   test("planSchemaFiles never probes the profile's assumed schemas in an isolated shadow (supabase/cli#6453)", async () => {
     const platformProfile: IntegrationProfile = {
       id: "test-platform-unreadable",
