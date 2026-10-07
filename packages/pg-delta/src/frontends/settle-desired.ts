@@ -68,20 +68,23 @@ const UNSETTLED = "\u0000unsettled";
  *  this is not worth more rebuilds. */
 const MAX_REPLAYS = 5;
 
-/** The deparsed attributes whose text differs between the two sides. */
-function differingAttrs(before: Fact, fact: Fact): string[] {
+/**
+ * The deparsed attributes to settle: all of them once any differs, because
+ * rebuilding the object for the differing one re-reads the others too (a
+ * policy replaced for its WITH CHECK re-parses its USING).
+ */
+function settledAttrs(before: Fact, fact: Fact): string[] {
   const attrs = (DEPARSED_ATTRS[fact.id.kind] ?? []).filter(
-    (attr) =>
-      typeof fact.payload[attr] === "string" &&
-      before.payload[attr] !== fact.payload[attr],
+    (attr) => typeof fact.payload[attr] === "string",
   );
+  const differs = (attr: string): boolean =>
+    before.payload[attr] !== fact.payload[attr];
   // A string-bodied routine stores its body as written; only the parameter
   // defaults in its header are deparsed, and they show in `argSignature`.
-  if (
+  const isStringBodied =
     (fact.id.kind === "function" || fact.id.kind === "procedure") &&
-    fact.payload["_sqlBody"] !== true &&
-    !attrs.includes("argSignature")
-  ) {
+    fact.payload["_sqlBody"] !== true;
+  if (isStringBodied ? !differs("argSignature") : !attrs.some(differs)) {
     return [];
   }
   return attrs;
@@ -216,7 +219,7 @@ export async function settleDesired(
     if (options.only !== undefined && !options.only.has(key)) continue;
     const before = current.get(fact.id);
     if (before === undefined) continue;
-    const attrs = differingAttrs(before, fact);
+    const attrs = settledAttrs(before, fact);
     if (attrs.length === 0) continue;
     const textsOf = (f: Fact): Texts =>
       Object.fromEntries(
