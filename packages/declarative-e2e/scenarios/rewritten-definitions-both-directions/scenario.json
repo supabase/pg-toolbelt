@@ -1,0 +1,4 @@
+{
+  "issue": "https://github.com/supabase/pg-toolbelt/issues/510",
+  "pg": [15, 17]
+}

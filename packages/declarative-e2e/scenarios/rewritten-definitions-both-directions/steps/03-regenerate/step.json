@@ -1,0 +1,5 @@
+{
+  "command": "generate",
+  "delete": ["public/rewritten.sql"],
+  "migration": "none"
+}
