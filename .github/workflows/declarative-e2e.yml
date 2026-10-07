@@ -1,7 +1,8 @@
 name: Declarative E2E
 
 # Declarative-schema scenarios through the Supabase CLI (develop, from source) with this
-# checkout's pg-delta. PRs touching pg-delta run the smoke set; nightly runs everything.
+# checkout's pg-delta. PRs touching pg-delta run the smoke set on the stack backend; nightly runs
+# everything on both the stack and legacy backends.
 on:
   pull_request:
     types:
@@ -27,6 +28,14 @@ on:
           - all
           - smoke
         default: all
+      backends:
+        description: CLI local backends
+        type: choice
+        options:
+          - both
+          - stack
+          - legacy
+        default: both
       cli_ref:
         description: supabase/cli branch or tag
         type: string
@@ -42,7 +51,11 @@ concurrency:
 jobs:
   declarative-e2e:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    name: Declarative E2E
+    name: Declarative E2E (${{ matrix.backend }})
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ${{ fromJSON((github.event_name == 'pull_request' || inputs.backends == 'stack') && '["stack"]' || inputs.backends == 'legacy' && '["legacy"]' || '["stack","legacy"]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -62,5 +75,6 @@ jobs:
       - name: Run scenarios
         working-directory: packages/declarative-e2e
         env:
+          DECLARATIVE_BACKEND: ${{ matrix.backend }}
           DECLARATIVE_SCENARIOS: ${{ (github.event_name == 'schedule' || inputs.scenarios == 'all') && 'all' || '' }}
         run: bun test tests/

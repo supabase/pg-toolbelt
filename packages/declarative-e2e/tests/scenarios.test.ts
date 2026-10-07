@@ -24,6 +24,15 @@ const SMOKE_PG = 17;
 // `init --use-orioledb` pins a 17.x OrioleDB image.
 const ORIOLEDB_PG = 17;
 const REMOTE_MIGRATION = "20260101000000_remote.sql";
+
+const backendEnv = process.env["DECLARATIVE_BACKEND"] || "stack";
+if (backendEnv !== "stack" && backendEnv !== "legacy") {
+  throw new Error(
+    `DECLARATIVE_BACKEND=${backendEnv} is not supported; use "stack" or "legacy"`,
+  );
+}
+const BACKEND: "stack" | "legacy" = backendEnv;
+const STACK_RUNTIME = process.env["DECLARATIVE_STACK_RUNTIME"] || "native";
 const DESTRUCTIVE_WARNING = "Found destructive changes";
 const NO_CHANGES = "No schema changes found";
 
@@ -231,7 +240,11 @@ async function loadScenario(name: string): Promise<Scenario> {
     name,
     tags: config.tags ?? [],
     knownIssue: config.knownIssue,
-    targets,
+    // The stack backend rejects db.orioledb_version until supabase/cli#6934 lands.
+    targets:
+      BACKEND === "stack"
+        ? targets.filter((target) => !target.orioledb)
+        : targets,
     flags: config.flags ?? [],
     remoteSql,
     steps,
@@ -286,17 +299,19 @@ function cliEnv(): Record<string, string> {
   }
   env["SUPABASE_NO_UPDATE_NOTIFIER"] = "1";
   env["SUPABASE_TELEMETRY_DISABLED"] = "1";
+  // The project's config.toml selects the backend; an inherited override would mask it.
+  delete env["SUPABASE_EXPERIMENTAL_STACK"];
   return env;
 }
 
 async function supabase(
   cwd: string,
   args: readonly string[],
-  timeoutMs = COMMAND_TIMEOUT_MS,
+  { timeoutMs = COMMAND_TIMEOUT_MS, env = {} as Record<string, string> } = {},
 ): Promise<CommandResult> {
   const child = Bun.spawn([CLI, ...args], {
     cwd,
-    env: cliEnv(),
+    env: { ...cliEnv(), ...env },
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -451,6 +466,8 @@ async function startStack(projectDir: string, target: Target): Promise<void> {
     await supabase(
       projectDir,
       target.orioledb ? ["init", "--use-orioledb"] : ["init"],
+      // Writes `[experimental] stack = true`, which routes every later command.
+      BACKEND === "stack" ? { env: { SUPABASE_EXPERIMENTAL_STACK: "1" } } : {},
     ),
     "init",
   );
@@ -458,6 +475,11 @@ async function startStack(projectDir: string, target: Target): Promise<void> {
   const config = await configFile.text();
   if (!config.includes("[experimental.pgdelta]\nenabled = true")) {
     throw new Error("init did not enable experimental pg-delta in config.toml");
+  }
+  if (/^stack = true$/mu.test(config) !== (BACKEND === "stack")) {
+    throw new Error(
+      `init config.toml does not match the ${BACKEND} backend (experimental.stack)`,
+    );
   }
   const majorVersionLine = /^major_version = \d+$/mu;
   if (!majorVersionLine.test(config))
@@ -488,8 +510,28 @@ async function startStack(projectDir: string, target: Target): Promise<void> {
     lines.push(`${match[1]}${port}`);
   }
   await Bun.write(configFile, lines.join("\n"));
+  if (BACKEND === "stack") {
+    // `db start` has no runtime flag; it reuses the runtime saved by the stack prepare creates.
+    requireSuccess(
+      await supabase(
+        projectDir,
+        [
+          "stack",
+          "prepare",
+          "--runtime",
+          STACK_RUNTIME,
+          "--capability",
+          "database",
+        ],
+        { timeoutMs: STACK_START_TIMEOUT_MS },
+      ),
+      "stack prepare",
+    );
+  }
   requireSuccess(
-    await supabase(projectDir, ["db", "start"], STACK_START_TIMEOUT_MS),
+    await supabase(projectDir, ["db", "start"], {
+      timeoutMs: STACK_START_TIMEOUT_MS,
+    }),
     "db start",
   );
 }
@@ -711,19 +753,24 @@ async function runTarget(
     }
     return failures;
   } finally {
-    const stop = await supabase(projectDir, ["stop", "--no-backup"]).catch(
+    // The stack backend rejects `stop --no-backup`; plain `stop` would keep its data.
+    const teardown =
+      BACKEND === "stack"
+        ? ["stack", "destroy", "--yes"]
+        : ["stop", "--no-backup"];
+    const stop = await supabase(projectDir, teardown).catch(
       (error: unknown): CommandResult => ({
         exitCode: -1,
         stdout: "",
         stderr: error instanceof Error ? error.message : JSON.stringify(error),
       }),
     );
-    // The project directory is what `supabase stop` needs to find the stack again.
+    // The project directory is what teardown needs to find the stack again.
     if (stop.exitCode === 0) {
       await rm(projectDir, { recursive: true, force: true });
     } else {
       console.error(
-        `supabase stop failed (exit ${stop.exitCode}); kept ${projectDir}. Clean up with: ${CLI} stop --no-backup --workdir ${projectDir}\n${commandOutput(stop)}`,
+        `supabase ${teardown.join(" ")} failed (exit ${stop.exitCode}); kept ${projectDir}. Clean up with: ${CLI} ${teardown.join(" ")} --workdir ${projectDir}\n${commandOutput(stop)}`,
       );
     }
   }
@@ -738,7 +785,7 @@ const targets = [
   ).values(),
 ].sort((a, b) => a.pg - b.pg || Number(a.orioledb) - Number(b.orioledb));
 
-describe("declarative schema scenarios", () => {
+describe(`declarative schema scenarios (${BACKEND} backend)`, () => {
   test("selects at least one scenario", () => {
     expect(
       selection.scenarios.map((scenario) => scenario.name),
