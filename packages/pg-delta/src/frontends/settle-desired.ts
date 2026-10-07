@@ -44,6 +44,7 @@ const DEPARSED_ATTRS: Readonly<Record<string, readonly string[]>> = {
   procedure: ["def", "argSignature"],
   publicationRel: ["where"],
   rule: ["def"],
+  table: ["partitionKey"],
   trigger: ["def"],
   view: ["def"],
 };
@@ -54,6 +55,7 @@ const CLAUSE_OF: Readonly<Record<string, string>> = {
   default: "DEFAULT",
   expr: "DEFAULT",
   generatedExpr: "GENERATED ALWAYS AS",
+  partitionKey: "PARTITION BY",
   usingExpr: "USING",
   where: "WHERE",
 };

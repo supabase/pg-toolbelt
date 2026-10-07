@@ -19,6 +19,7 @@ import {
   indexesFamily,
   rulesFamily,
   tableConstraintsFamily,
+  tablesFamily,
   triggersFamily,
   viewsFamily,
 } from "./relations.ts";
@@ -70,6 +71,8 @@ function sourceOf(fact: Fact): Source | undefined {
             },
           }
         : { family: tableConstraintsFamily, statement: 0, key: onTable };
+    case "table":
+      return { family: tablesFamily, statement: 0, key: named };
     case "view":
     case "materializedView":
       return { family: viewsFamily, statement: 0, key: named };
