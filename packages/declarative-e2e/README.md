@@ -78,8 +78,11 @@ Each directory under `scenarios/` is one scenario:
 
 Flow:
 
-1. One database (`db start`) starts per target. Every selected scenario for
-   that target runs on it in order, and failures are reported together.
+1. Up to `DECLARATIVE_CONCURRENCY` (default 3) databases start per target,
+   each in its own project. They take the target's scenarios from a shared
+   queue, longest first, and failures are reported together in scenario
+   order. Use `DECLARATIVE_CONCURRENCY=1` for one database and a readable
+   log.
 2. Per scenario:
    - `supabase/schemas/` and `supabase/migrations/` are emptied;
    - `remote.sql` is written as the first migration;
