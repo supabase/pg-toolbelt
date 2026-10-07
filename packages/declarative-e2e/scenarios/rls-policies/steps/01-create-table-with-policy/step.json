@@ -1,0 +1,7 @@
+{
+  "migration": "some",
+  "contains": [
+    "alter table public.todos enable row level security",
+    "create policy read own todos"
+  ]
+}

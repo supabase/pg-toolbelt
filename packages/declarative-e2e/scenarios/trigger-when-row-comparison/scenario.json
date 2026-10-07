@@ -1,0 +1,8 @@
+{
+  "issue": "https://github.com/supabase/pg-toolbelt/issues/510",
+  "knownIssue": {
+    "url": "https://github.com/supabase/pg-toolbelt/issues/510",
+    "failsAt": "01-create-trigger (converge)",
+    "message": ["sync did not converge (exit 0)", "DROP TRIGGER"]
+  }
+}

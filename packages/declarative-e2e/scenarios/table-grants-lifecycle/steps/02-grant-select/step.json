@@ -1,0 +1,4 @@
+{
+  "migration": "some",
+  "contains": ["grant select on table public.notes to authenticated"]
+}

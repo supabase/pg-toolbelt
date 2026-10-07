@@ -145,6 +145,9 @@ export function deriveAssumedSchemaSeed(
      *  profile assuming ONLY publications would short-circuit on the empty
      *  assumedSchemas and silently derive no seed (Codex review on #373). */
     assumedPublications?: string[];
+    /** Policy assumed extensions (e.g. `orioledb`). Gates seeding exactly like
+     *  `assumedPublications`. */
+    assumedExtensions?: string[];
     /** Policy assumed roles PLUS the target's own role names — same cluster, so
      *  every owner/grant role reference in the seed is present at replay. */
     assumedRoles: string[];
@@ -163,7 +166,8 @@ export function deriveAssumedSchemaSeed(
   // platform-external, no seed.
   if (
     opts.assumedSchemas.length === 0 &&
-    (opts.assumedPublications ?? []).length === 0
+    (opts.assumedPublications ?? []).length === 0 &&
+    (opts.assumedExtensions ?? []).length === 0
   ) {
     return EMPTY;
   }
@@ -235,6 +239,21 @@ export function deriveAssumedSchemaSeed(
     const to = encodeId(e.to);
     if (candidateIds.has(to) || view.referenceOnly.has(to)) continue;
     excludedIds.add(from);
+  }
+  //     An assumed extension's install schema is the same kind of dependency,
+  //     but extraction carries it only as the structured `schema` payload (no
+  //     extension -> schema edge), so the edge pass above cannot see it.
+  for (const fct of candidateFacts) {
+    if (fct.id.kind !== "extension") continue;
+    const schema = fct.payload["schema"];
+    if (typeof schema !== "string") continue;
+    const schemaKey = encodeId({ kind: "schema", name: schema });
+    if (candidateIds.has(schemaKey) || view.referenceOnly.has(schemaKey)) {
+      continue;
+    }
+    // absent from the view (e.g. pg_catalog): ambient on the same cluster
+    if (view.getByEncoded(schemaKey) === undefined) continue;
+    excludedIds.add(encodeId(fct.id));
   }
 
   // (2) whole routines that carry a superuser-only SET header clause (they can't

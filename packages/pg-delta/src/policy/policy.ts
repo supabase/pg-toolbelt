@@ -332,6 +332,18 @@ export interface Policy {
    */
   assumedPublications?: string[];
   /**
+   * Extension names assumed to exist at apply time but NOT managed by this
+   * policy — platform-installed extensions that user objects depend on without
+   * declaring them (e.g. `orioledb` on Supabase's OrioleDB image, which
+   * provides the server-default table access method). A scope-excluded
+   * extension named here is kept REFERENCE-ONLY instead of hard-pruned, so the
+   * co-located shadow seed installs it before the platform tables that use it,
+   * while the extension itself is never created, dropped, or altered. The seed
+   * replays it only if its install schema is itself assumed (as Supabase's
+   * `extensions` is); a managed install schema does not exist yet at seed time.
+   */
+  assumedExtensions?: string[];
+  /**
    * The role whose object ownership stays IMPLICIT in a database-scope export:
    * `schema export` suppresses `ALTER … OWNER TO <defaultOwner>` (that role is the
    * expected applier), while every object owned by another role serializes its
@@ -794,6 +806,7 @@ export function flattenPolicy(policy: Policy): {
   assumedRoles: string[];
   assumedSchemas: string[];
   assumedPublications: string[];
+  assumedExtensions: string[];
   assumedDefaultGrants: AssumedDefaultGrant[];
   baseline?: string;
   defaultOwner?: string;
@@ -812,6 +825,7 @@ function flattenInner(
   assumedRoles: string[];
   assumedSchemas: string[];
   assumedPublications: string[];
+  assumedExtensions: string[];
   assumedDefaultGrants: AssumedDefaultGrant[];
   baseline?: string;
   defaultOwner?: string;
@@ -828,6 +842,7 @@ function flattenInner(
   const ownAssumedRoles: string[] = policy.assumedRoles ?? [];
   const ownAssumedSchemas: string[] = policy.assumedSchemas ?? [];
   const ownAssumedPublications: string[] = policy.assumedPublications ?? [];
+  const ownAssumedExtensions: string[] = policy.assumedExtensions ?? [];
   const ownAssumedDefaultGrants: AssumedDefaultGrant[] =
     policy.assumedDefaultGrants ?? [];
   const parentFilter: FilterRule[] = [];
@@ -835,6 +850,7 @@ function flattenInner(
   const parentAssumedRoles: string[] = [];
   const parentAssumedSchemas: string[] = [];
   const parentAssumedPublications: string[] = [];
+  const parentAssumedExtensions: string[] = [];
   const parentAssumedDefaultGrants: AssumedDefaultGrant[] = [];
   // defaultOwner is scalar: own value wins, else the first parent that declares
   // one (own-before-extends, matching the rule-ordering convention).
@@ -852,6 +868,7 @@ function flattenInner(
       parentAssumedRoles.push(...flat.assumedRoles);
       parentAssumedSchemas.push(...flat.assumedSchemas);
       parentAssumedPublications.push(...flat.assumedPublications);
+      parentAssumedExtensions.push(...flat.assumedExtensions);
       parentAssumedDefaultGrants.push(...flat.assumedDefaultGrants);
       if (parentDefaultOwner === undefined && flat.defaultOwner !== undefined) {
         parentDefaultOwner = flat.defaultOwner;
@@ -868,6 +885,7 @@ function flattenInner(
     assumedRoles: string[];
     assumedSchemas: string[];
     assumedPublications: string[];
+    assumedExtensions: string[];
     assumedDefaultGrants: AssumedDefaultGrant[];
     baseline?: string;
     defaultOwner?: string;
@@ -882,6 +900,9 @@ function flattenInner(
     ],
     assumedPublications: [
       ...new Set([...ownAssumedPublications, ...parentAssumedPublications]),
+    ],
+    assumedExtensions: [
+      ...new Set([...ownAssumedExtensions, ...parentAssumedExtensions]),
     ],
     assumedDefaultGrants: uniqueAssumedDefaultGrants([
       ...ownAssumedDefaultGrants,
@@ -1267,9 +1288,10 @@ export function resolveView(
   }
 
   // policy scope (non-`verb`) rules: hard-prune the facts they exclude, EXCEPT
-  // an excluded fact whose schema is an assumedSchema (e.g. Supabase's `auth`)
-  // or a publication named in assumedPublications (e.g. `supabase_realtime`),
-  // which is kept REFERENCE-ONLY so a managed dependent (a user trigger on
+  // an excluded fact whose schema is an assumedSchema (e.g. Supabase's `auth`),
+  // a publication named in assumedPublications (e.g. `supabase_realtime`), or an
+  // extension named in assumedExtensions (e.g. `orioledb`), which is kept
+  // REFERENCE-ONLY so a managed dependent (a user trigger on
   // `auth.users`, a `publicationRel` membership) resolves its parent while the
   // assumed object itself is never diffed. `verb` rules are left to the delta
   // filter.
@@ -1277,12 +1299,17 @@ export function resolveView(
   const rules = flat?.filter ?? [];
   const assumed = new Set(flat?.assumedSchemas ?? []);
   const assumedPubs = new Set(flat?.assumedPublications ?? []);
+  const assumedExts = new Set(flat?.assumedExtensions ?? []);
   const assumedSchemaOf = (id: StableId): string | undefined =>
     id.kind === "schema" ? getName(id) : getSchema(id);
   const isAssumed = (id: StableId): boolean => {
     if (id.kind === "publication") {
       const name = getName(id);
       return name !== undefined && assumedPubs.has(name);
+    }
+    if (id.kind === "extension") {
+      const name = getName(id);
+      return name !== undefined && assumedExts.has(name);
     }
     const schema = assumedSchemaOf(id);
     return schema !== undefined && assumed.has(schema);

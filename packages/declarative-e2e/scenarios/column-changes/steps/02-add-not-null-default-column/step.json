@@ -1,0 +1,6 @@
+{
+  "migration": "some",
+  "contains": ["add column status text not null default 'active'"],
+  "destructive": false,
+  "rowCounts": { "public.customers": 3 }
+}

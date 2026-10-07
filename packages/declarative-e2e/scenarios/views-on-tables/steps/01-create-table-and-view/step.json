@@ -1,0 +1,4 @@
+{
+  "migration": "some",
+  "contains": ["create table public.orders", "create view public.order_amounts"]
+}

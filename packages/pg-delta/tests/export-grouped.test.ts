@@ -203,4 +203,53 @@ describe("export: grouped layout (v1 parity)", () => {
       await Promise.all([src.drop(), shadow.drop()]);
     }
   }, 120_000);
+
+  // "select" ranks the column GRANT as an object statement and "all" as an acl, so keep both
+  test.each(["all", "select"])(
+    "keeps a column grant the %s default-privilege revoke would wipe",
+    async (priv) => {
+      const role = `expgrp_anon_${priv}`;
+      const cluster = await sharedCluster();
+      const src = await cluster.createDb(`expgrp_colgrant_${priv}_src`);
+      const shadow = await cluster.createDb(`expgrp_colgrant_${priv}_shadow`);
+      try {
+        await src.pool.query(`
+        CREATE ROLE ${role} NOLOGIN;
+        CREATE SCHEMA app;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT ${priv} ON TABLES TO ${role};
+        CREATE TABLE app.t (id integer PRIMARY KEY, v text);
+        REVOKE ALL ON app.t FROM ${role};
+        GRANT SELECT (v) ON app.t TO ${role};
+        CREATE VIEW app.tv AS SELECT id, v FROM app.t;
+        REVOKE ALL ON app.tv FROM ${role};
+        GRANT SELECT (v) ON app.tv TO ${role};
+      `);
+        const fb = (await extract(src.pool)).factBase;
+        const grouped = exportSqlFiles(fb, { layout: "grouped" }).filter(
+          (f) => !f.name.startsWith("_cluster/roles"),
+        );
+        const loaded = await loadSqlFiles(grouped, shadow.pool);
+        const aclOf = async (pool: typeof src.pool, rel: string) =>
+          (
+            await pool.query(
+              `SELECT attacl::text AS acl FROM pg_attribute
+              WHERE attrelid = $1::regclass AND attname = 'v'`,
+              [rel],
+            )
+          ).rows[0]?.acl;
+        for (const rel of ["app.tv", "app.t"]) {
+          expect(await aclOf(shadow.pool, rel)).toBe(
+            await aclOf(src.pool, rel),
+          );
+        }
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+      } finally {
+        await Promise.all([src.drop(), shadow.drop()]);
+        await cluster.adminPool
+          .query(`DROP ROLE IF EXISTS ${role}`)
+          .catch(() => {});
+      }
+    },
+    120_000,
+  );
 });

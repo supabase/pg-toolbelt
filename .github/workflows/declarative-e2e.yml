@@ -1,0 +1,66 @@
+name: Declarative E2E
+
+# Declarative-schema scenarios through the Supabase CLI (develop, from source) with this
+# checkout's pg-delta. PRs touching pg-delta run the smoke set; nightly runs everything.
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    branches:
+      - main
+    paths:
+      - "packages/pg-delta/src/**"
+      - "packages/pg-delta/package.json"
+      - "packages/declarative-e2e/**"
+      - ".github/workflows/declarative-e2e.yml"
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: Scenario set
+        type: choice
+        options:
+          - all
+          - smoke
+        default: all
+      cli_ref:
+        description: supabase/cli branch or tag
+        type: string
+        default: develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  declarative-e2e:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: Declarative E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12
+      - name: Set up the Supabase CLI from source
+        working-directory: packages/declarative-e2e
+        env:
+          SUPABASE_CLI_REF: ${{ inputs.cli_ref || 'develop' }}
+        run: bun run setup-cli
+      - name: Run scenarios
+        working-directory: packages/declarative-e2e
+        env:
+          DECLARATIVE_SCENARIOS: ${{ (github.event_name == 'schedule' || inputs.scenarios == 'all') && 'all' || '' }}
+        run: bun test tests/

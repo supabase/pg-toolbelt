@@ -1,0 +1,8 @@
+{
+  "migration": "some",
+  "contains": [
+    "create or replace function public.touch_updated_at()",
+    "clock_timestamp()"
+  ],
+  "notContains": ["drop trigger", "drop function"]
+}

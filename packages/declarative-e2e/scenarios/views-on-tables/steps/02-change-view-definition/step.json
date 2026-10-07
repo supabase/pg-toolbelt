@@ -1,0 +1,5 @@
+{
+  "migration": "some",
+  "contains": ["amount > 0"],
+  "notContains": ["drop table"]
+}

@@ -1,5 +1,24 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.58
+
+### Minor Changes
+
+- e544387: Support Supabase's OrioleDB image in co-located `schema apply`. That image sets `default_table_access_method = orioledb`, so every plain `CREATE TABLE` in the fresh shadow database failed with `access method "orioledb" does not exist`, starting with the seeded `auth.*` tables. Three changes fix it:
+
+  - A table's dependency on an extension-provided access method now resolves to an edge on that extension, so `CREATE EXTENSION` is ordered before the tables that use it.
+  - A new optional `assumedExtensions` policy field keeps a scope-excluded extension reference-only (like `assumedPublications`). Such an extension is never created or dropped, but the co-located shadow seed installs it.
+  - The Supabase profile treats `orioledb` as a platform extension and lists it in `assumedExtensions`. Comments on platform extensions are no longer diffed.
+
+## 1.0.0-alpha.57
+
+### Patch Changes
+
+- 55d20b0: Keep column grants in the grouped declarative export, so an unchanged export no longer makes `declarative sync` revoke them.
+- 6845a0b: Relicense under the PostgreSQL License (previously MIT). Both packages now ship a `LICENSE` file and declare `"license": "PostgreSQL"` in `package.json`.
+- Updated dependencies [6845a0b]
+  - @supabase/pg-topo@1.0.0-alpha.8
+
 ## 1.0.0-alpha.56
 
 ### Patch Changes

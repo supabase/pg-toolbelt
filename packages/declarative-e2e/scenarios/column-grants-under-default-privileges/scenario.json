@@ -1,0 +1,6 @@
+{
+  "issue": "https://github.com/supabase/cli/issues/6979",
+  "tags": ["smoke"],
+  "pg": [15, 17],
+  "flags": ["--schema", "public", "--strict-coverage"]
+}

@@ -30,9 +30,17 @@
         "bun": ">=1.0.0",
       },
     },
+    "packages/declarative-e2e": {
+      "name": "@supabase/declarative-e2e",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/bun": "^1.3.9",
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/pg-delta": {
       "name": "@supabase/pg-delta",
-      "version": "1.0.0-alpha.49",
+      "version": "1.0.0-alpha.57",
       "bin": {
         "pgdelta": "./dist/cli/main.js",
       },
@@ -61,7 +69,7 @@
     },
     "packages/pg-topo": {
       "name": "@supabase/pg-topo",
-      "version": "1.0.0-alpha.6",
+      "version": "1.0.0-alpha.8",
       "dependencies": {
         "@pgsql/traverse": "^17.2.4",
         "plpgsql-parser": "^0.5.4",
@@ -393,6 +401,8 @@
     "@sindresorhus/is": ["@sindresorhus/is@4.6.0", "", {}, "sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw=="],
 
     "@supabase/bun-istanbul-coverage": ["@supabase/bun-istanbul-coverage@workspace:packages/bun-istanbul-coverage"],
+
+    "@supabase/declarative-e2e": ["@supabase/declarative-e2e@workspace:packages/declarative-e2e"],
 
     "@supabase/pg-delta": ["@supabase/pg-delta@workspace:packages/pg-delta"],
 
