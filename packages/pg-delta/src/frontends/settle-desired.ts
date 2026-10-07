@@ -164,6 +164,8 @@ interface Candidate {
   replays: number;
   /** the desired side's stable text, once known */
   desiredStable?: Texts;
+  /** the desired side already replayed to the target's text */
+  matched?: true;
   /** whether replaying the target's text in the desired database stands for
    *  the target's own object (see sameContext) */
   targetComparable: boolean;
@@ -290,6 +292,9 @@ export async function settleDesired(
 /** Record one replay result; returns the outcome once the candidate is decided. */
 function advance(c: Candidate, result: Texts | Error): Outcome | undefined {
   if (result instanceof Error) {
+    if (c.matched === true) {
+      return { kind: "same", desiredStable: c.next, viaTarget: false };
+    }
     // The target's text not rebuilding against the desired schema means the two
     // really differ (e.g. it references a column the files dropped).
     return c.side === "target"
@@ -297,6 +302,16 @@ function advance(c: Candidate, result: Texts | Error): Outcome | undefined {
       : { kind: "failed", reason: result.message };
   }
   c.replays++;
+  if (c.matched === true) {
+    // Already equal to the target; replaying on only finds the stable text the
+    // warning quotes, since the target may be a replay ahead of the files and
+    // still not settled.
+    if (sameTexts(result, c.next) || c.replays > MAX_REPLAYS) {
+      return { kind: "same", desiredStable: result, viaTarget: false };
+    }
+    c.next = result;
+    return undefined;
+  }
   if (c.replays > MAX_REPLAYS) {
     return {
       kind: "failed",
@@ -305,7 +320,9 @@ function advance(c: Candidate, result: Texts | Error): Outcome | undefined {
   }
   if (c.side === "desired") {
     if (sameTexts(result, c.target)) {
-      return { kind: "same", desiredStable: result, viaTarget: false };
+      c.matched = true;
+      c.next = result;
+      return undefined;
     }
     if (!sameTexts(result, c.next)) {
       c.next = result;
