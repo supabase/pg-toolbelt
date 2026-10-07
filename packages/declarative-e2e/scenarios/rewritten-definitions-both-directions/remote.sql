@@ -31,3 +31,11 @@ create table public.nr (
   e int,
   constraint nr_check check (((a, b), (c, d), e) is distinct from ((1, 2), (3, 4), 5))
 );
+
+create function public.pdef(a int, b boolean default (1 between 0 and 2 and true))
+  returns int language sql as $$ select a $$;
+
+create table public.ppt (a int, b int)
+  partition by list ((b between 0 and 10 and a >= 0));
+create table public.ppt_in partition of public.ppt for values in (true);
+create table public.ppt_rest partition of public.ppt default;
