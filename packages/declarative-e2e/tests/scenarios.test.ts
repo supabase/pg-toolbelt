@@ -756,7 +756,7 @@ async function runTarget(
     // The stack backend rejects `stop --no-backup`; plain `stop` would keep its data.
     const teardown =
       BACKEND === "stack"
-        ? ["stack", "destroy", "--yes"]
+        ? ["stack", "destroy", "--yes", "--output-format", "json"]
         : ["stop", "--no-backup"];
     const stop = await supabase(projectDir, teardown).catch(
       (error: unknown): CommandResult => ({
@@ -765,12 +765,17 @@ async function runTarget(
         stderr: error instanceof Error ? error.message : JSON.stringify(error),
       }),
     );
+    // `stack destroy` exits 0 but skips container removal when the engine is unreachable.
+    const cleanedUp =
+      stop.exitCode === 0 &&
+      (BACKEND === "legacy" ||
+        stop.stdout.includes('"runtimeCleanup":"complete"'));
     // The project directory is what teardown needs to find the stack again.
-    if (stop.exitCode === 0) {
+    if (cleanedUp) {
       await rm(projectDir, { recursive: true, force: true });
     } else {
       console.error(
-        `supabase ${teardown.join(" ")} failed (exit ${stop.exitCode}); kept ${projectDir}. Clean up with: ${CLI} ${teardown.join(" ")} --workdir ${projectDir}\n${commandOutput(stop)}`,
+        `supabase ${teardown.join(" ")} did not finish cleanup (exit ${stop.exitCode}); kept ${projectDir}. Follow the CLI output below, or retry: ${CLI} ${teardown.join(" ")} --workdir ${projectDir}\n${commandOutput(stop)}`,
       );
     }
   }
