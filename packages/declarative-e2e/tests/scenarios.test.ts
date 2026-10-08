@@ -306,10 +306,15 @@ function cliEnv(): Record<string, string> {
   }
   env["SUPABASE_NO_UPDATE_NOTIFIER"] = "1";
   env["SUPABASE_TELEMETRY_DISABLED"] = "1";
-  // Each project's config.toml selects the backend and names its containers; inherited
-  // overrides would mask that, and a shared project id collides across parallel databases.
-  delete env["SUPABASE_EXPERIMENTAL_STACK"];
-  delete env["SUPABASE_PROJECT_ID"];
+  // Each project's config.toml selects the backend, names its containers, and picks its ports;
+  // inherited overrides would mask that, and shared ids or ports collide across parallel databases.
+  for (const key of [
+    "SUPABASE_EXPERIMENTAL_STACK",
+    "SUPABASE_PROJECT_ID",
+    "SUPABASE_DB_PORT",
+    "SUPABASE_DB_SHADOW_PORT",
+  ])
+    delete env[key];
   return env;
 }
 
@@ -766,7 +771,7 @@ async function withDatabase(
     // The stack backend rejects `stop --no-backup`; plain `stop` would keep its data.
     const teardown =
       BACKEND === "stack"
-        ? ["stack", "destroy", "--yes", "--output-format", "json"]
+        ? ["stack", "destroy", "--yes"]
         : ["stop", "--no-backup"];
     const stop = await supabase(projectDir, teardown).catch(
       (error: unknown): CommandResult => ({
@@ -775,17 +780,12 @@ async function withDatabase(
         stderr: error instanceof Error ? error.message : JSON.stringify(error),
       }),
     );
-    // `stack destroy` exits 0 but skips container removal when the engine is unreachable.
-    const cleanedUp =
-      stop.exitCode === 0 &&
-      (BACKEND === "legacy" ||
-        stop.stdout.includes('"runtimeCleanup":"complete"'));
     // The project directory is what teardown needs to find the stack again.
-    if (cleanedUp) {
+    if (stop.exitCode === 0) {
       await rm(projectDir, { recursive: true, force: true });
     } else {
       console.error(
-        `supabase ${teardown.join(" ")} did not finish cleanup (exit ${stop.exitCode}); kept ${projectDir}. Follow the CLI output below, or retry: ${CLI} ${teardown.join(" ")} --workdir ${projectDir}\n${commandOutput(stop)}`,
+        `supabase ${teardown.join(" ")} failed (exit ${stop.exitCode}); kept ${projectDir}. Retry with: ${CLI} ${teardown.join(" ")} --workdir ${projectDir}\n${commandOutput(stop)}`,
       );
     }
   }
@@ -816,13 +816,13 @@ async function runTarget(
   );
   return [
     ...selected.flatMap((scenario) => failures.get(scenario.name) ?? []),
-    ...databases.flatMap((database) =>
-      database.status === "rejected"
-        ? [
-            `database: ${database.reason instanceof Error ? (database.reason.stack ?? database.reason.message) : JSON.stringify(database.reason)}`,
-          ]
-        : [],
-    ),
+    ...databases.flatMap((database) => {
+      if (database.status === "fulfilled") return [];
+      const report = `database (${label}): ${database.reason instanceof Error ? database.reason.message : JSON.stringify(database.reason)}`;
+      // The assertion diff can drop long multi-line CLI output; the log keeps all of it.
+      console.error(report);
+      return [report];
+    }),
   ];
 }
 
