@@ -28,7 +28,10 @@ DECLARATIVE_BACKEND=legacy bun test tests/
   lands.
 - `legacy`: the Docker-based backend, including OrioleDB targets.
 
-CI runs the PR smoke set on `stack`, and every scenario nightly on both.
+CI runs the PR smoke set on `stack`, and every scenario nightly on both. The
+nightly stack job on `main` rebuilds and saves the CLI's stack cache
+(`~/.supabase/cache/stack`: native Postgres and database snapshots); other
+runs only restore it, since GitHub shares only `main`'s caches across PRs.
 
 `setup-cli` options:
 
