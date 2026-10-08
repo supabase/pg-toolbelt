@@ -348,10 +348,11 @@ describe("public schema frontends", () => {
   }, 120_000);
 
   test("planSchemaFiles rebuilds row filters on inherited columns around a type change (#510)", async () => {
-    // An inherited column's dependencies resolve to its ancestor's column (the
-    // root for a partition), so the row filters below depend on parent.a and
-    // base.a. Postgres refuses to retype a column a publication WHERE clause
-    // uses, so both memberships must be rebuilt around the type change.
+    // An inherited column's dependencies resolve to the ancestor that defines
+    // it (the root for a partition, possibly a non-first parent), so the row
+    // filters below depend on parent.a, base.a and p2.a. Postgres refuses to
+    // retype a column a publication WHERE clause uses, so every membership
+    // must be rebuilt around the type change.
     const cluster = await sharedCluster();
     // row filters need PostgreSQL 15
     if ((await cluster.pgMajor()) < 15) return;
@@ -366,8 +367,11 @@ describe("public schema frontends", () => {
       CREATE TABLE app.part1 PARTITION OF app.parent FOR VALUES FROM (0) TO (100);
       CREATE TABLE app.base (id int, a ${type});
       CREATE TABLE app.child () INHERITS (app.base);
-      CREATE PUBLICATION p FOR TABLE app.part1 WHERE (a > 0), TABLE app.child WHERE (a > 0)
-        WITH (publish = 'insert');
+      CREATE TABLE app.p1 (id int);
+      CREATE TABLE app.p2 (a ${type});
+      CREATE TABLE app.multi () INHERITS (app.p1, app.p2);
+      CREATE PUBLICATION p FOR TABLE app.part1 WHERE (a > 0), TABLE app.child WHERE (a > 0),
+        TABLE app.multi WHERE (a > 0) WITH (publish = 'insert');
     `;
     try {
       await target.pool.query(schema("integer"));
