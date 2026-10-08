@@ -22,7 +22,6 @@ const REVOKE = `REVOKE ALL ON SCHEMA "public" FROM PUBLIC;\n`;
 /* PG14 grants PUBLIC CREATE too */
 const GRANT = /GRANT [A-Z, ]*USAGE ON SCHEMA "public" TO PUBLIC;\n/g;
 
-/** Strip `line` from every file, then append `tail` to the last one. */
 function edited(files: SqlFile[], line: string | RegExp, tail = ""): SqlFile[] {
   return files.map((file, index) => {
     const sql = file.sql.replaceAll(line, "");
