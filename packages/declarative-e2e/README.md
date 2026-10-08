@@ -16,7 +16,22 @@ bun run setup-cli          # clone supabase/cli develop, install it with ../pg-d
 bun test tests/            # smoke scenarios on pg 17
 DECLARATIVE_SCENARIOS=all bun test tests/
 DECLARATIVE_SCENARIO=column-changes bun test tests/
+DECLARATIVE_BACKEND=legacy bun test tests/
 ```
+
+`DECLARATIVE_BACKEND` picks the CLI's local backend:
+
+- `stack` (default): the new stack backend (`[experimental] stack = true`),
+  created with `stack prepare --runtime native`, so Postgres runs without
+  Docker. `DECLARATIVE_STACK_RUNTIME` overrides the runtime (`docker`,
+  `podman`, `auto`). OrioleDB targets are skipped until supabase/cli#6934
+  lands.
+- `legacy`: the Docker-based backend, including OrioleDB targets.
+
+CI runs the PR smoke set on `stack`, and every scenario nightly on both. The
+nightly stack job on `main` rebuilds and saves the CLI's stack cache
+(`~/.supabase/cache/stack`: native Postgres and database snapshots); other
+runs only restore it, since GitHub shares only `main`'s caches across PRs.
 
 `setup-cli` options:
 
@@ -61,13 +76,16 @@ Each directory under `scenarios/` is one scenario:
 - `tags`: only `smoke` scenarios run by default.
 - `pg`: Postgres majors to run, default `[17]`.
 - `orioledb`: also run on a pg 17 OrioleDB database (`supabase init
-  --use-orioledb`). Never part of the default run.
+  --use-orioledb`). Never part of the default run; legacy backend only.
 - `flags`: extra arguments appended to every `generate` and `sync` call.
 
 Flow:
 
-1. One database (`db start`) starts per target. Every selected scenario for
-   that target runs on it in order, and failures are reported together.
+1. Up to `DECLARATIVE_CONCURRENCY` (default 3) databases start per target,
+   each in its own project. They take the target's scenarios from a shared
+   queue, longest first, and failures are reported together in scenario
+   order. Use `DECLARATIVE_CONCURRENCY=1` for one database and a readable
+   log.
 2. Per scenario:
    - `supabase/schemas/` and `supabase/migrations/` are emptied;
    - `remote.sql` is written as the first migration;

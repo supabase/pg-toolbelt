@@ -759,6 +759,39 @@ describe("public schema frontends", () => {
     }
   }, 120_000);
 
+  test("buildSchemaExport does not revoke a policy-filtered grant on public", async () => {
+    const profile: IntegrationProfile = {
+      id: "test-filtered-public-acl",
+      handlers: [],
+      policy: {
+        id: "test-filtered-public-acl",
+        filter: [
+          {
+            match: {
+              all: [
+                { kind: "acl" },
+                { target: { kind: "schema", name: "public" } },
+                { idField: { field: "grantee", glob: "PUBLIC" } },
+              ],
+            },
+            action: "exclude",
+          },
+        ],
+      },
+    };
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("frontend_filtered_public_acl");
+    try {
+      /* the source still grants PUBLIC USAGE, the policy only stops managing it */
+      const { files } = await buildSchemaExport(source.pool, { profile });
+      expect(files.map((f) => f.sql).join("\n")).not.toContain(
+        `REVOKE ALL ON SCHEMA "public" FROM PUBLIC`,
+      );
+    } finally {
+      await source.drop();
+    }
+  }, 120_000);
+
   test("manifest mismatches fail closed before planning", async () => {
     const cluster = await sharedCluster();
     const target = await cluster.createDb("frontend_mm");

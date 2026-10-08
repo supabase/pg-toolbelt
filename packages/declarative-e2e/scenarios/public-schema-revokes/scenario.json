@@ -1,13 +1,5 @@
 {
   "issue": "https://github.com/supabase/pg-toolbelt/issues/517",
-  "knownIssue": {
-    "url": "https://github.com/supabase/pg-toolbelt/pull/520",
-    "failsAt": "bootstrap (converge)",
-    "message": [
-      "sync did not converge (exit 0)",
-      "GRANT USAGE ON SCHEMA \"public\" TO \"anon\""
-    ]
-  },
   "tags": ["smoke"],
   "pg": [15, 17]
 }

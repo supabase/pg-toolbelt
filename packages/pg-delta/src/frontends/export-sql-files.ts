@@ -90,6 +90,10 @@ export interface ExportOptions {
    *  `assumedRoles` / `assumedSchemas` (those exempt the requirement guard).
    *  Empty for the `raw` profile. */
   assumedDefaultGrants?: AssumedDefaultGrant[];
+  /** Grantees on schema `public` in the raw source, before policy filtering or
+   *  baseline subtraction, so a filtered grant is never exported as a REVOKE.
+   *  Defaults to the grantees in `fb`. */
+  sourcePublicGrantees?: string[];
   /** Implicit owner after database-scope projection. Forwarded to `plan()` so
    *  create-time ADP hygiene still matches when owner edges were pruned. */
   defaultOwner?: string;
@@ -953,6 +957,15 @@ function pathFor(id: StableId, ctx: PathContext): string {
   return `${cluster}/misc.sql`;
 }
 
+const PUBLIC_SCHEMA: StableId = { kind: "schema", name: "public" };
+
+/** Grantees holding an acl fact on schema `public`. */
+export function publicSchemaGrantees(fb: FactBase): string[] {
+  return fb
+    .childrenOf(PUBLIC_SCHEMA)
+    .flatMap((child) => (child.id.kind === "acl" ? [child.id.grantee] : []));
+}
+
 export function exportSqlFiles(
   fb: FactBase,
   options: ExportOptions = {},
@@ -962,10 +975,12 @@ export function exportSqlFiles(
   // Render against a PRISTINE baseline, not absolute emptiness, so the export
   // reflects what a real target already has:
   //   - schema "public" always exists, so seed its EXISTENCE (a CREATE SCHEMA
-  //     public could never replay). Its acl/comment are deliberately NOT seeded:
-  //     they diff like every other schema's, so a customized public (REVOKE
-  //     CREATE FROM PUBLIC, a changed COMMENT) is exported rather than masked by
-  //     a same-valued baseline (review: public-schema ACL/comment preservation).
+  //     public could never replay). Its comment and its live grants are
+  //     deliberately NOT seeded: they diff like every other schema's, so a
+  //     customized public (REVOKE CREATE FROM PUBLIC, a changed COMMENT) is
+  //     exported rather than masked by a same-valued baseline. A grant a fresh
+  //     public carries (to PUBLIC, or to an overlay grantee such as anon) that
+  //     live revoked IS seeded, or it never diffs and its REVOKE is lost.
   //   - reference-only facts are assumed-present platform objects (e.g.
   //     auth.users under --profile supabase). diff/plan don't consult
   //     `referenceOnly` — the DB-to-DB path relies on both sides carrying them —
@@ -995,6 +1010,23 @@ export function exportSqlFiles(
     const key = encodeId(id);
     return fb.referenceOnly.has(key) && !members.has(key);
   });
+  const managedGrantees = publicSchemaGrantees(fb);
+  const heldGrantees = new Set(options.sourcePublicGrantees ?? managedGrantees);
+  const defaultGrantees = new Set([
+    "PUBLIC",
+    ...(options.assumedDefaultGrants ?? [])
+      .filter((tuple) => tuple.schema === "public")
+      .map((tuple) => tuple.grantee),
+  ]);
+  for (const grantee of defaultGrantees) {
+    /* no acl fact at all means public's ACL is filtered out, not revoked */
+    if (managedGrantees.length === 0 || heldGrantees.has(grantee)) continue;
+    pristine.push({
+      id: { kind: "acl", target: PUBLIC_SCHEMA, grantee },
+      parent: PUBLIC_SCHEMA,
+      payload: { privileges: ["USAGE"], grantable: [] },
+    });
+  }
   const baseline = buildFactBase(pristine, []);
   // FKs inside a cross-table reference cycle stay as ALTERs (routed to a
   // sibling `.fk.sql`); everything else folds inline. Computed BEFORE the plan

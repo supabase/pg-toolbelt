@@ -1,7 +1,8 @@
 name: Declarative E2E
 
 # Declarative-schema scenarios through the Supabase CLI (develop, from source) with this
-# checkout's pg-delta. PRs touching pg-delta run the smoke set; nightly runs everything.
+# checkout's pg-delta. PRs touching pg-delta run the smoke set on the stack backend; nightly runs
+# everything on both the stack and legacy backends.
 on:
   pull_request:
     types:
@@ -27,6 +28,14 @@ on:
           - all
           - smoke
         default: all
+      backends:
+        description: CLI local backends
+        type: choice
+        options:
+          - both
+          - stack
+          - legacy
+        default: both
       cli_ref:
         description: supabase/cli branch or tag
         type: string
@@ -42,7 +51,11 @@ concurrency:
 jobs:
   declarative-e2e:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    name: Declarative E2E
+    name: Declarative E2E (${{ matrix.backend }})
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ${{ fromJSON((github.event_name == 'pull_request' || inputs.backends == 'stack') && '["stack"]' || inputs.backends == 'legacy' && '["legacy"]' || '["stack","legacy"]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -59,8 +72,43 @@ jobs:
         env:
           SUPABASE_CLI_REF: ${{ inputs.cli_ref || 'develop' }}
         run: bun run setup-cli
+      # Native Postgres and its prepared database snapshots; a cold cache adds ~40s to every stack
+      # start. Keys fall back only within one artifact catalog, so old binaries never accumulate.
+      - name: Resolve the stack cache key
+        if: matrix.backend == 'stack'
+        id: stack-cache
+        run: |
+          catalog=$(sha256sum packages/declarative-e2e/.cli/cli/packages/stack/src/Artifacts.ts | cut -c1-16)
+          cli=$(git -C packages/declarative-e2e/.cli/cli rev-parse HEAD)
+          # Only main's caches are visible to every PR, so the nightly run (every scenario, all
+          # majors) seeds the cache from scratch and every other run only restores it.
+          {
+            echo "prefix=declarative-e2e-stack-${RUNNER_OS}-${catalog}-"
+            echo "key=declarative-e2e-stack-${RUNNER_OS}-${catalog}-${cli}"
+            echo "seed=${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.scenarios == 'all') }}"
+          } >> "$GITHUB_OUTPUT"
+      - name: Restore the stack cache
+        if: matrix.backend == 'stack' && steps.stack-cache.outputs.seed != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          # Must match the save step's path list, which is part of the cache version.
+          path: |
+            ~/.supabase/cache/stack
+            !~/.supabase/cache/stack/docker-daemon-identity.json
+          key: ${{ steps.stack-cache.outputs.key }}
+          restore-keys: ${{ steps.stack-cache.outputs.prefix }}
       - name: Run scenarios
         working-directory: packages/declarative-e2e
         env:
+          DECLARATIVE_BACKEND: ${{ matrix.backend }}
           DECLARATIVE_SCENARIOS: ${{ (github.event_name == 'schedule' || inputs.scenarios == 'all') && 'all' || '' }}
         run: bun test tests/
+      - name: Save the stack cache
+        if: matrix.backend == 'stack' && steps.stack-cache.outputs.seed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          # The daemon identity belongs to this runner's Docker, not the next one's.
+          path: |
+            ~/.supabase/cache/stack
+            !~/.supabase/cache/stack/docker-daemon-identity.json
+          key: ${{ steps.stack-cache.outputs.key }}
