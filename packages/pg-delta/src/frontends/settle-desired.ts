@@ -151,16 +151,37 @@ function sameContext(
   const refs = (fb: FactBase): string[] => {
     const edges = [...fb.outgoingEdges(id)];
     // A row filter's column dependencies are recorded on the publication, not
-    // on its member, so take the member table's columns from there.
+    // on its member, and an inherited column resolves to its ancestor's
+    // column, so take the columns of the member table and its ancestors.
     if (id.kind === "publicationRel") {
+      const tables = new Set<string>();
+      let table: { schema: string; name: string } | null = {
+        schema: id.schema,
+        name: id.table,
+      };
+      while (table !== null) {
+        const tableId = { kind: "table" as const, ...table };
+        const key = encodeId(tableId);
+        if (tables.has(key)) break;
+        tables.add(key);
+        table = (fb.get(tableId)?.payload["parentTable"] ?? null) as {
+          schema: string;
+          name: string;
+        } | null;
+      }
       edges.push(
         ...fb
           .outgoingEdges({ kind: "publication", name: id.publication })
           .filter(
             (edge) =>
               edge.to.kind === "column" &&
-              edge.to.schema === id.schema &&
-              edge.to.table === id.table,
+              tables.has(
+                encodeId({
+                  kind: "table",
+                  schema: edge.to.schema,
+                  name: edge.to.table,
+                }),
+              ),
           ),
       );
     }
