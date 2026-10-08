@@ -24,6 +24,22 @@ const SMOKE_PG = 17;
 // `init --use-orioledb` pins a 17.x OrioleDB image.
 const ORIOLEDB_PG = 17;
 const REMOTE_MIGRATION = "20260101000000_remote.sql";
+
+const backendEnv = process.env["DECLARATIVE_BACKEND"] || "stack";
+if (backendEnv !== "stack" && backendEnv !== "legacy") {
+  throw new Error(
+    `DECLARATIVE_BACKEND=${backendEnv} is not supported; use "stack" or "legacy"`,
+  );
+}
+const BACKEND: "stack" | "legacy" = backendEnv;
+const STACK_RUNTIME = process.env["DECLARATIVE_STACK_RUNTIME"] || "native";
+// Databases per target; each runs its share of the scenarios.
+const CONCURRENCY = Number(process.env["DECLARATIVE_CONCURRENCY"] || 3);
+if (!Number.isInteger(CONCURRENCY) || CONCURRENCY < 1) {
+  throw new Error(
+    `DECLARATIVE_CONCURRENCY=${process.env["DECLARATIVE_CONCURRENCY"]} is not a positive integer`,
+  );
+}
 const DESTRUCTIVE_WARNING = "Found destructive changes";
 const NO_CHANGES = "No schema changes found";
 
@@ -231,7 +247,11 @@ async function loadScenario(name: string): Promise<Scenario> {
     name,
     tags: config.tags ?? [],
     knownIssue: config.knownIssue,
-    targets,
+    // The stack backend rejects db.orioledb_version until supabase/cli#6934 lands.
+    targets:
+      BACKEND === "stack"
+        ? targets.filter((target) => !target.orioledb)
+        : targets,
     flags: config.flags ?? [],
     remoteSql,
     steps,
@@ -286,17 +306,26 @@ function cliEnv(): Record<string, string> {
   }
   env["SUPABASE_NO_UPDATE_NOTIFIER"] = "1";
   env["SUPABASE_TELEMETRY_DISABLED"] = "1";
+  // Each project's config.toml selects the backend, names its containers, and picks its ports;
+  // inherited overrides would mask that, and shared ids or ports collide across parallel databases.
+  for (const key of [
+    "SUPABASE_EXPERIMENTAL_STACK",
+    "SUPABASE_PROJECT_ID",
+    "SUPABASE_DB_PORT",
+    "SUPABASE_DB_SHADOW_PORT",
+  ])
+    delete env[key];
   return env;
 }
 
 async function supabase(
   cwd: string,
   args: readonly string[],
-  timeoutMs = COMMAND_TIMEOUT_MS,
+  { timeoutMs = COMMAND_TIMEOUT_MS, env = {} as Record<string, string> } = {},
 ): Promise<CommandResult> {
   const child = Bun.spawn([CLI, ...args], {
     cwd,
-    env: cliEnv(),
+    env: { ...cliEnv(), ...env },
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -445,12 +474,17 @@ async function countRows(projectDir: string, table: string): Promise<number> {
   return n as number;
 }
 
+// Shared so concurrent legacy projects never pick the same host port.
+const assignedPorts = new Set<number>();
+
 /** Initializes a project for `target` and starts its database; scenarios reset it in turn. */
 async function startStack(projectDir: string, target: Target): Promise<void> {
   requireSuccess(
     await supabase(
       projectDir,
       target.orioledb ? ["init", "--use-orioledb"] : ["init"],
+      // Writes `[experimental] stack = true`, which routes every later command.
+      BACKEND === "stack" ? { env: { SUPABASE_EXPERIMENTAL_STACK: "1" } } : {},
     ),
     "init",
   );
@@ -459,6 +493,11 @@ async function startStack(projectDir: string, target: Target): Promise<void> {
   if (!config.includes("[experimental.pgdelta]\nenabled = true")) {
     throw new Error("init did not enable experimental pg-delta in config.toml");
   }
+  if (/^stack = true$/mu.test(config) !== (BACKEND === "stack")) {
+    throw new Error(
+      `init config.toml does not match the ${BACKEND} backend (experimental.stack)`,
+    );
+  }
   const majorVersionLine = /^major_version = \d+$/mu;
   if (!majorVersionLine.test(config))
     throw new Error("init wrote no [db] major_version");
@@ -466,7 +505,6 @@ async function startStack(projectDir: string, target: Target): Promise<void> {
     throw new Error("init --use-orioledb wrote no [db] orioledb_version");
   }
   const lines: string[] = [];
-  const assigned = new Set<number>();
   for (const line of config
     .replace(majorVersionLine, `major_version = ${target.pg}`)
     .replace(
@@ -483,13 +521,33 @@ async function startStack(projectDir: string, target: Target): Promise<void> {
       continue;
     }
     let port = await freePort();
-    while (assigned.has(port)) port = await freePort();
-    assigned.add(port);
+    while (assignedPorts.has(port)) port = await freePort();
+    assignedPorts.add(port);
     lines.push(`${match[1]}${port}`);
   }
   await Bun.write(configFile, lines.join("\n"));
+  if (BACKEND === "stack") {
+    // `db start` has no runtime flag; it reuses the runtime saved by the stack prepare creates.
+    requireSuccess(
+      await supabase(
+        projectDir,
+        [
+          "stack",
+          "prepare",
+          "--runtime",
+          STACK_RUNTIME,
+          "--capability",
+          "database",
+        ],
+        { timeoutMs: STACK_START_TIMEOUT_MS },
+      ),
+      "stack prepare",
+    );
+  }
   requireSuccess(
-    await supabase(projectDir, ["db", "start"], STACK_START_TIMEOUT_MS),
+    await supabase(projectDir, ["db", "start"], {
+      timeoutMs: STACK_START_TIMEOUT_MS,
+    }),
     "db start",
   );
 }
@@ -647,86 +705,125 @@ async function runScenario(
   }
 }
 
-/** Runs every scenario on one database and returns every failure. */
-async function runTarget(
+/** Runs `scenario` and returns its failure report, or undefined when it passed or failed as its knownIssue expects. */
+async function scenarioFailure(
+  projectDir: string,
+  scenario: Scenario,
+  label: string,
+): Promise<string | undefined> {
+  const known =
+    scenario.knownIssue?.target === undefined ||
+    scenario.knownIssue.target === label
+      ? scenario.knownIssue
+      : undefined;
+  let error: unknown;
+  try {
+    await runScenario(projectDir, scenario);
+  } catch (caught) {
+    error = caught;
+  }
+  if (error === undefined) {
+    console.error(`scenario ${scenario.name} (${label}): pass`);
+    return known === undefined
+      ? undefined
+      : `${scenario.name}: passed; remove knownIssue from ${scenario.name} (${known.url})`;
+  }
+  const report =
+    error instanceof ScenarioCheckError
+      ? `${scenario.name} [${error.step}]: ${error.message}`
+      : `${scenario.name}: ${error instanceof Error ? (error.stack ?? error.message) : JSON.stringify(error)}`;
+  const isKnown =
+    known !== undefined &&
+    error instanceof ScenarioCheckError &&
+    !error.unexpected &&
+    error.step === known.failsAt &&
+    [known.message ?? []]
+      .flat()
+      .every((fragment) => error.message.includes(fragment));
+  if (isKnown) {
+    console.error(
+      `scenario ${scenario.name} (${label}): known issue ${known.url}`,
+    );
+    return undefined;
+  }
+  console.error(`scenario ${scenario.name} (${label}): FAIL`);
+  return known === undefined
+    ? report
+    : `${report}\n(knownIssue expects a check failure at "${known.failsAt}"${
+        known.message === undefined
+          ? ""
+          : ` containing ${JSON.stringify([known.message].flat())}`
+      })`;
+}
+
+/** Starts a database for `target` in a fresh project, runs `body` on it, then tears it down. */
+async function withDatabase(
   target: Target,
-  selected: readonly Scenario[],
-): Promise<string[]> {
-  const label = targetLabel(target);
+  body: (projectDir: string) => Promise<void>,
+): Promise<void> {
   const projectDir = await mkdtemp(
     path.join(tmpdir(), "pg-toolbelt-declarative-e2e-"),
   );
   try {
     await startStack(projectDir, target);
-    const failures: string[] = [];
-    for (const scenario of selected) {
-      const known =
-        scenario.knownIssue?.target === undefined ||
-        scenario.knownIssue.target === label
-          ? scenario.knownIssue
-          : undefined;
-      let error: unknown;
-      try {
-        await runScenario(projectDir, scenario);
-      } catch (caught) {
-        error = caught;
-      }
-      if (error === undefined) {
-        if (known !== undefined) {
-          failures.push(
-            `${scenario.name}: passed; remove knownIssue from ${scenario.name} (${known.url})`,
-          );
-        }
-        console.error(`scenario ${scenario.name} (${label}): pass`);
-        continue;
-      }
-      const report =
-        error instanceof ScenarioCheckError
-          ? `${scenario.name} [${error.step}]: ${error.message}`
-          : `${scenario.name}: ${error instanceof Error ? (error.stack ?? error.message) : JSON.stringify(error)}`;
-      const isKnown =
-        known !== undefined &&
-        error instanceof ScenarioCheckError &&
-        !error.unexpected &&
-        error.step === known.failsAt &&
-        [known.message ?? []]
-          .flat()
-          .every((fragment) => error.message.includes(fragment));
-      if (isKnown) {
-        console.error(
-          `scenario ${scenario.name} (${label}): known issue ${known.url}`,
-        );
-        continue;
-      }
-      console.error(`scenario ${scenario.name} (${label}): FAIL`);
-      failures.push(
-        known === undefined
-          ? report
-          : `${report}\n(knownIssue expects a check failure at "${known.failsAt}"${
-              known.message === undefined
-                ? ""
-                : ` containing ${JSON.stringify([known.message].flat())}`
-            })`,
-      );
-    }
-    return failures;
+    await body(projectDir);
   } finally {
-    const stop = await supabase(projectDir, ["stop", "--no-backup"]).catch(
+    // The stack backend rejects `stop --no-backup`; plain `stop` would keep its data.
+    const teardown =
+      BACKEND === "stack"
+        ? ["stack", "destroy", "--yes"]
+        : ["stop", "--no-backup"];
+    const stop = await supabase(projectDir, teardown).catch(
       (error: unknown): CommandResult => ({
         exitCode: -1,
         stdout: "",
         stderr: error instanceof Error ? error.message : JSON.stringify(error),
       }),
     );
-    // The project directory is what `supabase stop` needs to find the stack again.
+    // The project directory is what teardown needs to find the stack again.
     if (stop.exitCode === 0) {
       await rm(projectDir, { recursive: true, force: true });
     } else {
       console.error(
-        `supabase stop failed (exit ${stop.exitCode}); kept ${projectDir}. Clean up with: ${CLI} stop --no-backup --workdir ${projectDir}\n${commandOutput(stop)}`,
+        `supabase ${teardown.join(" ")} failed (exit ${stop.exitCode}); kept ${projectDir}. Retry with: ${CLI} ${teardown.join(" ")} --workdir ${projectDir}\n${commandOutput(stop)}`,
       );
     }
   }
+}
+
+/** Runs every scenario across up to CONCURRENCY databases and returns every failure. */
+async function runTarget(
+  target: Target,
+  selected: readonly Scenario[],
+): Promise<string[]> {
+  const label = targetLabel(target);
+  // Longest first, so the scenarios that start last are short.
+  const queue = [...selected].sort((a, b) => b.steps.length - a.steps.length);
+  const failures = new Map<string, string>();
+  const databases = await Promise.allSettled(
+    Array.from({ length: Math.min(CONCURRENCY, selected.length) }, () =>
+      withDatabase(target, async (projectDir) => {
+        for (
+          let scenario = queue.shift();
+          scenario !== undefined;
+          scenario = queue.shift()
+        ) {
+          const failure = await scenarioFailure(projectDir, scenario, label);
+          if (failure !== undefined) failures.set(scenario.name, failure);
+        }
+      }),
+    ),
+  );
+  return [
+    ...selected.flatMap((scenario) => failures.get(scenario.name) ?? []),
+    ...databases.flatMap((database) => {
+      if (database.status === "fulfilled") return [];
+      const report = `database (${label}): ${database.reason instanceof Error ? database.reason.message : JSON.stringify(database.reason)}`;
+      // The assertion diff can drop long multi-line CLI output; the log keeps all of it.
+      console.error(report);
+      return [report];
+    }),
+  ];
 }
 
 const selection = await selectScenarios();
@@ -738,7 +835,7 @@ const targets = [
   ).values(),
 ].sort((a, b) => a.pg - b.pg || Number(a.orioledb) - Number(b.orioledb));
 
-describe("declarative schema scenarios", () => {
+describe(`declarative schema scenarios (${BACKEND} backend)`, () => {
   test("selects at least one scenario", () => {
     expect(
       selection.scenarios.map((scenario) => scenario.name),
@@ -766,10 +863,9 @@ describe("declarative schema scenarios", () => {
           `${CLI} not found; run \`bun run setup-cli\``,
         ).toBe(true);
         const failures = await runTarget(target, selected);
-        expect(
-          failures,
-          `${failures.length} scenario(s) failed on ${label}`,
-        ).toEqual([]);
+        expect(failures, `${failures.length} failure(s) on ${label}`).toEqual(
+          [],
+        );
       },
       budget,
     );

@@ -15,6 +15,7 @@ import { reconstructManagedView } from "../policy/reconstruct.ts";
 import type { ManagementScope } from "../policy/view.ts";
 import {
   exportSqlFiles,
+  publicSchemaGrantees,
   type ExportGrouping,
   type ExportPathStyle,
 } from "./export-sql-files.ts";
@@ -152,6 +153,7 @@ export async function buildSchemaExport(
     ...(assumedSchemas.length > 0 ? { assumedSchemas } : {}),
     ...(assumedRoles.length > 0 ? { assumedRoles } : {}),
     ...(assumedDefaultGrants.length > 0 ? { assumedDefaultGrants } : {}),
+    sourcePublicGrantees: publicSchemaGrantees(factBase),
     ...(resolvedDefaultOwner !== null
       ? { defaultOwner: resolvedDefaultOwner }
       : {}),

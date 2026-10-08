@@ -203,7 +203,7 @@ The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`)
   - `pg-delta-corpus` — the proof loop (`tests/engine.test.ts`), matrix of **PG 14–18 × 10 shards** (`PGDELTA_TEST_IMAGE` + `PGDELTA_NEXT_SHARD`), each shard running scenarios with in-job concurrency (`PGDELTA_NEXT_CONCURRENCY=4`, matched to the 4-vCPU public-repo runners).
   - `pg-delta-integration` — everything except the corpus loop, matrix of **PG 14–18 × 5 file groups**. The wall-time-dominating files are pinned to groups 0/1 in the workflow's split script; all other files (including new ones) round-robin into groups 2/3/4. If a test file grows to dominate its group (check the job timings), move it to a pinned group.
   - `pg-delta-integration-pg15-compat` / `pg-delta-integration-pg17-compat` — stable status-check names (for branch protection) that aggregate the corpus + integration matrices.
-- `.github/workflows/declarative-e2e.yml` runs `packages/declarative-e2e` (declarative-schema scenarios through the Supabase CLI built from `develop` with this checkout's pg-delta). The smoke set runs on PRs touching pg-delta, and every scenario runs nightly or on manual dispatch. It is not a required check.
+- `.github/workflows/declarative-e2e.yml` runs `packages/declarative-e2e` (declarative-schema scenarios through the Supabase CLI built from `develop` with this checkout's pg-delta). The smoke set runs on PRs touching pg-delta on the CLI's stack backend (native runtime), and every scenario runs nightly or on manual dispatch on both the stack and legacy backends (one matrix job each, running 3 databases in parallel; OrioleDB is legacy-only until supabase/cli#6934). The nightly stack job on `main` seeds the native-artifact cache; PR runs only restore it. It is not a required check.
 - `check-types` and `format-and-lint` build `@supabase/pg-topo` first, because pg-delta type-checks its optional peer through pg-topo's gitignored `dist/*.d.ts`.
 - Changesets automate releases on merge to main; `release-preview` publishes a `pkg-pr-new` preview of both packages.
 
@@ -463,10 +463,11 @@ corpus does not exercise (the #475 grouped-export grant regression, fixed in
   bun run setup-cli                       # re-run after every pg-delta change
   bun test tests/                         # smoke set
   DECLARATIVE_SCENARIOS=all bun test tests/
+  DECLARATIVE_SCENARIOS=all DECLARATIVE_BACKEND=legacy bun test tests/
   ```
 
   CI (`.github/workflows/declarative-e2e.yml`) runs the smoke set on PRs that
-  touch pg-delta and every scenario nightly.
+  touch pg-delta (stack backend) and every scenario nightly on both backends.
 
 ### Snapshot Assertions
 
