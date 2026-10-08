@@ -347,6 +347,53 @@ describe("public schema frontends", () => {
     }
   }, 120_000);
 
+  test("planSchemaFiles rebuilds row filters on inherited columns around a type change (#510)", async () => {
+    // An inherited column's dependencies resolve to its ancestor's column (the
+    // root for a partition), so the row filters below depend on parent.a and
+    // base.a. Postgres refuses to retype a column a publication WHERE clause
+    // uses, so both memberships must be rebuilt around the type change.
+    const cluster = await sharedCluster();
+    // row filters need PostgreSQL 15
+    if ((await cluster.pgMajor()) < 15) return;
+    const target = await cluster.createDb("frontend_settle_i_target");
+    const shadows = [
+      await cluster.createDb("frontend_settle_i_shadow1"),
+      await cluster.createDb("frontend_settle_i_shadow2"),
+    ];
+    const schema = (type: string): string => `
+      CREATE SCHEMA app;
+      CREATE TABLE app.parent (id int, a ${type}) PARTITION BY RANGE (id);
+      CREATE TABLE app.part1 PARTITION OF app.parent FOR VALUES FROM (0) TO (100);
+      CREATE TABLE app.base (id int, a ${type});
+      CREATE TABLE app.child () INHERITS (app.base);
+      CREATE PUBLICATION p FOR TABLE app.part1 WHERE (a > 0), TABLE app.child WHERE (a > 0)
+        WITH (publish = 'insert');
+    `;
+    try {
+      await target.pool.query(schema("integer"));
+      const files: SqlFile[] = [{ name: "p.sql", sql: schema("numeric") }];
+      const options = { profile: rawProfile, scope: "database" as const };
+      const first = await planSchemaFiles(
+        target.pool,
+        shadows[0]!.pool,
+        files,
+        options,
+      );
+      const report = await apply(first.plan, target.pool, first.applyOptions);
+      expect(report.status).toBe("applied");
+
+      const second = await planSchemaFiles(
+        target.pool,
+        shadows[1]!.pool,
+        files,
+        options,
+      );
+      expect(second.plan.actions.map((a) => a.sql)).toEqual([]);
+    } finally {
+      await Promise.all([target.drop(), ...shadows.map((s) => s.drop())]);
+    }
+  }, 120_000);
+
   test("settleDesired survives a connection error event while it holds its client (#510)", async () => {
     // pg-pool drops its idle `error` listener on checkout, so a dropped
     // connection would crash the process unless the holder listens.
