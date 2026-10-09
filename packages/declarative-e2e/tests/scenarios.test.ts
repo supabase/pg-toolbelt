@@ -247,11 +247,7 @@ async function loadScenario(name: string): Promise<Scenario> {
     name,
     tags: config.tags ?? [],
     knownIssue: config.knownIssue,
-    // The stack backend rejects db.orioledb_version until supabase/cli#6934 lands.
-    targets:
-      BACKEND === "stack"
-        ? targets.filter((target) => !target.orioledb)
-        : targets,
+    targets,
     flags: config.flags ?? [],
     remoteSql,
     steps,

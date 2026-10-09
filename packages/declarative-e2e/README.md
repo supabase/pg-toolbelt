@@ -24,9 +24,8 @@ DECLARATIVE_BACKEND=legacy bun test tests/
 - `stack` (default): the new stack backend (`[experimental] stack = true`),
   created with `stack prepare --runtime native`, so Postgres runs without
   Docker. `DECLARATIVE_STACK_RUNTIME` overrides the runtime (`docker`,
-  `podman`, `auto`). OrioleDB targets are skipped until supabase/cli#6934
-  lands.
-- `legacy`: the Docker-based backend, including OrioleDB targets.
+  `podman`, `auto`).
+- `legacy`: the Docker-based backend.
 
 CI runs the PR smoke set on `stack`, and every scenario nightly on both. The
 nightly stack job on `main` rebuilds and saves the CLI's stack cache
@@ -76,7 +75,7 @@ Each directory under `scenarios/` is one scenario:
 - `tags`: only `smoke` scenarios run by default.
 - `pg`: Postgres majors to run, default `[17]`.
 - `orioledb`: also run on a pg 17 OrioleDB database (`supabase init
-  --use-orioledb`). Never part of the default run; legacy backend only.
+  --use-orioledb`). Never part of the default run.
 - `flags`: extra arguments appended to every `generate` and `sync` call.
 
 Flow:
