@@ -346,37 +346,55 @@ export function expandReplacements(
   let dropRootOf = computeDropRoots(unfolded);
   for (;;) {
     const roots = dropRootOf;
-    const reachesRoot = (startKey: string, root: string): boolean => {
-      const seen = new Set<string>([startKey]);
-      const stack = [startKey];
-      while (stack.length > 0) {
-        const fact = source.getByEncoded(stack.pop() as string);
-        if (fact === undefined) continue;
-        for (const edge of source.outgoingEdges(fact.id)) {
-          const toKey = encodeId(edge.to);
-          if (seen.has(toKey)) continue;
-          seen.add(toKey);
-          const toRoot = roots.get(toKey);
-          if (toRoot === undefined) continue; // survives: orders no drop
-          if (toRoot === root) return true;
-          stack.push(toKey);
-        }
-      }
-      return false;
-    };
-    const bridged: string[] = [];
+    // folded children with a dependency dropped under another root, by root
+    const candidatesByRoot = new Map<string, Fact[]>();
     for (const [key, root] of roots) {
       if (root === key || unfolded.has(key)) continue;
       const fact = source.getByEncoded(key);
       if (fact === undefined) continue;
-      const bridges = source.outgoingEdges(fact.id).some((edge) => {
-        const toKey = encodeId(edge.to);
-        const toRoot = roots.get(toKey);
-        return (
-          toRoot !== undefined && toRoot !== root && reachesRoot(toKey, root)
-        );
+      const crossesRoot = source.outgoingEdges(fact.id).some((edge) => {
+        const toRoot = roots.get(encodeId(edge.to));
+        return toRoot !== undefined && toRoot !== root;
       });
-      if (bridges) bridged.push(key);
+      if (!crossesRoot) continue;
+      const list = candidatesByRoot.get(root) ?? [];
+      list.push(fact);
+      candidatesByRoot.set(root, list);
+    }
+    const membersByRoot = new Map<string, string[]>();
+    for (const [key, root] of roots) {
+      if (!candidatesByRoot.has(root)) continue;
+      const list = membersByRoot.get(root) ?? [];
+      list.push(key);
+      membersByRoot.set(root, list);
+    }
+    // Walk BACKWARD from each candidate root: the separately-dropped objects
+    // that depend on it are usually few, while a forward walk per child would
+    // re-traverse a shared dependency chain once per child (quadratic).
+    const bridged: string[] = [];
+    for (const [root, candidates] of candidatesByRoot) {
+      const dependsOnRoot = new Set<string>();
+      const stack = [...(membersByRoot.get(root) ?? [])];
+      while (stack.length > 0) {
+        for (const edge of source.incomingEdgesByEncoded(
+          stack.pop() as string,
+        )) {
+          const fromKey = encodeId(edge.from);
+          const fromRoot = roots.get(fromKey);
+          // a surviving dependent orders no drop
+          if (fromRoot === undefined || fromRoot === root) continue;
+          if (dependsOnRoot.has(fromKey)) continue;
+          dependsOnRoot.add(fromKey);
+          stack.push(fromKey);
+        }
+      }
+      if (dependsOnRoot.size === 0) continue;
+      for (const fact of candidates) {
+        const bridges = source
+          .outgoingEdges(fact.id)
+          .some((edge) => dependsOnRoot.has(encodeId(edge.to)));
+        if (bridges) bridged.push(encodeId(fact.id));
+      }
     }
     if (bridged.length === 0) break;
     for (const key of bridged) unfolded.add(key);
