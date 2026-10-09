@@ -281,51 +281,106 @@ export function expandReplacements(
   // dropRootOf(id) = nearest removed ancestor whose drop action will exist. FK
   // constraint drops are NEVER suppressed: an explicit DROP CONSTRAINT before
   // the table drops makes mutual-FK teardown cycles unconstructible
-  // (decomposition over repair, §3.5).
-  const dropRootOf = new Map<string, string>();
-  const findDropRoot = (fact: Fact): string => {
-    const key = encodeId(fact.id);
-    const cached = dropRootOf.get(key);
-    if (cached) return cached;
-    let root = key;
-    const rules = rulesForId(fact.id);
-    const suppressible = rules.suppressible?.(fact) ?? true;
-    const parent = fact.parent;
-    if (parent !== undefined && suppressible) {
-      const parentRemoved = isRemovedId(parent);
-      // a metadata satellite folds into ANY removed parent; otherwise the parent
-      // kind must be one whose DROP cascades to children
-      const cascades =
-        rules.metadata === true || cascadesToChildren(parent.kind);
-      if (parentRemoved && cascades) {
-        root = findDropRoot(
-          removed.get(encodeId(parent)) ?? (source.get(parent) as Fact),
-        );
-      }
-    }
-    dropRootOf.set(key, root);
-    return root;
-  };
-  for (const fact of removed.values()) findDropRoot(fact);
-
-  // a fact whose drop folds into a NON-parent ancestor (an OWNED BY sequence
-  // into its owning column/table, an attached child index into its parent
-  // index) — declared per-kind via dropRootRedirect. Replaced facts are not
-  // in `removed`; without this pass their DROP is emitted next to the parent
-  // replace and PostgreSQL rejects `DROP INDEX` on an attached child.
+  // (decomposition over repair, §3.5). `unfolded` children keep their own drop
+  // for the same reason (see the bridge pass below).
   const redirectFacts: Fact[] = [...removed.values()];
   for (const key of replaceIds) {
     const fact = source.getByEncoded(key);
     if (fact !== undefined) redirectFacts.push(fact);
   }
-  for (const fact of redirectFacts) {
-    const redirect = rulesForId(fact.id).dropRootRedirect?.(fact, isRemovedId);
-    if (redirect === undefined) continue;
-    const redirectKey = encodeId(redirect);
-    dropRootOf.set(
-      encodeId(fact.id),
-      dropRootOf.get(redirectKey) ?? redirectKey,
-    );
+  const computeDropRoots = (
+    unfolded: ReadonlySet<string>,
+  ): Map<string, string> => {
+    const dropRootOf = new Map<string, string>();
+    const findDropRoot = (fact: Fact): string => {
+      const key = encodeId(fact.id);
+      const cached = dropRootOf.get(key);
+      if (cached) return cached;
+      let root = key;
+      const rules = rulesForId(fact.id);
+      const suppressible = rules.suppressible?.(fact) ?? true;
+      const parent = fact.parent;
+      if (parent !== undefined && suppressible && !unfolded.has(key)) {
+        const parentRemoved = isRemovedId(parent);
+        // a metadata satellite folds into ANY removed parent; otherwise the parent
+        // kind must be one whose DROP cascades to children
+        const cascades =
+          rules.metadata === true || cascadesToChildren(parent.kind);
+        if (parentRemoved && cascades) {
+          root = findDropRoot(
+            removed.get(encodeId(parent)) ?? (source.get(parent) as Fact),
+          );
+        }
+      }
+      dropRootOf.set(key, root);
+      return root;
+    };
+    for (const fact of removed.values()) findDropRoot(fact);
+
+    // a fact whose drop folds into a NON-parent ancestor (an OWNED BY sequence
+    // into its owning column/table, an attached child index into its parent
+    // index) — declared per-kind via dropRootRedirect. Replaced facts are not
+    // in `removed`; without this pass their DROP is emitted next to the parent
+    // replace and PostgreSQL rejects `DROP INDEX` on an attached child.
+    for (const fact of redirectFacts) {
+      const redirect = rulesForId(fact.id).dropRootRedirect?.(
+        fact,
+        isRemovedId,
+      );
+      if (redirect === undefined) continue;
+      const redirectKey = encodeId(redirect);
+      dropRootOf.set(
+        encodeId(fact.id),
+        dropRootOf.get(redirectKey) ?? redirectKey,
+      );
+    }
+    return dropRootOf;
+  };
+
+  // A folded child that depends on a SEPARATELY-dropped object which itself
+  // reaches back into the child's drop root cannot ride that root's DROP: an
+  // index or CHECK calling f(t), where f takes t's row type, puts DROP t before
+  // DROP f (the child dies with t) while f must go first (it depends on t's
+  // row type). Unfold such children so their own DROP precedes f (#533).
+  const unfolded = new Set<string>();
+  let dropRootOf = computeDropRoots(unfolded);
+  for (;;) {
+    const roots = dropRootOf;
+    const reachesRoot = (startKey: string, root: string): boolean => {
+      const seen = new Set<string>([startKey]);
+      const stack = [startKey];
+      while (stack.length > 0) {
+        const fact = source.getByEncoded(stack.pop() as string);
+        if (fact === undefined) continue;
+        for (const edge of source.outgoingEdges(fact.id)) {
+          const toKey = encodeId(edge.to);
+          if (seen.has(toKey)) continue;
+          seen.add(toKey);
+          const toRoot = roots.get(toKey);
+          if (toRoot === undefined) continue; // survives: orders no drop
+          if (toRoot === root) return true;
+          stack.push(toKey);
+        }
+      }
+      return false;
+    };
+    const bridged: string[] = [];
+    for (const [key, root] of roots) {
+      if (root === key || unfolded.has(key)) continue;
+      const fact = source.getByEncoded(key);
+      if (fact === undefined) continue;
+      const bridges = source.outgoingEdges(fact.id).some((edge) => {
+        const toKey = encodeId(edge.to);
+        const toRoot = roots.get(toKey);
+        return (
+          toRoot !== undefined && toRoot !== root && reachesRoot(toKey, root)
+        );
+      });
+      if (bridges) bridged.push(key);
+    }
+    if (bridged.length === 0) break;
+    for (const key of bridged) unfolded.add(key);
+    dropRootOf = computeDropRoots(unfolded);
   }
 
   return { replaceIds, dropRootOf };
