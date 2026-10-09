@@ -2084,3 +2084,27 @@ before #500 either (the whole statement was `UNKNOWN`).
   `UNRESOLVED_DEPENDENCY`.
 - **`collation` / `subtype_opclass` options.** Not tracked as dependencies;
   a custom collation or opclass could sort after the range.
+
+## Issue #533 review triage (Codex) — row-type function drop cycle under a table replace
+
+#533 fixes the pure-drop shape: an index or CHECK on a dropped table calls a
+dropped `f(t)` that takes the table's row type. The same shape still cycles
+when the table is **replaced** instead of dropped (e.g. a partition-key change):
+
+```sql
+-- a.sql
+CREATE TABLE public.bookings (id integer NOT NULL, status text NOT NULL);
+CREATE FUNCTION public.booking_priority(b public.bookings) RETURNS integer
+  LANGUAGE sql IMMUTABLE AS $$ SELECT length(b.status) $$;
+CREATE INDEX bookings_priority ON public.bookings (public.booking_priority(bookings));
+-- b.sql
+CREATE TABLE public.bookings (id integer NOT NULL, status text NOT NULL) PARTITION BY RANGE (id);
+```
+
+This predates #533 (reproduces on 3c60914e) and is a different edge: the
+explicit `DROP INDEX` consumes its parent table, and because the table is
+re-produced, `internal.ts` orders that consumer after the new `CREATE TABLE`.
+`DROP INDEX → DROP FUNCTION → DROP TABLE → CREATE TABLE → DROP INDEX` closes
+the loop. A teardown action consuming a replaced parent should order against
+the parent's DROP, not its CREATE (the same split the extension-member replace
+path already makes with `isTeardown`). No production event has hit it yet.
