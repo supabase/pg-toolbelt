@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { compare, failures, gateFails } from "./compare.ts";
-import type { BenchResults } from "./run.ts";
-import type { WorkerOutput } from "./worker.ts";
+import type { BenchResults, WorkerOutput } from "./protocol.ts";
 
 /** One round per entry: [base ms, head ms] for scenario "s", with fixed I/O
  *  unless overridden. */

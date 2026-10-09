@@ -17,8 +17,7 @@
  * deterministic for a fixed catalog, so they are compared exactly.
  */
 import { parseArgs } from "node:util";
-import type { BenchResults } from "./run.ts";
-import type { ScenarioSample } from "./worker.ts";
+import type { BenchResults, ScenarioSample } from "./protocol.ts";
 
 export interface Thresholds {
   timeRatio: number;
