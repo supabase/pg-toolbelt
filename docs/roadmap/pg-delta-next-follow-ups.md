@@ -2084,3 +2084,23 @@ before #500 either (the whole statement was `UNKNOWN`).
   `UNRESOLVED_DEPENDENCY`.
 - **`collation` / `subtype_opclass` options.** Not tracked as dependencies;
   a custom collation or opclass could sort after the range.
+
+## PR #534 review triage (Codex) — row-type function cycles not covered
+
+#534 fixes the row-type function cycle (#533) when the table is dropped,
+replaced, or replaced while the function is kept. Two narrower shapes still
+cycle; both reproduce on `main` before #534 too.
+
+- **Surviving index rebuilt by a table replace.** The table is replaced, the
+  expression index survives but stops calling `f(t)`, and `f` is dropped. The
+  index is not a removed fact (its own replace is trimmed in favour of the
+  table's), so it rides the table's DROP and never gets an explicit drop before
+  `DROP FUNCTION`. A fix has to emit an explicit drop of the OLD index ahead of
+  the table replace while the table's recreate pass still creates the new one —
+  a new emitter path, not a drop-root change.
+- **Extension-owned row-type function.** An extension member function that
+  takes a user table's row type, called by an index on that table, with the
+  extension and table dropped together. The member is reference-only (removed
+  through `DROP EXTENSION`), so it has no drop root and the bridge pass skips
+  it. It needs extension members mapped to their extension's drop root. No
+  shipped extension defines such a function; it takes a custom extension.

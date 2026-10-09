@@ -346,12 +346,16 @@ export function expandReplacements(
   let dropRootOf = computeDropRoots(unfolded);
   for (;;) {
     const roots = dropRootOf;
+    // a replaced fact (e.g. a function rebuilt because it takes a replaced
+    // table's row type) is dropped by its own replace action: a root too
+    const rootOf = (key: string): string | undefined =>
+      roots.get(key) ?? (replaceIds.has(key) ? key : undefined);
     // folded children with a dependency dropped under another root, by root
     const candidatesByRoot = new Map<string, string[]>();
     for (const [key, root] of roots) {
       if (root === key || unfolded.has(key)) continue;
       for (const edge of source.outgoingEdgesByEncoded(key)) {
-        const toRoot = roots.get(encodeIdMemo(edge.to));
+        const toRoot = rootOf(encodeIdMemo(edge.to));
         if (toRoot === undefined || toRoot === root) continue;
         const list = candidatesByRoot.get(root) ?? [];
         list.push(key);
@@ -361,6 +365,8 @@ export function expandReplacements(
     }
     if (candidatesByRoot.size === 0) break;
     const membersByRoot = new Map<string, string[]>();
+    for (const root of candidatesByRoot.keys())
+      if (!roots.has(root)) membersByRoot.set(root, [root]);
     for (const [key, root] of roots) {
       if (!candidatesByRoot.has(root)) continue;
       const list = membersByRoot.get(root) ?? [];
@@ -379,7 +385,7 @@ export function expandReplacements(
           stack.pop() as string,
         )) {
           const fromKey = encodeIdMemo(edge.from);
-          const fromRoot = roots.get(fromKey);
+          const fromRoot = rootOf(fromKey);
           // a surviving dependent orders no drop
           if (fromRoot === undefined || fromRoot === root) continue;
           if (dependsOnRoot.has(fromKey)) continue;
