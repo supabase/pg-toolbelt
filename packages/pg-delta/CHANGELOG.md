@@ -1,5 +1,17 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.59
+
+### Patch Changes
+
+- 3c60914: Keep user grants on objects of non-platform extensions in schema `extensions` (e.g. `GRANT EXECUTE ON FUNCTION extensions.similarity(text, text) TO authenticated`) in the declarative export, so `declarative sync` no longer drops them. Trees exported before this release need those `GRANT` lines added next to their `CREATE EXTENSION`, or `declarative sync` plans a `REVOKE` for them.
+- b322f52: Keep the declarative export's revoke of a default grant on schema `public` when a profile baseline or filter hides the rest of its ACL, and stop exporting one for a grantee the policy filters out. `exportSqlFiles` now takes `revokedPublicGrantees`, the grantees to revoke, in place of `sourcePublicGrantees`.
+
+  When that option is omitted, preserve the existing behavior of inferring no schema revokes from a view with no ACL facts on `public`, since those grants may be policy-filtered.
+
+- 8a62438: Keep revokes of the default grants on schema `public` (to `PUBLIC`, and on Supabase to `anon`, `authenticated` or `service_role`) in the declarative export, so `declarative sync` no longer grants them back.
+- 7f2fd64: Declarative plans no longer rebuild definitions that only differ in how Postgres prints them (#510). Postgres keeps some expressions nested (a `BETWEEN` or a row comparison on the left of the same `AND`/`OR`, such as `b BETWEEN 0 AND 10 AND a >= 0`) but flattens them when it reads its own printout back, so the stored text depends on how many times an object was parsed. Syncing therefore rebuilt triggers, views, materialized views, check and domain constraints, indexes, policies, defaults, generated columns, rules, function and procedure parameter defaults, SQL-standard function bodies, partition keys and publication row filters, either on every sync (the schema file spells the nested form) or once after adopting declarative schemas on a migration history (the target holds the nested form). For objects the target already has, `planSchemaFiles` now replays both sides' text in the shadow, inside a transaction it rolls back, until each stops changing, and treats equal results as unchanged. A `deparse_rewritten` warning quotes the stored form when the schema file spells a form Postgres rewrites, and a `deparse_target_unsettled` info line explains when only the target holds an older spelling.
+
 ## 1.0.0-alpha.58
 
 ### Minor Changes
