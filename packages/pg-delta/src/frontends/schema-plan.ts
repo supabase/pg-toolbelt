@@ -28,7 +28,12 @@ import {
 } from "../integrations/profile.ts";
 import { plan, type Plan, type PlanOptions } from "../plan/plan.ts";
 import type { RenameMode } from "../plan/renames.ts";
-import { flattenPolicy } from "../policy/policy.ts";
+import {
+  factMatches,
+  type FilterRule,
+  flattenPolicy,
+  resolveView,
+} from "../policy/policy.ts";
 import type { ManagementScope } from "../policy/view.ts";
 import { scanTokens } from "./sql-format/tokenizer.ts";
 import type { ExportManifest } from "./export-manifest.ts";
@@ -720,6 +725,55 @@ export async function planSchemaFiles(
     ),
   );
 
+  /* The seed never replays default privileges, which are per database, so a
+   * co-located shadow cannot reproduce the ACLs they give extension members. */
+  let policy = ctx.planOptions.policy;
+  if (options.seedAssumedSchemas === true && policy !== undefined) {
+    const adpSchemas = new Set(
+      targetResult.factBase
+        .facts()
+        .flatMap((f) =>
+          f.id.kind === "defaultPrivilege" ? [f.id.schema] : [],
+        ),
+    );
+    const schemas = (flatProfile?.assumedSchemas ?? []).filter(
+      (s) => adpSchemas.has(s) || adpSchemas.has(null),
+    );
+    if (schemas.length > 0) {
+      const rule: FilterRule = {
+        match: {
+          all: [
+            { kind: "acl" },
+            { target: { schema: schemas } },
+            { ownedByExtension: "*" },
+          ],
+        },
+        action: "exclude",
+        audit: {
+          reasonCode: "co-located-shadow.member-acl",
+          classification: "acknowledged",
+        },
+      };
+      const view = resolveView(
+        targetResult.factBase,
+        policy,
+        ctx.planOptions.capability,
+        ctx.planOptions.baseline,
+      );
+      for (const fact of view.facts()) {
+        if (!factMatches(rule.match, fact, view)) continue;
+        targetResult.diagnostics.push({
+          code: "unmanaged_member_acl",
+          severity: "warning",
+          subject: fact.id,
+          message:
+            "left unmanaged: a co-located shadow does not replay the target's default privileges, so it cannot reproduce grants on extension members in this schema; plan with an explicit --shadow to manage it",
+        });
+      }
+      policy = { ...policy, filter: [rule, ...(policy.filter ?? [])] };
+    }
+  }
+
   const planOptions: PlanOptions = {
     renames: options.renames ?? "off",
     scope,
@@ -727,6 +781,7 @@ export async function planSchemaFiles(
       ? { acceptRenames: options.acceptRenames }
       : {}),
     ...ctx.planOptions,
+    ...(policy !== undefined ? { policy } : {}),
     ...(assumedTargetRoles.length > 0
       ? {
           assumedRoles: [

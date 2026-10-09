@@ -1,0 +1,6 @@
+{
+  "migration": "some",
+  "contains": [
+    "grant execute on function extensions.word_similarity(text, text) to service_role with grant option"
+  ]
+}

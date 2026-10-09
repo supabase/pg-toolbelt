@@ -123,8 +123,8 @@ export type VerbPredicate = {
 
 /**
  * Match when the fact (or for satellite facts, some fact in its parent chain)
- * has an outgoing "memberOfExtension" edge to an extension fact with the given
- * name. Uses FactBase.outgoingEdges.
+ * has an outgoing "memberOfExtension" edge to an extension fact whose name
+ * matches the given glob. Uses FactBase.outgoingEdges.
  */
 export type OwnedByExtensionPredicate = { ownedByExtension: string };
 
@@ -316,7 +316,8 @@ export interface Policy {
    * is not a revoke. A profile fills these so export/load can REVOKE injectees
    * the desired ACL does not keep, without privilege lists or platform names in
    * the planner. Tuples for schema `public` also name the grantees a fresh
-   * `public` grants USAGE; export REVOKEs any the source lacks.
+   * `public` grants USAGE; export REVOKEs any the source lacks and the policy
+   * manages.
    */
   assumedDefaultGrants?: AssumedDefaultGrant[];
   /**
@@ -430,7 +431,7 @@ function parentChain(id: StableId, fb: FactBase): Fact[] {
 
 /**
  * Check if any fact in the parent chain (inclusive) has an outgoing
- * "memberOfExtension" edge to an extension with the given name.
+ * "memberOfExtension" edge to an extension whose name matches the glob.
  */
 function isOwnedByExtension(
   id: StableId,
@@ -444,7 +445,10 @@ function isOwnedByExtension(
       if (
         edge.kind === "memberOfExtension" &&
         edge.to.kind === "extension" &&
-        (edge.to as { kind: "extension"; name: string }).name === extensionName
+        globMatch(
+          extensionName,
+          (edge.to as { kind: "extension"; name: string }).name,
+        )
       ) {
         return true;
       }

@@ -1,0 +1,5 @@
+{
+  "issue": "https://github.com/supabase/pg-toolbelt/issues/519",
+  "tags": ["smoke"],
+  "pg": [15, 17]
+}

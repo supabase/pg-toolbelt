@@ -1,0 +1,6 @@
+{
+  "migration": "some",
+  "contains": [
+    "revoke all on function extensions.similarity(text, text) from authenticated"
+  ]
+}
