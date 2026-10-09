@@ -302,9 +302,14 @@ export function buildActionGraph(
     for (const id of action.consumes) {
       const key = remember(id);
       const producer = producerOf.get(key);
-      if (producer !== undefined && producer !== index)
-        edges.push([producer, index]);
       const destroyer = destroyerOf.get(key);
+      // A teardown consuming a REPLACED fact (an explicit DROP INDEX / DROP
+      // CONSTRAINT on a table being replaced) removes something from the OLD
+      // incarnation: it orders before the DROP, never after the re-CREATE.
+      const tearsDownReplaced =
+        isTeardown && producer !== undefined && destroyer !== undefined;
+      if (producer !== undefined && producer !== index && !tearsDownReplaced)
+        edges.push([producer, index]);
       // consumer-before-destroyer applies only when the id is NOT being
       // re-produced; consumers of a replaced fact use the new one. A consumed
       // extension MEMBER of a replaced extension IS re-produced — by the
@@ -314,7 +319,7 @@ export function buildActionGraph(
       if (
         destroyer !== undefined &&
         destroyer !== index &&
-        producer === undefined
+        (producer === undefined || tearsDownReplaced)
       ) {
         const memberReproduced =
           !isTeardown &&
