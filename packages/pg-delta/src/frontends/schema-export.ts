@@ -5,6 +5,7 @@
  */
 import type { Pool } from "pg";
 import type { Diagnostic } from "../core/diagnostic.ts";
+import { buildFactBase, retainOwnerRoleDangling } from "../core/fact.ts";
 import {
   type IntegrationProfile,
   resolveProfile,
@@ -14,8 +15,10 @@ import { flattenPolicy } from "../policy/policy.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import type { ManagementScope } from "../policy/view.ts";
 import {
+  defaultPublicSchemaGrant,
   exportSqlFiles,
   publicSchemaGrantees,
+  revokedPublicSchemaGrantees,
   type ExportGrouping,
   type ExportPathStyle,
 } from "./export-sql-files.ts";
@@ -111,7 +114,7 @@ export async function buildSchemaExport(
   // reconstruct BEFORE onWarning: resolveProfile keeps the caller-owned policy
   // by reference, so a warning callback that mutates filters must not run until
   // the managed view is already sealed (pre-V1 order: resolveView then warn).
-  const scopedView = reconstructManagedView(factBase, {
+  const projection = {
     policy: ctx.planOptions.policy,
     capability: ctx.planOptions.capability,
     baseline: ctx.planOptions.baseline,
@@ -119,7 +122,44 @@ export async function buildSchemaExport(
     ...(resolvedDefaultOwner !== null
       ? { defaultOwner: resolvedDefaultOwner }
       : {}),
-  });
+  };
+  let scopedView = reconstructManagedView(factBase, projection);
+  /* a default grant on `public` the source lacks is revoked if the projection
+     keeps it; probe without the baseline, which may hold that very grant */
+  const lacking = revokedPublicSchemaGrantees(
+    factBase,
+    assumed?.assumedDefaultGrants,
+  );
+  const managed =
+    lacking.length === 0
+      ? []
+      : publicSchemaGrantees(
+          reconstructManagedView(
+            buildFactBase(
+              [...factBase.facts(), ...lacking.map(defaultPublicSchemaGrant)],
+              [...factBase.edges],
+            ),
+            { ...projection, baseline: undefined },
+          ),
+        );
+  const revokedPublicGrantees = lacking.filter((grantee) =>
+    managed.includes(grantee),
+  );
+  /* a baseline can subtract `public` itself; the REVOKE needs it in the view */
+  const publicSchema = factBase.get({ kind: "schema", name: "public" });
+  if (
+    publicSchema !== undefined &&
+    revokedPublicGrantees.length > 0 &&
+    !scopedView.has(publicSchema.id)
+  ) {
+    scopedView = buildFactBase(
+      [...scopedView.facts(), publicSchema],
+      [...scopedView.edges],
+      scopedView.source,
+      scopedView.referenceOnly,
+      { allowDangling: retainOwnerRoleDangling },
+    );
+  }
   if (exportScope === "database" && resolvedDefaultOwner !== null) {
     const cu = (await pool.query<{ u: string }>(`SELECT current_user AS u`))
       .rows[0]?.u;
@@ -153,7 +193,7 @@ export async function buildSchemaExport(
     ...(assumedSchemas.length > 0 ? { assumedSchemas } : {}),
     ...(assumedRoles.length > 0 ? { assumedRoles } : {}),
     ...(assumedDefaultGrants.length > 0 ? { assumedDefaultGrants } : {}),
-    sourcePublicGrantees: publicSchemaGrantees(factBase),
+    revokedPublicGrantees,
     ...(resolvedDefaultOwner !== null
       ? { defaultOwner: resolvedDefaultOwner }
       : {}),

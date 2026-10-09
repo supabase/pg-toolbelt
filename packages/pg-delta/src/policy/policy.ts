@@ -316,7 +316,8 @@ export interface Policy {
    * is not a revoke. A profile fills these so export/load can REVOKE injectees
    * the desired ACL does not keep, without privilege lists or platform names in
    * the planner. Tuples for schema `public` also name the grantees a fresh
-   * `public` grants USAGE; export REVOKEs any the source lacks.
+   * `public` grants USAGE; export REVOKEs any the source lacks and the policy
+   * manages.
    */
   assumedDefaultGrants?: AssumedDefaultGrant[];
   /**

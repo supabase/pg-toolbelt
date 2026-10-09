@@ -8,12 +8,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pg from "pg";
 import { apply } from "../src/apply/apply.ts";
+import { extract } from "../src/extract/extract.ts";
 import {
   buildSchemaExport,
+  exportSqlFiles,
+  loadSqlFiles,
   planSchemaFiles,
   provisionCoLocatedShadow,
   readExportManifest,
   renderPlanFiles,
+  saveSnapshot,
   ShadowProvisionError,
   writeExportManifest,
   type ManagementScope,
@@ -24,6 +28,7 @@ import {
   type IntegrationProfile,
 } from "../src/integrations/index.ts";
 import type { Policy } from "../src/policy/policy.ts";
+import { reconstructManagedView } from "../src/policy/reconstruct.ts";
 import { isolatedClusterPair, sharedCluster } from "./containers.ts";
 
 const SCHEMA_SQL = `
@@ -498,8 +503,91 @@ describe("public schema frontends", () => {
       expect(files.map((f) => f.sql).join("\n")).not.toContain(
         `REVOKE ALL ON SCHEMA "public" FROM PUBLIC`,
       );
+      /* revoking the grant does not bring it under management */
+      await source.pool.query(`REVOKE ALL ON SCHEMA public FROM PUBLIC`);
+      const revoked = await buildSchemaExport(source.pool, { profile });
+      expect(revoked.files.map((f) => f.sql).join("\n")).not.toContain(
+        `REVOKE ALL ON SCHEMA "public" FROM PUBLIC`,
+      );
     } finally {
       await source.drop();
+    }
+  }, 120_000);
+
+  test("exportSqlFiles preserves default public grants when all public ACLs are filtered", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("frontend_direct_public");
+    const shadow = await cluster.createDb("frontend_direct_public_shadow");
+    try {
+      await source.pool.query(`CREATE TABLE public.items (id integer)`);
+      const { factBase } = await extract(source.pool);
+      const view = reconstructManagedView(factBase, {
+        scope: "database",
+        policy: {
+          id: "test-direct-filtered-public-acl",
+          filter: [
+            {
+              match: {
+                all: [
+                  { kind: "acl" },
+                  { target: { kind: "schema", name: "public" } },
+                ],
+              },
+              action: "exclude",
+            },
+          ],
+        },
+      });
+      const files = exportSqlFiles(view);
+      expect(files.map((f) => f.sql).join("\n")).not.toContain("REVOKE");
+      const loaded = await loadSqlFiles(files, shadow.pool);
+      expect(loaded.factBase.rootHash).toBe(factBase.rootHash);
+    } finally {
+      await Promise.all([source.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+
+  test("a policy baseline keeps the public revoke in exported files", async () => {
+    const profile: IntegrationProfile = {
+      id: "test-baseline-public",
+      handlers: [],
+      policy: { id: "test-baseline-public", baseline: "fresh" },
+    };
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("frontend_baseline_public");
+    const shadow = await cluster.createDb("frontend_baseline_public_shadow");
+    const baselineDir = mkdtempSync(join(tmpdir(), "pgdn-fe-baseline-"));
+    try {
+      /* the baseline is a fresh database, so it holds PUBLIC's grant on public */
+      const { factBase, pgVersion } = await extract(source.pool);
+      saveSnapshot(factBase, pgVersion, join(baselineDir, "fresh.json"));
+      await source.pool.query(`REVOKE ALL ON SCHEMA public FROM PUBLIC`);
+
+      const exported = await buildSchemaExport(source.pool, {
+        profile,
+        resolveOptions: { baselineDir },
+      });
+      expect(exported.files.map((f) => f.sql).join("\n"))
+        .toMatchInlineSnapshot(`
+        "REVOKE ALL ON SCHEMA "public" FROM PUBLIC;
+        "
+      `);
+      const planned = await planSchemaFiles(
+        source.pool,
+        shadow.pool,
+        exported.files,
+        {
+          profile,
+          manifest: exported.manifest,
+          resolveOptions: { baselineDir },
+        },
+      );
+      // Load/sync smoke check only: the baseline masks this grant on sync (#531).
+      // The export snapshot above is the regression assertion.
+      expect(planned.plan.actions.map((a) => a.sql)).toEqual([]);
+    } finally {
+      rmSync(baselineDir, { recursive: true, force: true });
+      await Promise.all([source.drop(), shadow.drop()]);
     }
   }, 120_000);
 
