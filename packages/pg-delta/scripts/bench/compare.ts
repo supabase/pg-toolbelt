@@ -93,6 +93,16 @@ export function compare(
     }
   }
 
+  if (names.size === 0) {
+    return [
+      {
+        name: "all scenarios",
+        error: "no worker produced results",
+        metrics: [],
+      },
+    ];
+  }
+
   return [...names].map((name): ScenarioComparison => {
     const head = results.rounds.map((r) => sampleOf(r.head, name));
     const base = results.rounds.map((r) => sampleOf(r.base, name));

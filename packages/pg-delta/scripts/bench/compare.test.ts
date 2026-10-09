@@ -106,5 +106,9 @@ describe("benchmark gate", () => {
     const crashed = results(Array.from({ length: 3 }, () => [100, 100]));
     crashed.rounds[0]!.head = null;
     expect(gateFails(compare(crashed), true)).toBe(true);
+
+    const nothing = results(Array.from({ length: 3 }, () => [100, 100]));
+    for (const round of nothing.rounds) round.base = round.head = null;
+    expect(gateFails(compare(nothing), true)).toBe(true);
   });
 });
