@@ -8,11 +8,15 @@
  * replaces (drop + recreate), in-place alters, and owner-edge ALTERs. Enforces
  * the create-produces-its-fact invariant at the phase boundary.
  */
+import type { Diagnostic } from "../../core/diagnostic.ts";
 import type { Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import {
+  CAPABILITY_OWNER,
+  canActAsOwner,
   canSetOwner,
+  selfOwnerRoute,
   type ApplierCapability,
 } from "../../policy/capability.ts";
 import {
@@ -35,9 +39,13 @@ import {
 } from "../rules.ts";
 import {
   columnAclIdsFor,
+  containingSchemaId,
   defaultPrivilegeCreateActions,
   identitySequenceId,
+  membershipId,
   renderRevokeAllSql,
+  roleNameOf,
+  schemaAclId,
 } from "../rules/helpers.ts";
 import type { AcceptedRename } from "./change-set.ts";
 
@@ -91,6 +99,32 @@ export interface ActionEmitterOutput {
    *  (rule-declared `implicitlyDestroys`), for the graph: reproduce edge only,
    *  no teardown edges. Transient, never persisted. */
   implicitDestroys: Map<number, Set<string>>;
+  /** `[before, after]` index edges ids cannot express (see FinalizeInput) */
+  orderAfter: Array<[number, number]>;
+  /** `capability.owner` warnings: owner ALTERs the applier cannot run */
+  diagnostics: Diagnostic[];
+}
+
+function ownerCapabilityDiagnostic(
+  objId: StableId,
+  roleName: string,
+  applier: string,
+  currentOwner?: string,
+): Diagnostic {
+  const target = `cannot set owner of ${encodeId(objId)} to role "${roleName}"`;
+  return {
+    code: CAPABILITY_OWNER,
+    severity: "warning",
+    subject: objId,
+    message:
+      currentOwner === undefined
+        ? `${target} — applier "${applier}" is not a superuser or a member of that role; grant membership or apply as a member/superuser`
+        : `${target} — applier "${applier}" lacks the privileges of the current owner "${currentOwner}"; grant membership in "${currentOwner}" or apply as a member/superuser`,
+    context:
+      currentOwner === undefined
+        ? { role: roleName, applier }
+        : { role: roleName, currentOwner, applier },
+  };
 }
 
 /**
@@ -267,6 +301,8 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // RENAME), so owner edges on the renamed subtree must not drive graph ordering
   // through the rename (review P1 #2: rename/rename cycle).
   const renameActionIndices = new Set<number>();
+  const orderAfter: Array<[number, number]> = [];
+  const diagnostics: Diagnostic[] = [];
   for (const { from, to, sourceSubtree, desiredSubtree } of acceptedRenames) {
     const rename = rulesForId(from.id).rename;
     if (rename === undefined) {
@@ -755,6 +791,108 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // objKeys whose owner a link delta already (re-)established below, so the
     // replaced-fact pass does not emit a second ALTER … OWNER TO for them.
     const ownerEmitted = new Set<string>();
+    // Owner residue (move 6): as a non-superuser, `ALTER … OWNER TO R` needs
+    // SET ROLE on R, and R needs CREATE on the object's schema. The ALTER orders
+    // after a planned grant supplying either, and after its schema's own ALTER
+    // to R. An applier that cannot set R but may grant R to itself gets one
+    // GRANT before and one REVOKE after all of R's owner ALTERs, chained by
+    // explicit edges (the end state is unchanged). Otherwise the ALTER is still emitted and flagged: leaving the
+    // object applier-owned would not converge (the ACL is acldefault-relative),
+    // and apply() refuses the flagged plan while a read-only diff still renders.
+    const restricted = capability !== undefined && !capability.isSuperuser;
+    // one GRANT/REVOKE per wrapped role: the applier's grants share one
+    // pg_auth_members row, so a per-object REVOKE could drop it before
+    // another object's ALTER runs
+    const wrapOf = new Map<string, { roleId: StableId; alters: number[] }>();
+    const ownerAlters: Array<{
+      objId: StableId;
+      roleName: string;
+      index: number;
+    }> = [];
+    const canDropAsSchemaOwner = (objId: StableId): boolean => {
+      if (capability === undefined) return true;
+      const schemaId = containingSchemaId(objId);
+      if (schemaId === undefined) return false;
+      const owner = source
+        .outgoingEdges(schemaId)
+        .find((e) => e.kind === "owner")?.to;
+      const ownerName = owner !== undefined ? roleNameOf(owner) : undefined;
+      return ownerName !== undefined && canActAsOwner(capability, ownerName);
+    };
+    const emitOwnerAlter = (
+      objId: StableId,
+      roleId: StableId,
+      roleName: string,
+      alterSql: string,
+      releases?: StableId[],
+      currentOwner?: string,
+    ): void => {
+      const consumes: StableId[] = [roleId];
+      let route: "direct" | "wrap" | "flag" = "direct";
+      let blockedByCurrentOwner = false;
+      const plannedCurrentOwnerGrant =
+        capability !== undefined && currentOwner !== undefined
+          ? membershipId(currentOwner, capability.role)
+          : undefined;
+      if (
+        capability !== undefined &&
+        currentOwner !== undefined &&
+        !canActAsOwner(capability, currentOwner)
+      ) {
+        // a plain GRANT confers the owner's privileges only to an INHERIT
+        // applier (the PG16+ INHERIT option defaults from the member)
+        if (
+          plannedCurrentOwnerGrant !== undefined &&
+          capability.inherit !== false &&
+          producerOf.has(encodeId(plannedCurrentOwnerGrant))
+        ) {
+          consumes.push(plannedCurrentOwnerGrant);
+        } else {
+          route = "flag";
+          blockedByCurrentOwner = true;
+        }
+      }
+      if (
+        route !== "flag" &&
+        capability !== undefined &&
+        !canSetOwner(capability, roleName)
+      ) {
+        const selfGrant = membershipId(roleName, capability.role);
+        if (producerOf.has(encodeId(selfGrant))) consumes.push(selfGrant);
+        else {
+          route = selfOwnerRoute(
+            capability,
+            roleName,
+            producerOf.has(encodeId(roleId)),
+          );
+        }
+      }
+      if (route === "flag" && capability !== undefined) {
+        diagnostics.push(
+          ownerCapabilityDiagnostic(
+            objId,
+            roleName,
+            capability.role,
+            blockedByCurrentOwner ? currentOwner : undefined,
+          ),
+        );
+      }
+      const index = pushAction(
+        "alter",
+        {
+          sql: alterSql,
+          consumes,
+          ...(releases !== undefined ? { releases } : {}),
+        },
+        { consumes: [objId] },
+      );
+      if (route === "wrap") {
+        const wrap = wrapOf.get(roleName) ?? { roleId, alters: [] };
+        wrap.alters.push(index);
+        wrapOf.set(roleName, wrap);
+      }
+      if (restricted) ownerAlters.push({ objId, roleName, index });
+    };
     for (const delta of deltas) {
       if (delta.verb !== "link" || delta.edge.kind !== "owner") continue;
       const objId = delta.edge.from;
@@ -776,32 +914,27 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       // ownership carried unchanged by an accepted OBJECT rename (the object id
       // changed; renamedOwner maps it through any role rename) — no action
       if (renamedOwner.get(objKey) === roleName) continue;
-      // Owner residue (move 6): `ALTER … OWNER TO R` requires the applier to be
-      // a superuser or a member of R. If a capability is supplied and the
-      // applier cannot, fail fast at plan time with an actionable message —
-      // surfaced before any statement runs, and avoiding a non-converging
-      // "leave it applier-owned" (the owner is acldefault-relative). Unset only
-      // for owner CHANGES/creates (this is an owner link delta), not pre-existing
-      // unchanged ownership.
-      if (capability !== undefined && !canSetOwner(capability, roleName)) {
-        throw new Error(
-          `capability: cannot set owner of ${encodeId(objId)} to role "${roleName}" — applier "${capability.role}" is not a superuser or a member of that role; grant membership or apply as a member/superuser`,
-        );
-      }
       // for an accepted rename the source-side owner unlink is keyed by the OLD
       // id, so `oldOwnerByFact` (keyed by the link's `from`, i.e. the NEW id) has
       // no entry — fall back to the owner the renamed subtree carried in source
       // (review P1 #1), so the release edge orders this before the old role drop.
       const oldRoleId =
         oldOwnerByFact.get(objKey) ?? renamedOwnerId.get(objKey);
-      pushAction(
-        "alter",
-        {
-          sql: `${prefix} OWNER TO ${qid(roleName)}`,
-          consumes: [newRoleId],
-          ...(oldRoleId !== undefined ? { releases: [oldRoleId] } : {}),
-        },
-        { consumes: [objId] },
+      emitOwnerAlter(
+        objId,
+        newRoleId,
+        roleName,
+        `${prefix} OWNER TO ${qid(roleName)}`,
+        oldRoleId !== undefined ? [oldRoleId] : undefined,
+        // an existing (or renamed) object keeps its source owner until this
+        // ALTER runs; a created object has no source owner. One the plan drops
+        // and recreates is the applier's once the CREATE runs, and its DROP is
+        // allowed to the schema owner too, so that suffices instead.
+        oldRoleId === undefined ||
+          ((replaceIds.has(objKey) || recreatedByReplace.has(objKey)) &&
+            canDropAsSchemaOwner(objId))
+          ? undefined
+          : roleNameOf(oldRoleId),
       );
       ownerEmitted.add(objKey);
     }
@@ -825,21 +958,70 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         .find((e) => e.kind === "owner");
       if (ownerEdge?.to.kind !== "role") continue;
       const roleName = (ownerEdge.to as { kind: "role"; name: string }).name;
-      if (capability !== undefined && !canSetOwner(capability, roleName)) {
-        throw new Error(
-          `capability: cannot set owner of ${key} to role "${roleName}" — ` +
-            `applier "${capability.role}" is not a superuser or a member of that role; ` +
-            `grant membership or apply as a member/superuser`,
-        );
-      }
-      pushAction(
-        "alter",
-        {
-          sql: `${ownerAlterPrefix(fact)} OWNER TO ${qid(roleName)}`,
-          consumes: [ownerEdge.to],
-        },
-        { consumes: [fact.id] },
+      // the replace's DROP needs the unchanged owner's privileges, or the
+      // containing schema owner's
+      emitOwnerAlter(
+        fact.id,
+        ownerEdge.to,
+        roleName,
+        `${ownerAlterPrefix(fact)} OWNER TO ${qid(roleName)}`,
+        undefined,
+        canDropAsSchemaOwner(fact.id) ? undefined : roleName,
       );
+    }
+
+    // The shared GRANT/REVOKE consume nothing: as alters whose first consume
+    // is R they would count as in-place changes of R, and every create owned
+    // by R would then order after the REVOKE (a cycle). Explicit edges only.
+    for (const [roleName, { roleId, alters }] of wrapOf) {
+      const role = qid(roleName);
+      const applier = qid((capability as ApplierCapability).role);
+      const grant = pushAction(
+        "alter",
+        { sql: `GRANT ${role} TO ${applier}`, lockClass: "none" },
+        {},
+      );
+      const revoke = pushAction(
+        "alter",
+        { sql: `REVOKE ${role} FROM ${applier}`, lockClass: "none" },
+        {},
+      );
+      const roleProducer = producerOf.get(encodeId(roleId));
+      if (roleProducer !== undefined) orderAfter.push([roleProducer, grant]);
+      for (const alter of alters) {
+        orderAfter.push([grant, alter], [alter, revoke]);
+      }
+    }
+
+    // Schema-qualified owner ALTERs, restricted applier only: run after every
+    // create action touching R's ACL on the schema (a REVOKE-then-GRANT pair
+    // whose id only the REVOKE produces) and after the schema's own ALTER to R.
+    if (ownerAlters.length > 0) {
+      const createsById = new Map<string, number[]>();
+      actions.forEach((action, index) => {
+        if (action.verb !== "create") return;
+        for (const id of [...action.produces, ...action.consumes]) {
+          const key = encodeId(id);
+          const list = createsById.get(key) ?? [];
+          if (list.at(-1) !== index) list.push(index);
+          createsById.set(key, list);
+        }
+      });
+      const ownerAlterOf = new Map<string, { roleName: string; index: number }>(
+        ownerAlters.map((o) => [encodeId(o.objId), o]),
+      );
+      for (const { objId, roleName, index } of ownerAlters) {
+        const schemaId = containingSchemaId(objId);
+        if (schemaId === undefined) continue;
+        const aclKey = encodeId(schemaAclId(schemaId, roleName));
+        for (const before of createsById.get(aclKey) ?? []) {
+          orderAfter.push([before, index]);
+        }
+        const schemaAlter = ownerAlterOf.get(encodeId(schemaId));
+        if (schemaAlter?.roleName === roleName) {
+          orderAfter.push([schemaAlter.index, index]);
+        }
+      }
     }
   }
 
@@ -851,5 +1033,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     acceptsFolds,
     renameActionIndices,
     implicitDestroys,
+    orderAfter,
+    diagnostics,
   };
 }

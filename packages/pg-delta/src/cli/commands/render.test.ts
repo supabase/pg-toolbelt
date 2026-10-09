@@ -36,8 +36,9 @@ function action(overrides: Partial<Action>): Action {
   } as Action;
 }
 
-function makePlan(actions: Action[]): Plan {
+function makePlan(actions: Action[], diagnostics?: Plan["diagnostics"]): Plan {
   return stampPlanId({
+    ...(diagnostics !== undefined ? { diagnostics } : {}),
     formatVersion: 1,
     engineVersion: ENGINE_VERSION,
     source: { fingerprint: "a".repeat(64) },
@@ -112,5 +113,31 @@ describe("cmdRender segment pruning", () => {
       .filter((f) => f.endsWith(".sql") && f !== "plan.json")
       .sort();
     expect(sqlFiles).toEqual(["mig.sql", "mig_notes.sql", "other.sql"]);
+  });
+
+  test("renders a flagged plan and re-surfaces its capability.owner warning", async () => {
+    const flagged = makePlan(
+      [action({ sql: 'ALTER SCHEMA "app" OWNER TO "r2"', verb: "alter" })],
+      [
+        {
+          code: "capability.owner",
+          severity: "warning",
+          subject: { kind: "schema", name: "app" },
+          message: 'cannot set owner of schema:app to role "r2"',
+        },
+      ],
+    );
+    const stderr: string[] = [];
+    process.stderr.write = ((chunk: string) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+
+    await render(flagged, "mig.sql");
+
+    expect(existsSync(join(dir, "mig.sql"))).toBe(true);
+    expect(stderr.join("")).toContain(
+      '[plan] WARNING [capability.owner] schema:app: cannot set owner of schema:app to role "r2"',
+    );
   });
 });
