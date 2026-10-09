@@ -1,0 +1,5 @@
+{
+  "migration": "some",
+  "contains": ["on schema public from authenticated"],
+  "notContains": ["to anon"]
+}

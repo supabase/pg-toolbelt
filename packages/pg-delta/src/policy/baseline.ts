@@ -28,6 +28,14 @@ import {
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { deserializeSnapshot } from "../core/snapshot.ts";
 
+function isPublicSchemaGrant(id: StableId): boolean {
+  return (
+    id.kind === "acl" &&
+    id.target.kind === "schema" &&
+    id.target.name === "public"
+  );
+}
+
 /**
  * Return a new FactBase containing only facts that are NOT present with an
  * identical payload hash in `baseline`.
@@ -35,6 +43,12 @@ import { deserializeSnapshot } from "../core/snapshot.ts";
  * A fact is "identical in the baseline" when:
  *   - encodeId(fact.id) exists in baseline, AND
  *   - baseline.hashOf(fact.id) === fb.hashOf(fact.id)
+ *
+ * Grants on schema `public` are never subtracted. A fresh `public` carries
+ * default grants (to PUBLIC, to its owner) that users revoke, and a revoked
+ * grant leaves no fact on that side: subtracting the other side's
+ * baseline-identical grant would hide the revoke from the diff. Export already
+ * diffs `public`'s grants against a baseline that omits them.
  *
  * Parent-chain rule: any ancestor of a surviving fact is also kept, even if
  * it would otherwise be subtracted, so that FactBase construction succeeds.
@@ -53,6 +67,7 @@ export function subtractBaseline(fb: FactBase, baseline: FactBase): FactBase {
   for (const fact of allFacts) {
     const encoded = encodeId(fact.id);
     if (
+      !isPublicSchemaGrant(fact.id) &&
       baseline.has(fact.id) &&
       baseline.hashOf(fact.id) === fb.hashOf(fact.id) &&
       edgeSignature(baseline, fact.id) === edgeSignature(fb, fact.id)

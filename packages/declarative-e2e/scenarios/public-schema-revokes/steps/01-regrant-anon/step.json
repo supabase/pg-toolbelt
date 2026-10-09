@@ -1,0 +1,4 @@
+{
+  "migration": "some",
+  "contains": ["grant usage on schema public to anon"]
+}
