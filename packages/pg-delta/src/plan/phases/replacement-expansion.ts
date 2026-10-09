@@ -10,7 +10,7 @@
  */
 import type { Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
-import { encodeId, type StableId } from "../../core/stable-id.ts";
+import { encodeId, encodeIdMemo, type StableId } from "../../core/stable-id.ts";
 import { cascadesToChildren, isRebuildable } from "../rule-flags.ts";
 import type { ReplaceRootChange, RulesForId } from "../rules.ts";
 
@@ -347,20 +347,19 @@ export function expandReplacements(
   for (;;) {
     const roots = dropRootOf;
     // folded children with a dependency dropped under another root, by root
-    const candidatesByRoot = new Map<string, Fact[]>();
+    const candidatesByRoot = new Map<string, string[]>();
     for (const [key, root] of roots) {
       if (root === key || unfolded.has(key)) continue;
-      const fact = source.getByEncoded(key);
-      if (fact === undefined) continue;
-      const crossesRoot = source.outgoingEdges(fact.id).some((edge) => {
-        const toRoot = roots.get(encodeId(edge.to));
-        return toRoot !== undefined && toRoot !== root;
-      });
-      if (!crossesRoot) continue;
-      const list = candidatesByRoot.get(root) ?? [];
-      list.push(fact);
-      candidatesByRoot.set(root, list);
+      for (const edge of source.outgoingEdgesByEncoded(key)) {
+        const toRoot = roots.get(encodeIdMemo(edge.to));
+        if (toRoot === undefined || toRoot === root) continue;
+        const list = candidatesByRoot.get(root) ?? [];
+        list.push(key);
+        candidatesByRoot.set(root, list);
+        break;
+      }
     }
+    if (candidatesByRoot.size === 0) break;
     const membersByRoot = new Map<string, string[]>();
     for (const [key, root] of roots) {
       if (!candidatesByRoot.has(root)) continue;
@@ -379,7 +378,7 @@ export function expandReplacements(
         for (const edge of source.incomingEdgesByEncoded(
           stack.pop() as string,
         )) {
-          const fromKey = encodeId(edge.from);
+          const fromKey = encodeIdMemo(edge.from);
           const fromRoot = roots.get(fromKey);
           // a surviving dependent orders no drop
           if (fromRoot === undefined || fromRoot === root) continue;
@@ -389,11 +388,11 @@ export function expandReplacements(
         }
       }
       if (dependsOnRoot.size === 0) continue;
-      for (const fact of candidates) {
+      for (const key of candidates) {
         const bridges = source
-          .outgoingEdges(fact.id)
-          .some((edge) => dependsOnRoot.has(encodeId(edge.to)));
-        if (bridges) bridged.push(encodeId(fact.id));
+          .outgoingEdgesByEncoded(key)
+          .some((edge) => dependsOnRoot.has(encodeIdMemo(edge.to)));
+        if (bridges) bridged.push(key);
       }
     }
     if (bridged.length === 0) break;
