@@ -11,6 +11,7 @@ import pg from "pg";
 import { extract } from "../src/extract/extract.ts";
 import { buildSchemaExport } from "../src/frontends/schema-export.ts";
 import { planSchemaFiles } from "../src/frontends/schema-plan.ts";
+import { provisionCoLocatedShadow } from "../src/frontends/shadow.ts";
 import {
   loadSqlFiles,
   ShadowLoadError,
@@ -324,6 +325,65 @@ describe("export/load privilege round-trip (auto-expose overlay)", () => {
       expect(await overlayCount(destPg)).toEqual({ seq_leak: 0, fn_leak: 0 });
     }
   }, 180_000);
+
+  test("alpine: declarative sync keeps a grant on an extension member in extensions", async () => {
+    const cluster = await startStockCluster();
+    extraClusters.push(cluster);
+    const target = await cluster.createDb("priv_rt_member_target");
+    const shadows = [
+      await cluster.createDb("priv_rt_member_shadow"),
+      await cluster.createDb("priv_rt_member_shadow"),
+    ];
+    dbs.push(target, ...shadows);
+    await ensureApiRoles(target.pool);
+    const targetPg = await openPostgresPool(target.uri);
+    const shadowPgs = await Promise.all(
+      shadows.map((shadow) => openPostgresPool(shadow.uri)),
+    );
+    /* the platform provisions `extensions` on every Supabase database */
+    for (const pool of [targetPg, ...shadowPgs]) {
+      await pool.query(`CREATE SCHEMA extensions`);
+    }
+    await targetPg.query(`CREATE EXTENSION pg_trgm WITH SCHEMA extensions`);
+    const exportFiles = () =>
+      buildSchemaExport(targetPg, {
+        profile: supabaseProfile,
+        layout: "grouped",
+      });
+    const withoutGrant = await exportFiles();
+    await targetPg.query(
+      `GRANT EXECUTE ON FUNCTION extensions.similarity(text, text) TO authenticated`,
+    );
+
+    const exported = await exportFiles();
+    expect(fileSql(exported.files, /pg_trgm/)).toMatchInlineSnapshot(`
+      "CREATE EXTENSION "pg_trgm" SCHEMA "extensions";
+
+      COMMENT ON EXTENSION "pg_trgm" IS 'text similarity measurement and index searching based on trigrams';
+
+      REVOKE ALL ON FUNCTION "extensions"."similarity"(text, text) FROM "authenticated";
+
+      GRANT EXECUTE ON FUNCTION "extensions"."similarity"(text, text) TO "authenticated";
+      "
+    `);
+
+    const sync = async (
+      files: Awaited<ReturnType<typeof exportFiles>>,
+      shadowPg: pg.Pool,
+    ) =>
+      (
+        await planSchemaFiles(targetPg, shadowPg, files.files, {
+          profile: supabaseProfile,
+          manifest: files.manifest,
+        })
+      ).plan.actions.map((a) => a.sql);
+    expect(await sync(exported, shadowPgs[0]!)).toEqual([]);
+    expect(await sync(withoutGrant, shadowPgs[1]!)).toMatchInlineSnapshot(`
+      [
+        "REVOKE ALL ON FUNCTION "extensions"."similarity"(text, text) FROM "authenticated"",
+      ]
+    `);
+  }, 180_000);
 });
 
 describe.skipIf(!runSupabaseBareTests)(
@@ -445,6 +505,9 @@ describe.skipIf(!runSupabaseBareTests)(
         CREATE FUNCTION public.f1() RETURNS integer
           LANGUAGE sql AS $$ SELECT 1 $$;
         REVOKE EXECUTE ON FUNCTION public.f1() FROM PUBLIC, anon;
+        CREATE EXTENSION dblink WITH SCHEMA extensions;
+        CREATE EXTENSION postgres_fdw WITH SCHEMA extensions;
+        CREATE EXTENSION pg_trgm WITH SCHEMA extensions;
       `);
 
       const exported = await buildSchemaExport(targetPg, {
@@ -454,6 +517,10 @@ describe.skipIf(!runSupabaseBareTests)(
       const schemaSql = fileSql(exported.files, /public\/schema\.sql$/);
       expect(schemaSql).toContain(`REVOKE ALL ON SCHEMA "public" FROM PUBLIC`);
       expect(schemaSql).toContain(`REVOKE ALL ON SCHEMA "public" FROM "anon"`);
+      /* the platform's own grants on extension members never reach the export */
+      expect(fileSql(exported.files, /./)).not.toMatch(
+        /^(GRANT|REVOKE)\b.*"extensions"\./m,
+      );
 
       const planned = await planSchemaFiles(
         targetPg,
@@ -466,6 +533,60 @@ describe.skipIf(!runSupabaseBareTests)(
         },
       );
       expect(planned.plan.actions.map((a) => a.sql)).toEqual([]);
+    }, 300_000);
+
+    test("co-located shadow leaves an extensions member grant unmanaged with a warning", async () => {
+      const target = await startStandaloneSupabase();
+      extraClusters.push(target);
+      const targetPg = await openPostgresPool(
+        target.connectionUri(),
+        "postgres",
+      );
+      await targetPg.query(`
+        CREATE EXTENSION pg_trgm WITH SCHEMA extensions;
+        GRANT EXECUTE ON FUNCTION extensions.similarity(text, text) TO authenticated;
+      `);
+      const exported = await buildSchemaExport(targetPg, {
+        profile: supabaseProfile,
+      });
+
+      const shadow = await provisionCoLocatedShadow(
+        target.postgresConnectionUri(),
+      );
+      try {
+        const planned = await planSchemaFiles(
+          targetPg,
+          await openPostgresPool(shadow.url, "postgres"),
+          exported.files,
+          {
+            profile: supabaseProfile,
+            manifest: exported.manifest,
+            seedAssumedSchemas: true,
+          },
+        );
+        expect(planned.plan.actions.map((a) => a.sql)).toEqual([]);
+        expect(
+          planned.targetDiagnostics
+            .filter((d) => d.code === "unmanaged_member_acl")
+            .map((d) => ({ severity: d.severity, subject: d.subject })),
+        ).toEqual([
+          {
+            severity: "warning",
+            subject: {
+              kind: "acl",
+              target: {
+                kind: "function",
+                schema: "extensions",
+                name: "similarity",
+                args: ["text", "text"],
+              },
+              grantee: "authenticated",
+            },
+          },
+        ]);
+      } finally {
+        await shadow.cleanup();
+      }
     }, 300_000);
   },
 );

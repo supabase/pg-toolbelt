@@ -198,6 +198,16 @@ describe("factMatches — ownedByExtension", () => {
     const fact = fb.get(tableUsers)!;
     expect(factMatches({ ownedByExtension: "pgcrypto" }, fact, fb)).toBe(false);
   });
+
+  test("matches the extension name as a glob", () => {
+    const fb = makeFactBase(baseFacts(), [
+      { from: tableUsers, to: extPostgis, kind: "memberOfExtension" },
+    ]);
+    const fact = fb.get(tableUsers)!;
+    expect(factMatches({ ownedByExtension: "*" }, fact, fb)).toBe(true);
+    expect(factMatches({ ownedByExtension: "post*" }, fact, fb)).toBe(true);
+    expect(factMatches({ ownedByExtension: "pg*" }, fact, fb)).toBe(false);
+  });
 });
 
 describe("factMatches — parentKind", () => {

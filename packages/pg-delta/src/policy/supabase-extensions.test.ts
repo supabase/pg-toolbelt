@@ -61,3 +61,80 @@ describe("supabase policy — platform extensions", () => {
     expect(view.get(wrappers)).toBeUndefined();
   });
 });
+
+describe("supabase policy — grants on extension members in `extensions`", () => {
+  const extensions: StableId = { kind: "schema", name: "extensions" };
+  const net: StableId = { kind: "schema", name: "net" };
+  const fn = (schema: string, name: string): StableId => ({
+    kind: "function",
+    schema,
+    name,
+    args: ["text"],
+  });
+  const similarity = fn("extensions", "similarity");
+  const statementsReset = fn("extensions", "pg_stat_statements_reset");
+  const cronAccess = fn("extensions", "grant_pg_cron_access");
+  const httpGet = fn("net", "http_get");
+
+  const keptGrantees = (grants: [StableId, string][]): string[] => {
+    const fb = buildFactBase(
+      [
+        { id: extensions, payload: {} },
+        { id: net, payload: {} },
+        ext("pg_trgm", "extensions"),
+        ext("pg_stat_statements", "extensions"),
+        ext("pg_net", "extensions"),
+        { id: similarity, parent: extensions, payload: {} },
+        { id: statementsReset, parent: extensions, payload: {} },
+        { id: cronAccess, parent: extensions, payload: {} },
+        { id: httpGet, parent: net, payload: {} },
+        ...grants.map(
+          ([target, grantee]): Fact => ({
+            id: { kind: "acl", target, grantee },
+            parent: target,
+            payload: { privileges: ["EXECUTE"], grantable: [] },
+          }),
+        ),
+      ],
+      [
+        { from: similarity, to: pgTrgm, kind: "memberOfExtension" },
+        {
+          from: statementsReset,
+          to: { kind: "extension", name: "pg_stat_statements" },
+          kind: "memberOfExtension",
+        },
+        {
+          from: httpGet,
+          to: { kind: "extension", name: "pg_net" },
+          kind: "memberOfExtension",
+        },
+      ],
+    );
+    return resolveView(fb, supabasePolicy)
+      .facts()
+      .flatMap((f) => (f.id.kind === "acl" ? [f.id.grantee] : []))
+      .sort();
+  };
+
+  test("keeps user grants on a pg_trgm member, not the platform's", () => {
+    expect(
+      keptGrantees([
+        [similarity, "authenticated"],
+        [similarity, "app_reader"],
+        [similarity, "postgres"],
+        [similarity, "dashboard_user"],
+        [similarity, "PUBLIC"],
+      ]),
+    ).toEqual(["app_reader", "authenticated"]);
+  });
+
+  test("still excludes platform-extension members, helpers and other system schemas", () => {
+    expect(
+      keptGrantees([
+        [statementsReset, "authenticated"],
+        [cronAccess, "authenticated"],
+        [httpGet, "authenticated"],
+      ]),
+    ).toEqual([]);
+  });
+});

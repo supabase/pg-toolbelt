@@ -559,6 +559,45 @@ export const supabasePolicy: Policy = {
       },
     },
 
+    /* MUST precede Rule 10 (first-match-wins). Platform grants on `extensions`
+     * members go only to postgres (supabase_admin's ADP) and dashboard_user.
+     * PUBLIC's entry is supabase_admin's, so a postgres shadow plans a restore. */
+    {
+      match: {
+        all: [
+          { kind: "acl" },
+          { target: { schema: "extensions" } },
+          {
+            any: [
+              {
+                idField: {
+                  field: "grantee",
+                  glob: ["anon", "authenticated", "service_role"],
+                },
+              },
+              {
+                not: {
+                  idField: {
+                    field: "grantee",
+                    glob: ["postgres", "PUBLIC", ...SUPABASE_SYSTEM_ROLES],
+                  },
+                },
+              },
+            ],
+          },
+          { ownedByExtension: "*" },
+          {
+            not: {
+              any: SUPABASE_SYSTEM_EXTENSIONS.map((name) => ({
+                ownedByExtension: name,
+              })),
+            },
+          },
+        ],
+      },
+      action: "include",
+    },
+
     // -------------------------------------------------------------------------
     // EXCLUDE rules — system objects the user cannot / should not manage
     // -------------------------------------------------------------------------
@@ -784,7 +823,8 @@ export const supabasePolicy: Policy = {
     // Carve-out: comments ON user policies on SUPABASE_USER_POLICY_SURFACES
     // and SUPABASE_USER_POLICY_SCHEMAS are user intent and are kept managed
     // by the include rule above (first-match-wins), mirroring the
-    // policy-surface include vs Rule 4.
+    // policy-surface include vs Rule 4. User grants on members of user
+    // extensions in `extensions` are kept the same way by their include above.
     {
       match: {
         all: [

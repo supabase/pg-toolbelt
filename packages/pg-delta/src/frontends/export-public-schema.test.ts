@@ -31,7 +31,33 @@ describe("export preserves public-schema customizations", () => {
     expect(sql).toContain("custom note");
     // the schema itself still must NOT be recreated (it always exists).
     expect(sql).not.toContain("CREATE SCHEMA");
-    expect(sql).not.toContain("REVOKE");
+    expect(sql).not.toContain("REVOKE ALL ON SCHEMA");
+  });
+
+  test("a public view without ACL facts does not infer revokes", () => {
+    const sql = exportOf(
+      [{ id: { kind: "schema", name: "public" }, payload: {} }],
+      {
+        assumedRoles: ["anon", "postgres"],
+        assumedDefaultGrants: [
+          {
+            creatingRole: "postgres",
+            schema: "public",
+            objtype: "r",
+            grantee: "anon",
+          },
+        ],
+      },
+    );
+    expect(sql).not.toContain("REVOKE ALL ON SCHEMA");
+  });
+
+  test("an explicit revoke list works without public ACL facts", () => {
+    const sql = exportOf(
+      [{ id: { kind: "schema", name: "public" }, payload: {} }],
+      { revokedPublicGrantees: ["PUBLIC"] },
+    );
+    expect(sql).toContain(`REVOKE ALL ON SCHEMA "public" FROM PUBLIC`);
   });
 
   test("a customized public ACL (no CREATE for PUBLIC) is exported", () => {
@@ -81,5 +107,21 @@ describe("export preserves public-schema customizations", () => {
     expect(sql).toContain(`REVOKE ALL ON SCHEMA "public" FROM "anon"`);
     /* a grant live still holds exports as before */
     expect(sql).toContain(`GRANT USAGE ON SCHEMA "public" TO "authenticated"`);
+  });
+
+  test("a public lacking PUBLIC's grant exports its REVOKE without options", () => {
+    const sql = exportOf([
+      { id: { kind: "schema", name: "public" }, payload: {} },
+      {
+        id: {
+          kind: "acl",
+          target: { kind: "schema", name: "public" },
+          grantee: "pg_database_owner",
+        },
+        parent: { kind: "schema", name: "public" },
+        payload: { privileges: ["CREATE", "USAGE"], grantable: [] },
+      },
+    ]);
+    expect(sql).toContain(`REVOKE ALL ON SCHEMA "public" FROM PUBLIC`);
   });
 });
