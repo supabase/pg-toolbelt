@@ -1,0 +1,146 @@
+name: pg-delta benchmark
+
+# Performance regression gate for pg-delta: benchmarks the PR (merge commit)
+# against its base on the same runner, interleaved round by round, then fails
+# the `verdict` job on a significant slowdown or an increase in Postgres round
+# trips / bytes received. Report: job summary + one updated PR comment.
+# Harness: packages/pg-delta/scripts/bench/.
+#
+# Measurement and verdict are separate jobs so the `perf-accepted` label only
+# re-runs the cheap verdict (see pg-delta-benchmark-accept.yml).
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    branches:
+      - main
+    paths:
+      - "packages/pg-delta/src/**"
+      - "packages/pg-delta/scripts/bench/**"
+      - "packages/pg-delta/tests/containers.ts"
+      - "packages/pg-delta/package.json"
+      - "bun.lock"
+      - ".github/workflows/pg-delta-benchmark.yml"
+  # Calibration: leave `base_ref` empty to benchmark the ref against itself
+  # (an A/A run — any verdict other than ✅ is a false positive).
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "Ref to compare against (default: the dispatched ref itself)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.draft == false &&
+       !(github.event.pull_request.head.ref == 'changeset-release/main' &&
+         github.event.pull_request.head.repo.full_name == github.repository))
+    name: Measure
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || inputs.base_ref || github.sha }}
+          path: .bench-base
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Install base dependencies
+        working-directory: .bench-base
+        run: bun install
+      - name: Test the gate's decision rule
+        working-directory: packages/pg-delta
+        run: bun test scripts/bench
+      - name: Benchmark base vs head
+        working-directory: packages/pg-delta
+        env:
+          PGDELTA_TEST_IMAGE: postgres:17-alpine
+        run: bun scripts/bench/run.ts --base ../../.bench-base --rounds 6 --out "$RUNNER_TEMP/bench-results.json"
+      - name: Upload results
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: pg-delta-benchmark
+          path: ${{ runner.temp }}/bench-results.json
+          retention-days: 30
+
+  verdict:
+    needs: measure
+    name: Verdict
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Fork PRs get a read-only token regardless; they keep the job summary.
+      pull-requests: write
+    steps:
+      - name: Checkout head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Download results
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pg-delta-benchmark
+          path: ${{ runner.temp }}
+      - name: Compare
+        id: compare
+        working-directory: packages/pg-delta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_ref || github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # Read labels live, not from the event payload: a re-run after the
+          # label is added replays the original (label-less) payload.
+          ACCEPTED=""
+          if [ -n "$PR_NUMBER" ] && gh api "repos/$REPO/issues/$PR_NUMBER/labels" --jq '.[].name' | grep -qx perf-accepted; then
+            ACCEPTED="--accepted"
+          fi
+          set +e
+          bun scripts/bench/compare.ts "$RUNNER_TEMP/bench-results.json" \
+            --markdown "$RUNNER_TEMP/bench-report.md" \
+            --base-ref "${BASE_SHA:0:7}" --head-ref "${HEAD_SHA:0:7}" $ACCEPTED > /dev/null
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/bench-report.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+      - name: Update PR comment
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          REPORT="$RUNNER_TEMP/bench-report.md"
+          COMMENT_ID=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- pg-delta-benchmark -->"))) | .id' | head -n 1)
+          if [ -n "$COMMENT_ID" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$COMMENT_ID" -F "body=@$REPORT" > /dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" -F "body=@$REPORT" > /dev/null
+          fi
+      - name: Fail on regression
+        if: steps.compare.outputs.exit-code != '0'
+        run: |
+          echo "::error::pg-delta performance regression — see the job summary. Add the 'perf-accepted' label if it is intended."
+          exit 1

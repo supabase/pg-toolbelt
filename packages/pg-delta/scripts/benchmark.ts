@@ -17,6 +17,13 @@ import pg from "pg";
 import { diff } from "../src/core/diff.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
+import {
+  COLUMNS_PER_TABLE,
+  fixtureSql,
+  MUTATIONS,
+  SCHEMAS,
+  TABLES_PER_SCHEMA,
+} from "./bench/fixture.ts";
 import { withPerQueryTiming, type QueryTiming } from "./perf-timing.ts";
 
 const PER_QUERY = process.env["PGDELTA_BENCH_PER_QUERY"] === "1";
@@ -36,56 +43,6 @@ function printPerQueryTiming(timings: QueryTiming[]): void {
   }
   console.log(`sum of query time: ${sum.toFixed(0)} ms\n`);
 }
-
-const SCHEMAS = 40;
-const TABLES_PER_SCHEMA = 15;
-const COLUMNS_PER_TABLE = 8;
-
-function fixtureSql(): string {
-  const parts: string[] = [];
-  for (let s = 0; s < SCHEMAS; s++) {
-    const schema = `bench_${String(s).padStart(2, "0")}`;
-    parts.push(`CREATE SCHEMA ${schema};`);
-    parts.push(
-      `CREATE TYPE ${schema}.status AS ENUM ('a', 'b', 'c');`,
-      `CREATE SEQUENCE ${schema}.ids;`,
-      `CREATE FUNCTION ${schema}.f(a integer) RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT a + 1';`,
-    );
-    for (let t = 0; t < TABLES_PER_SCHEMA; t++) {
-      const table = `${schema}.t${String(t).padStart(2, "0")}`;
-      const cols = [
-        "id integer NOT NULL DEFAULT nextval('" + schema + ".ids')",
-      ];
-      for (let c = 0; c < COLUMNS_PER_TABLE; c++) {
-        cols.push(
-          c % 3 === 0
-            ? `c${c} text`
-            : c % 3 === 1
-              ? `c${c} numeric(12,2) DEFAULT 0`
-              : `c${c} timestamptz`,
-        );
-      }
-      cols.push("PRIMARY KEY (id)");
-      parts.push(`CREATE TABLE ${table} (${cols.join(", ")});`);
-      parts.push(`CREATE INDEX t${t}_c0_idx_${s} ON ${table} (c0);`);
-      if (t % 2 === 0) {
-        parts.push(
-          `CREATE VIEW ${schema}.v${t} AS SELECT id, c0 FROM ${table} WHERE id > 0;`,
-        );
-        parts.push(`COMMENT ON TABLE ${table} IS 'bench table ${t}';`);
-      }
-    }
-  }
-  return parts.join("\n");
-}
-
-const MUTATIONS = `
-  CREATE SCHEMA bench_new;
-  CREATE TABLE bench_new.extra (id integer PRIMARY KEY, note text);
-  ALTER TABLE bench_00.t00 ADD COLUMN added_col integer DEFAULT 5;
-  DROP VIEW bench_01.v0;
-  COMMENT ON SCHEMA bench_02 IS 'mutated';
-`;
 
 async function timed<T>(label: string, fn: () => Promise<T> | T): Promise<T> {
   const start = performance.now();

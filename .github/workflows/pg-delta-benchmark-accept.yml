@@ -1,0 +1,40 @@
+name: pg-delta benchmark accept
+
+# Adding `perf-accepted` to a PR re-runs the failed `Verdict` job of the
+# latest pg-delta benchmark run for its head commit (no re-measurement); the
+# verdict reads the label live and passes. Kept out of pg-delta-benchmark.yml
+# so unrelated label events never create skipped runs of its checks.
+
+on:
+  pull_request:
+    types:
+      - labeled
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  rerun-verdict:
+    if: >-
+      github.event.label.name == 'perf-accepted' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    name: Re-run benchmark verdict
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Re-run failed verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # event=pull_request: a manual calibration run on the same commit
+          # must not shadow the PR's run.
+          RUN=$(gh api "repos/$REPO/actions/workflows/pg-delta-benchmark.yml/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=1" \
+            --jq '.workflow_runs[0] | select(.status == "completed" and .conclusion == "failure") | .id')
+          if [ -z "$RUN" ]; then
+            echo "No failed benchmark run for $HEAD_SHA (still running, or passed) — nothing to re-run."
+            exit 0
+          fi
+          gh run rerun "$RUN" --failed --repo "$REPO"
