@@ -141,6 +141,7 @@ async function proveOn(
   toSql: string,
   seed: string | undefined,
   createroleApplier: boolean,
+  settle: boolean,
 ): Promise<void> {
   if (createroleApplier) {
     await ensureCreateroleApplier(clusterA);
@@ -171,20 +172,23 @@ async function proveOn(
     if (seed) await sourceWork.query(seed);
 
     const sourceState = await extractState(sourceWork);
-    const settle = await settleDesired(
-      desiredWork,
-      sourceState.factBase,
-      (await extractState(desiredWork)).factBase,
-    );
-    const settleFailures = settle.diagnostics.filter(
-      (d) => d.code === "deparse_settle_failed",
-    );
-    if (settleFailures.length > 0) {
-      throw new Error(
-        `[${name}] ${settleFailures.map((d) => d.message).join("\n")}`,
+    let desiredState = await extractState(desiredWork);
+    if (settle) {
+      const settled = await settleDesired(
+        desiredWork,
+        sourceState.factBase,
+        desiredState.factBase,
       );
+      const settleFailures = settled.diagnostics.filter(
+        (d) => d.code === "deparse_settle_failed",
+      );
+      if (settleFailures.length > 0) {
+        throw new Error(
+          `[${name}] ${settleFailures.map((d) => d.message).join("\n")}`,
+        );
+      }
+      desiredState = { ...desiredState, factBase: settled.factBase };
     }
-    const desiredState = { factBase: settle.factBase };
     // Probe the connection that will apply (superuser `test`, or the
     // CREATEROLE login when `createroleApplier` is set) so capability-gated
     // compaction sees the same role as extract/prove.
@@ -325,6 +329,7 @@ async function runDirection(
             toSql,
             seed,
             scenario.meta.createroleApplier === true,
+            scenario.meta.settleDesired === true,
           ),
         ),
       );
