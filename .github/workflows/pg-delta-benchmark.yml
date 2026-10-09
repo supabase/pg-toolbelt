@@ -85,6 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      actions: read
       contents: read
       # Fork PRs get a read-only token regardless; they keep the job summary.
       pull-requests: write
@@ -93,11 +94,13 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
+      # Through the run's artifact list, not download-artifact: a verdict-only
+      # re-run (perf-accepted) is a new attempt and must still find the
+      # measurement uploaded by the first one.
       - name: Download results
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: pg-delta-benchmark
-          path: ${{ runner.temp }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name pg-delta-benchmark --dir "$RUNNER_TEMP"
       - name: Compare
         id: compare
         working-directory: packages/pg-delta
