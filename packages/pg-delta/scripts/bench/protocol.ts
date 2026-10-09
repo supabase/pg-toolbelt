@@ -20,6 +20,10 @@ export type WorkerOutput = Record<string, ScenarioSample | { error: string }>;
 
 export const PROTOCOL_PREFIX = "@@bench ";
 
+/** Paired rounds needed before wall time is judged; run.ts always completes
+ *  this many, whatever its time budget. */
+export const MIN_ROUNDS = 3;
+
 /** One protocol line: setup outcome, then one reply per command. */
 export type WorkerMessage =
   | { ready: string[] }

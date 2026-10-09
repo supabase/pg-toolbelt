@@ -9,7 +9,7 @@
  *   bun scripts/benchmark.ts <pg-url>    # uses an existing server
  *
  * The <pg-url> server must be disposable: the fixture (its schemas and the
- * cluster-wide `bench_reader` role) is left in place.
+ * cluster-wide `bench_reader` and Supabase roles) is left in place.
  *
  * Set PGDELTA_BENCH_PER_QUERY=1 to additionally attribute the cold extract's
  * wall-time per SQL round-trip (milestone A "profile first") — it wraps the

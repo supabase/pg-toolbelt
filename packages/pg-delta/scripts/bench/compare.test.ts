@@ -106,6 +106,14 @@ describe("benchmark gate", () => {
     crashed.rounds[0]!.head = null;
     expect(gateFails(compare(crashed), true)).toBe(true);
 
+    // Too few rounds to judge wall time (e.g. a slowdown ate the budget).
+    const short = results([
+      [100, 300],
+      [100, 300],
+    ]);
+    expect(gateFails(compare(short), false)).toBe(true);
+    expect(gateFails(compare(short), true)).toBe(false);
+
     const nothing = results(Array.from({ length: 3 }, () => [100, 100]));
     for (const round of nothing.rounds) round.base = round.head = null;
     expect(gateFails(compare(nothing), true)).toBe(true);

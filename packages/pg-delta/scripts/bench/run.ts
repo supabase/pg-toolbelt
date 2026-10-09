@@ -5,7 +5,8 @@
  * side does its setup and warmup once; then, round after round, every
  * scenario is sampled on both sides back to back, alternating which side goes
  * first, so runner-speed drift hits both equally. Rounds stop at `--rounds`
- * or when the next one would overrun `--budget` seconds. ./compare.ts turns
+ * or, past the first MIN_ROUNDS, when the next one would overrun `--budget`
+ * seconds. ./compare.ts turns
  * the result into a verdict + report.
  *
  *   bun scripts/bench/run.ts --base <repo root> [--head <repo root>]
@@ -20,6 +21,7 @@ import { parseArgs } from "node:util";
 import { sharedCluster } from "../../tests/containers.ts";
 import { fixtureSql, MUTATIONS } from "./fixture.ts";
 import {
+  MIN_ROUNDS,
   PROTOCOL_PREFIX,
   type BenchResults,
   type BenchUrls,
@@ -169,7 +171,7 @@ const sampling = performance.now();
 let slowestRoundMs = 0;
 for (let round = 0; round < maxRounds; round++) {
   const elapsed = performance.now() - sampling;
-  if (round > 0 && elapsed + slowestRoundMs > budgetMs) {
+  if (round >= MIN_ROUNDS && elapsed + slowestRoundMs > budgetMs) {
     console.error(`bench: stopping after ${round} rounds (budget)`);
     break;
   }

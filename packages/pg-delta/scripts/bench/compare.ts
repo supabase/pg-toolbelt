@@ -17,7 +17,11 @@
  * deterministic for a fixed catalog, so they are compared exactly.
  */
 import { parseArgs } from "node:util";
-import type { BenchResults, ScenarioSample } from "./protocol.ts";
+import {
+  MIN_ROUNDS,
+  type BenchResults,
+  type ScenarioSample,
+} from "./protocol.ts";
 
 export interface Thresholds {
   timeRatio: number;
@@ -32,9 +36,6 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   consistency: 0.8,
   bytesRatio: 0.05,
 };
-
-/** Rounds needed before wall time is gated at all. */
-const MIN_ROUNDS = 3;
 
 export type Verdict =
   | "regression"
@@ -211,13 +212,17 @@ export function compare(
   });
 }
 
-/** Regressions and unmeasured baselines: what `perf-accepted` can waive. */
+/** Regressions, unmeasured baselines, and timings with too few rounds to
+ *  judge: what `perf-accepted` can waive. */
 function waivable(comparisons: ScenarioComparison[]): number {
   return comparisons.reduce(
     (n, c) =>
       n +
       c.metrics.filter(
-        (m) => m.verdict === "regression" || m.verdict === "unmeasured",
+        (m) =>
+          m.verdict === "regression" ||
+          m.verdict === "unmeasured" ||
+          m.verdict === "insufficient",
       ).length,
     0,
   );
@@ -249,7 +254,7 @@ const VERDICT_LABEL: Record<Verdict, string> = {
   new: "🆕 no baseline",
   unmeasured: "❌ base not measured",
   error: "⚠️ error",
-  insufficient: "❔ too few rounds",
+  insufficient: "❌ too few rounds",
 };
 
 function formatValue(metric: MetricComparison["metric"], v: number): string {
@@ -322,6 +327,7 @@ export function renderMarkdown(
     `- **Wall time** (median of per-round medians) regresses only when the head is ≥ ${Math.round(t.timeRatio * 100)}% slower, ≥ ${t.minDeltaMs} ms slower, **and** slower in ≥ ${Math.round(t.consistency * 100)}% of the interleaved rounds.`,
     "- **Round trips** and **connections** regress on any increase; **bytes received** on growth over " +
       `${Math.round(t.bytesRatio * 100)}%. All three are deterministic for the fixed fixture catalog.`,
+    `- Fewer than ${MIN_ROUNDS} completed rounds (e.g. a slowdown that ate the time budget) also fails.`,
     "- An intended slowdown: add the `perf-accepted` label; the verdict re-runs without re-measuring. The label never waives a scenario that errors on the head.",
     "- Reproduce locally: `cd packages/pg-delta && bun scripts/bench/run.ts --base <base checkout> && bun scripts/bench/compare.ts bench-results.json`.",
     "",

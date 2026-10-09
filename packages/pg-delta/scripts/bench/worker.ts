@@ -150,10 +150,14 @@ async function setup(): Promise<Scenario[]> {
     mutated: (await supabaseCtx.extract(pools.mutated, { redactSecrets: true }))
       .factBase,
   };
+  // The Supabase CLI's declarative flow: Supabase profile, grouped layout.
+  // Explicit owners because the fixture is owned by the container's login
+  // role, not the profile's default owner `postgres`.
   const exportOptions = {
-    profile: engine.rawProfile,
+    profile: engine.supabaseProfile,
     scope: "database" as const,
     layout: "grouped" as const,
+    defaultOwner: null,
   };
   const exported = await engine.buildSchemaExport(pools.large, exportOptions);
 
@@ -197,7 +201,7 @@ async function setup(): Promise<Scenario[]> {
       }),
     },
     {
-      name: "declarative export",
+      name: "declarative export (supabase profile)",
       iterations: 1,
       io: true,
       run: async () => ({
@@ -207,7 +211,7 @@ async function setup(): Promise<Scenario[]> {
     {
       // `db schema declarative sync` on an unchanged export: load the files
       // into a fresh shadow, extract both sides, plan (expected: no changes).
-      name: "declarative sync (no-op)",
+      name: "declarative sync (no-op, supabase profile)",
       iterations: 1,
       io: true,
       run: async () => {

@@ -11,11 +11,18 @@ export const COLUMNS_PER_TABLE = 8;
 
 export function fixtureSql(): string {
   const parts: string[] = [
-    // Roles are cluster-global: tolerate a second fixture DB on the same cluster.
-    `DO $$ BEGIN
-       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bench_reader') THEN
-         CREATE ROLE bench_reader NOLOGIN;
-       END IF;
+    // Roles are cluster-global: tolerate a second fixture DB on the same
+    // cluster. postgres/anon/authenticated/service_role are the Supabase roles
+    // the Supabase profile's export refers to, so its declarative files load
+    // on a stock Postgres shadow.
+    `DO $$
+     DECLARE r text;
+     BEGIN
+       FOREACH r IN ARRAY ARRAY['bench_reader', 'postgres', 'anon', 'authenticated', 'service_role'] LOOP
+         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+           EXECUTE format('CREATE ROLE %I NOLOGIN', r);
+         END IF;
+       END LOOP;
      END $$;`,
   ];
   for (let s = 0; s < SCHEMAS; s++) {
