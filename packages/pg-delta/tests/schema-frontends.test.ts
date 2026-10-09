@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pg from "pg";
 import { apply } from "../src/apply/apply.ts";
+import { encodeId } from "../src/core/stable-id.ts";
 import { extract } from "../src/extract/extract.ts";
 import {
   buildSchemaExport,
@@ -27,6 +28,7 @@ import {
   rawProfile,
   type IntegrationProfile,
 } from "../src/integrations/index.ts";
+import { settleDesired } from "../src/frontends/settle-desired.ts";
 import type { Policy } from "../src/policy/policy.ts";
 import { reconstructManagedView } from "../src/policy/reconstruct.ts";
 import { isolatedClusterPair, sharedCluster } from "./containers.ts";
@@ -193,6 +195,296 @@ describe("public schema frontends", () => {
       expect(
         planned.loadDiagnostics.filter((d) => d.code === "data_statement"),
       ).toEqual([]);
+    } finally {
+      await Promise.all([target.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+
+  test("planSchemaFiles converges on a definition Postgres rewrites on replay (#510)", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_settle_target");
+    const shadows = [
+      await cluster.createDb("frontend_settle_shadow1"),
+      await cluster.createDb("frontend_settle_shadow2"),
+    ];
+    try {
+      const files: SqlFile[] = [
+        {
+          name: "t.sql",
+          sql: `
+            CREATE SCHEMA app;
+            CREATE TABLE app.tt (a int, b int, c int);
+            CREATE FUNCTION app.tf() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$;
+            CREATE TRIGGER t AFTER UPDATE ON app.tt FOR EACH ROW
+              WHEN ((OLD.a, OLD.b, OLD.c) IS DISTINCT FROM (NEW.a, NEW.b, NEW.c))
+              EXECUTE FUNCTION app.tf();
+          `,
+        },
+      ];
+      const options = { profile: rawProfile, scope: "database" as const };
+      const first = await planSchemaFiles(
+        target.pool,
+        shadows[0]!.pool,
+        files,
+        options,
+      );
+      const report = await apply(first.plan, target.pool, first.applyOptions);
+      expect(report.status).toBe("applied");
+
+      const second = await planSchemaFiles(
+        target.pool,
+        shadows[1]!.pool,
+        files,
+        options,
+      );
+      expect(second.plan.actions.map((a) => a.sql)).toEqual([]);
+      const rewritten = second.loadDiagnostics.filter(
+        (d) => d.code === "deparse_rewritten",
+      );
+      expect(rewritten.map((d) => encodeId(d.subject!))).toEqual([
+        "trigger:app.tt.t",
+      ]);
+      expect(rewritten[0]!.message).toContain(
+        "WHEN (((old.a IS DISTINCT FROM new.a) OR (old.b IS DISTINCT FROM new.b) OR (old.c IS DISTINCT FROM new.c)))",
+      );
+    } finally {
+      await Promise.all([target.drop(), ...shadows.map((s) => s.drop())]);
+    }
+  }, 120_000);
+
+  test("planSchemaFiles quotes the stable spelling when the target is one replay ahead (#510)", async () => {
+    // Nested rows expand one level per parse. After one sync the target holds
+    // the second printout and the files load the first, so the files' first
+    // replay already matches the target; the warning must still quote the
+    // third, stable printout.
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_settle_n_target");
+    const shadows = [
+      await cluster.createDb("frontend_settle_n_shadow1"),
+      await cluster.createDb("frontend_settle_n_shadow2"),
+    ];
+    try {
+      const files: SqlFile[] = [
+        {
+          name: "t.sql",
+          sql: `
+            CREATE SCHEMA app;
+            CREATE TABLE app.t (a int, b int, c int, d int, e int,
+              CONSTRAINT ck CHECK (((a, b), (c, d), e) IS DISTINCT FROM ((1, 2), (3, 4), 5)));
+          `,
+        },
+      ];
+      const options = { profile: rawProfile, scope: "database" as const };
+      const first = await planSchemaFiles(
+        target.pool,
+        shadows[0]!.pool,
+        files,
+        options,
+      );
+      const report = await apply(first.plan, target.pool, first.applyOptions);
+      expect(report.status).toBe("applied");
+
+      const second = await planSchemaFiles(
+        target.pool,
+        shadows[1]!.pool,
+        files,
+        options,
+      );
+      expect(second.plan.actions.map((a) => a.sql)).toEqual([]);
+      const rewritten = second.loadDiagnostics.filter(
+        (d) => d.code === "deparse_rewritten",
+      );
+      expect(rewritten.map((d) => encodeId(d.subject!))).toEqual([
+        "constraint:app.t.ck",
+      ]);
+      expect(rewritten[0]!.message).toContain(
+        "CHECK (((a IS DISTINCT FROM 1) OR (b IS DISTINCT FROM 2) OR ((c IS DISTINCT FROM 3) OR (d IS DISTINCT FROM 4)) OR (e IS DISTINCT FROM 5)))",
+      );
+    } finally {
+      await Promise.all([target.drop(), ...shadows.map((s) => s.drop())]);
+    }
+  }, 120_000);
+
+  test("planSchemaFiles replays a dependent against the desired definitions only (#510)", async () => {
+    // base really changes type; dependent only differs by spelling, so it is
+    // replayed while base is replayed on the target side. Rebuilt against base's
+    // numeric target definition, dependent would pick up numeric casts.
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_settle_d_target");
+    const shadows = [
+      await cluster.createDb("frontend_settle_d_shadow1"),
+      await cluster.createDb("frontend_settle_d_shadow2"),
+    ];
+    const views = (base: string): string => `
+      CREATE SCHEMA app;
+      CREATE VIEW app.base AS SELECT 1::${base} AS n;
+      CREATE VIEW app.dependent AS
+        SELECT n + 1 AS x FROM app.base WHERE n BETWEEN 0 AND 10 AND n >= 0;
+    `;
+    try {
+      await target.pool.query(views("numeric"));
+      const files: SqlFile[] = [{ name: "v.sql", sql: views("integer") }];
+      const options = { profile: rawProfile, scope: "database" as const };
+      const first = await planSchemaFiles(
+        target.pool,
+        shadows[0]!.pool,
+        files,
+        options,
+      );
+      const report = await apply(first.plan, target.pool, first.applyOptions);
+      expect(report.status).toBe("applied");
+      const { rows } = await target.pool.query(
+        `SELECT format_type(atttypid, atttypmod) AS type FROM pg_attribute
+         WHERE attrelid = 'app.dependent'::regclass AND attname = 'x'`,
+      );
+      expect(rows).toEqual([{ type: "integer" }]);
+
+      const second = await planSchemaFiles(
+        target.pool,
+        shadows[1]!.pool,
+        files,
+        options,
+      );
+      expect(second.plan.actions.map((a) => a.sql)).toEqual([]);
+    } finally {
+      await Promise.all([target.drop(), ...shadows.map((s) => s.drop())]);
+    }
+  }, 120_000);
+
+  test("planSchemaFiles rebuilds row filters on inherited columns around a type change (#510)", async () => {
+    // An inherited column's dependencies resolve to the ancestor that defines
+    // it (the root for a partition, possibly a non-first parent), so the row
+    // filters below depend on parent.a, base.a and p2.a. Postgres refuses to
+    // retype a column a publication WHERE clause uses, so every membership
+    // must be rebuilt around the type change.
+    const cluster = await sharedCluster();
+    // row filters need PostgreSQL 15
+    if ((await cluster.pgMajor()) < 15) return;
+    const target = await cluster.createDb("frontend_settle_i_target");
+    const shadows = [
+      await cluster.createDb("frontend_settle_i_shadow1"),
+      await cluster.createDb("frontend_settle_i_shadow2"),
+    ];
+    const schema = (type: string): string => `
+      CREATE SCHEMA app;
+      CREATE TABLE app.parent (id int, a ${type}) PARTITION BY RANGE (id);
+      CREATE TABLE app.part1 PARTITION OF app.parent FOR VALUES FROM (0) TO (100);
+      CREATE TABLE app.base (id int, a ${type});
+      CREATE TABLE app.child () INHERITS (app.base);
+      CREATE TABLE app.p1 (id int);
+      CREATE TABLE app.p2 (a ${type});
+      CREATE TABLE app.multi () INHERITS (app.p1, app.p2);
+      CREATE PUBLICATION p FOR TABLE app.part1 WHERE (a > 0), TABLE app.child WHERE (a > 0),
+        TABLE app.multi WHERE (a > 0) WITH (publish = 'insert');
+    `;
+    try {
+      await target.pool.query(schema("integer"));
+      const files: SqlFile[] = [{ name: "p.sql", sql: schema("numeric") }];
+      const options = { profile: rawProfile, scope: "database" as const };
+      const first = await planSchemaFiles(
+        target.pool,
+        shadows[0]!.pool,
+        files,
+        options,
+      );
+      const report = await apply(first.plan, target.pool, first.applyOptions);
+      expect(report.status).toBe("applied");
+
+      const second = await planSchemaFiles(
+        target.pool,
+        shadows[1]!.pool,
+        files,
+        options,
+      );
+      expect(second.plan.actions.map((a) => a.sql)).toEqual([]);
+    } finally {
+      await Promise.all([target.drop(), ...shadows.map((s) => s.drop())]);
+    }
+  }, 120_000);
+
+  test("settleDesired survives a connection error event while it holds its client (#510)", async () => {
+    // pg-pool drops its idle `error` listener on checkout, so a dropped
+    // connection would crash the process unless the holder listens.
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_settle_e_target");
+    const shadow = await cluster.createDb("frontend_settle_e_shadow");
+    try {
+      await target.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (a int, b int, CONSTRAINT t_check CHECK (b BETWEEN 0 AND 10 AND a >= 0));
+      `);
+      await shadow.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (a int, b int, CONSTRAINT t_check CHECK ((((b >= 0) AND (b <= 10)) AND (a >= 0))));
+      `);
+      const current = (await extract(target.pool)).factBase;
+      const desired = (await extract(shadow.pool)).factBase;
+      const emitting = {
+        connect: (
+          callback?: (
+            error: Error | undefined,
+            client: pg.PoolClient | undefined,
+            release: (error?: Error | boolean) => void,
+          ) => void,
+        ) => {
+          const emitSoon = (client: pg.PoolClient): void => {
+            setTimeout(() => client.emit("error", new Error("dropped")), 0);
+          };
+          if (callback === undefined) {
+            return shadow.pool.connect().then((client) => {
+              emitSoon(client);
+              return client;
+            });
+          }
+          shadow.pool.connect((error, client, release) => {
+            if (client !== undefined) emitSoon(client);
+            callback(error, client, release);
+          });
+          return undefined;
+        },
+      } as unknown as pg.Pool;
+
+      const settled = await settleDesired(emitting, current, desired);
+      expect(
+        settled.diagnostics.map((d) => [d.code, encodeId(d.subject!)]),
+      ).toEqual([["deparse_target_unsettled", "constraint:app.t.t_check"]]);
+    } finally {
+      await Promise.all([target.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+
+  test("planSchemaFiles treats a target holding a less-replayed spelling as unchanged (#510)", async () => {
+    // The target was built by a hand-written migration (Postgres keeps BETWEEN
+    // nested under the outer AND); the files hold what `schema export` prints
+    // for it, which loads flat. Same meaning, so nothing may be rebuilt.
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_settle_b_target");
+    const shadow = await cluster.createDb("frontend_settle_b_shadow");
+    try {
+      await target.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (a int, b int, CONSTRAINT t_check CHECK (b BETWEEN 0 AND 10 AND a >= 0));
+      `);
+      const files: SqlFile[] = [
+        {
+          name: "t.sql",
+          sql: `
+            CREATE SCHEMA app;
+            CREATE TABLE app.t (a int, b int, CONSTRAINT t_check CHECK ((((b >= 0) AND (b <= 10)) AND (a >= 0))));
+          `,
+        },
+      ];
+      const planned = await planSchemaFiles(target.pool, shadow.pool, files, {
+        profile: rawProfile,
+        scope: "database",
+      });
+      expect(planned.plan.actions.map((a) => a.sql)).toEqual([]);
+      const settleDiagnostics = planned.loadDiagnostics
+        .filter((d) => d.code.startsWith("deparse_"))
+        .map((d) => [d.code, d.severity, encodeId(d.subject!)]);
+      expect(settleDiagnostics).toEqual([
+        ["deparse_target_unsettled", "info", "constraint:app.t.t_check"],
+      ]);
     } finally {
       await Promise.all([target.drop(), shadow.drop()]);
     }

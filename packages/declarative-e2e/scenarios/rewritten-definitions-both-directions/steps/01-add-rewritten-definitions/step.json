@@ -1,0 +1,9 @@
+{
+  "migration": "some",
+  "contains": [
+    "create table public.r",
+    "create trigger rt",
+    "public.rdef",
+    "public.rpt"
+  ]
+}

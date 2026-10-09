@@ -15,6 +15,7 @@ import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { probeApplierCapability } from "../src/policy/capability.ts";
 import { rel } from "../src/plan/render.ts";
+import { settleDesired } from "../src/frontends/settle-desired.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import { enforceActionShapeBudgetForMode } from "./action-shape-budgets.ts";
 import { enforceSeedCoverage, runPinnedDirection } from "./seed-coverage.ts";
@@ -140,6 +141,7 @@ async function proveOn(
   toSql: string,
   seed: string | undefined,
   createroleApplier: boolean,
+  settle: boolean,
 ): Promise<void> {
   if (createroleApplier) {
     await ensureCreateroleApplier(clusterA);
@@ -169,10 +171,24 @@ async function proveOn(
     await desiredWork.query(toSql);
     if (seed) await sourceWork.query(seed);
 
-    const [sourceState, desiredState] = [
-      await extractState(sourceWork),
-      await extractState(desiredWork),
-    ];
+    const sourceState = await extractState(sourceWork);
+    let desiredState = await extractState(desiredWork);
+    if (settle) {
+      const settled = await settleDesired(
+        desiredWork,
+        sourceState.factBase,
+        desiredState.factBase,
+      );
+      const settleFailures = settled.diagnostics.filter(
+        (d) => d.code === "deparse_settle_failed",
+      );
+      if (settleFailures.length > 0) {
+        throw new Error(
+          `[${name}] ${settleFailures.map((d) => d.message).join("\n")}`,
+        );
+      }
+      desiredState = { ...desiredState, factBase: settled.factBase };
+    }
     // Probe the connection that will apply (superuser `test`, or the
     // CREATEROLE login when `createroleApplier` is set) so capability-gated
     // compaction sees the same role as extract/prove.
@@ -313,6 +329,7 @@ async function runDirection(
             toSql,
             seed,
             scenario.meta.createroleApplier === true,
+            scenario.meta.settleDesired === true,
           ),
         ),
       );

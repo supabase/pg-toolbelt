@@ -62,8 +62,13 @@ flowchart TD
   - #513, OrioleDB. Before it, the export re-created the preinstalled `orioledb`
     extension, so the first sync failed with `extension "orioledb" already
     exists`.
+  - #510, definitions Postgres rewrites on replay (a `BETWEEN` or row
+    comparison on the left of the same `AND`/`OR`, nested rows), in both
+    directions: the schema files hold the nested spelling
+    (`trigger-when-row-comparison`, `rewritten-definitions-both-directions`
+    step 01), or a hand-written migration history does and the tree comes from
+    `generate` (its bootstrap), plus a real edit and a regenerate.
 - **Known issues:**
-  - #510, a trigger `WHEN` with a 3+ column row comparison never converges.
   - #517 (fix in #520): `REVOKE ALL ON SCHEMA public FROM anon, PUBLIC` is
     lost by the export, so the unchanged re-sync grants `USAGE` back.
 

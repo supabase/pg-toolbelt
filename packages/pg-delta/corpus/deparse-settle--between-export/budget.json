@@ -1,0 +1,18 @@
+{
+  "a-to-b": {
+    "forbid": [
+      "replacement:constraint",
+      "replacement:index",
+      "replacement:view",
+      "replacement:policy"
+    ]
+  },
+  "b-to-a": {
+    "forbid": [
+      "replacement:constraint",
+      "replacement:index",
+      "replacement:view",
+      "replacement:policy"
+    ]
+  }
+}

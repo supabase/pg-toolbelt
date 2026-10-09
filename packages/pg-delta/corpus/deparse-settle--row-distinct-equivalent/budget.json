@@ -1,0 +1,17 @@
+{
+  "a-to-b": {
+    "forbid": [
+      "replacement:column",
+      "replacement:constraint",
+      "replacement:index",
+      "replacement:materializedView",
+      "replacement:policy",
+      "replacement:rule",
+      "replacement:trigger",
+      "replacement:view",
+      "alter:default",
+      "alter:domain",
+      "alter:function"
+    ]
+  }
+}
