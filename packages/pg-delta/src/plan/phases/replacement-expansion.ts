@@ -10,7 +10,7 @@
  */
 import type { Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
-import { encodeId, type StableId } from "../../core/stable-id.ts";
+import { encodeId, encodeIdMemo, type StableId } from "../../core/stable-id.ts";
 import { cascadesToChildren, isRebuildable } from "../rule-flags.ts";
 import type { ReplaceRootChange, RulesForId } from "../rules.ts";
 
@@ -281,51 +281,129 @@ export function expandReplacements(
   // dropRootOf(id) = nearest removed ancestor whose drop action will exist. FK
   // constraint drops are NEVER suppressed: an explicit DROP CONSTRAINT before
   // the table drops makes mutual-FK teardown cycles unconstructible
-  // (decomposition over repair, §3.5).
-  const dropRootOf = new Map<string, string>();
-  const findDropRoot = (fact: Fact): string => {
-    const key = encodeId(fact.id);
-    const cached = dropRootOf.get(key);
-    if (cached) return cached;
-    let root = key;
-    const rules = rulesForId(fact.id);
-    const suppressible = rules.suppressible?.(fact) ?? true;
-    const parent = fact.parent;
-    if (parent !== undefined && suppressible) {
-      const parentRemoved = isRemovedId(parent);
-      // a metadata satellite folds into ANY removed parent; otherwise the parent
-      // kind must be one whose DROP cascades to children
-      const cascades =
-        rules.metadata === true || cascadesToChildren(parent.kind);
-      if (parentRemoved && cascades) {
-        root = findDropRoot(
-          removed.get(encodeId(parent)) ?? (source.get(parent) as Fact),
-        );
-      }
-    }
-    dropRootOf.set(key, root);
-    return root;
-  };
-  for (const fact of removed.values()) findDropRoot(fact);
-
-  // a fact whose drop folds into a NON-parent ancestor (an OWNED BY sequence
-  // into its owning column/table, an attached child index into its parent
-  // index) — declared per-kind via dropRootRedirect. Replaced facts are not
-  // in `removed`; without this pass their DROP is emitted next to the parent
-  // replace and PostgreSQL rejects `DROP INDEX` on an attached child.
+  // (decomposition over repair, §3.5). `unfolded` children keep their own drop
+  // for the same reason (see the bridge pass below).
   const redirectFacts: Fact[] = [...removed.values()];
   for (const key of replaceIds) {
     const fact = source.getByEncoded(key);
     if (fact !== undefined) redirectFacts.push(fact);
   }
-  for (const fact of redirectFacts) {
-    const redirect = rulesForId(fact.id).dropRootRedirect?.(fact, isRemovedId);
-    if (redirect === undefined) continue;
-    const redirectKey = encodeId(redirect);
-    dropRootOf.set(
-      encodeId(fact.id),
-      dropRootOf.get(redirectKey) ?? redirectKey,
-    );
+  const computeDropRoots = (
+    unfolded: ReadonlySet<string>,
+  ): Map<string, string> => {
+    const dropRootOf = new Map<string, string>();
+    const findDropRoot = (fact: Fact): string => {
+      const key = encodeId(fact.id);
+      const cached = dropRootOf.get(key);
+      if (cached) return cached;
+      let root = key;
+      const rules = rulesForId(fact.id);
+      const suppressible = rules.suppressible?.(fact) ?? true;
+      const parent = fact.parent;
+      if (parent !== undefined && suppressible && !unfolded.has(key)) {
+        const parentRemoved = isRemovedId(parent);
+        // a metadata satellite folds into ANY removed parent; otherwise the parent
+        // kind must be one whose DROP cascades to children
+        const cascades =
+          rules.metadata === true || cascadesToChildren(parent.kind);
+        if (parentRemoved && cascades) {
+          root = findDropRoot(
+            removed.get(encodeId(parent)) ?? (source.get(parent) as Fact),
+          );
+        }
+      }
+      dropRootOf.set(key, root);
+      return root;
+    };
+    for (const fact of removed.values()) findDropRoot(fact);
+
+    // a fact whose drop folds into a NON-parent ancestor (an OWNED BY sequence
+    // into its owning column/table, an attached child index into its parent
+    // index) — declared per-kind via dropRootRedirect. Replaced facts are not
+    // in `removed`; without this pass their DROP is emitted next to the parent
+    // replace and PostgreSQL rejects `DROP INDEX` on an attached child.
+    for (const fact of redirectFacts) {
+      const redirect = rulesForId(fact.id).dropRootRedirect?.(
+        fact,
+        isRemovedId,
+      );
+      if (redirect === undefined) continue;
+      const redirectKey = encodeId(redirect);
+      dropRootOf.set(
+        encodeId(fact.id),
+        dropRootOf.get(redirectKey) ?? redirectKey,
+      );
+    }
+    return dropRootOf;
+  };
+
+  // A folded child that depends on a SEPARATELY-dropped object which itself
+  // reaches back into the child's drop root cannot ride that root's DROP: an
+  // index or CHECK calling f(t), where f takes t's row type, puts DROP t before
+  // DROP f (the child dies with t) while f must go first (it depends on t's
+  // row type). Unfold such children so their own DROP precedes f (#533).
+  const unfolded = new Set<string>();
+  let dropRootOf = computeDropRoots(unfolded);
+  for (;;) {
+    const roots = dropRootOf;
+    // a replaced fact (e.g. a function rebuilt because it takes a replaced
+    // table's row type) is dropped by its own replace action: a root too
+    const rootOf = (key: string): string | undefined =>
+      roots.get(key) ?? (replaceIds.has(key) ? key : undefined);
+    // folded children with a dependency dropped under another root, by root
+    const candidatesByRoot = new Map<string, string[]>();
+    for (const [key, root] of roots) {
+      if (root === key || unfolded.has(key)) continue;
+      for (const edge of source.outgoingEdgesByEncoded(key)) {
+        const toRoot = rootOf(encodeIdMemo(edge.to));
+        if (toRoot === undefined || toRoot === root) continue;
+        const list = candidatesByRoot.get(root) ?? [];
+        list.push(key);
+        candidatesByRoot.set(root, list);
+        break;
+      }
+    }
+    if (candidatesByRoot.size === 0) break;
+    const membersByRoot = new Map<string, string[]>();
+    for (const root of candidatesByRoot.keys())
+      if (!roots.has(root)) membersByRoot.set(root, [root]);
+    for (const [key, root] of roots) {
+      if (!candidatesByRoot.has(root)) continue;
+      const list = membersByRoot.get(root) ?? [];
+      list.push(key);
+      membersByRoot.set(root, list);
+    }
+    // Walk BACKWARD from each candidate root: the separately-dropped objects
+    // that depend on it are usually few, while a forward walk per child would
+    // re-traverse a shared dependency chain once per child (quadratic).
+    const bridged: string[] = [];
+    for (const [root, candidates] of candidatesByRoot) {
+      const dependsOnRoot = new Set<string>();
+      const stack = [...(membersByRoot.get(root) ?? [])];
+      while (stack.length > 0) {
+        for (const edge of source.incomingEdgesByEncoded(
+          stack.pop() as string,
+        )) {
+          const fromKey = encodeIdMemo(edge.from);
+          const fromRoot = rootOf(fromKey);
+          // a surviving dependent orders no drop
+          if (fromRoot === undefined || fromRoot === root) continue;
+          if (dependsOnRoot.has(fromKey)) continue;
+          dependsOnRoot.add(fromKey);
+          stack.push(fromKey);
+        }
+      }
+      if (dependsOnRoot.size === 0) continue;
+      for (const key of candidates) {
+        const bridges = source
+          .outgoingEdgesByEncoded(key)
+          .some((edge) => dependsOnRoot.has(encodeIdMemo(edge.to)));
+        if (bridges) bridged.push(key);
+      }
+    }
+    if (bridged.length === 0) break;
+    for (const key of bridged) unfolded.add(key);
+    dropRootOf = computeDropRoots(unfolded);
   }
 
   return { replaceIds, dropRootOf };

@@ -258,6 +258,11 @@ export class FactBase {
     return this.#outgoing.get(encodeIdMemo(id)) ?? [];
   }
 
+  /** Forward edges by already-encoded id (avoids re-encoding in hot walks). */
+  outgoingEdgesByEncoded(encoded: string): readonly DependencyEdge[] {
+    return this.#outgoing.get(encoded) ?? [];
+  }
+
   /** Edges pointing AT `id` (reverse index): the facts that depend on it. Used
    *  by the planner's forced-rebuild reachability walk (O(reachable) instead of
    *  rescanning every edge each round). */
