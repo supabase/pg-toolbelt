@@ -333,7 +333,7 @@ export function renderMarkdown(
     "- **Round trips** and **connections** regress on any increase; **bytes received** on growth over " +
       `${Math.round(t.bytesRatio * 100)}%. All three are deterministic for the fixed fixture catalog.`,
     `- Fewer than ${MIN_ROUNDS} completed rounds (e.g. a slowdown that ate the time budget) also fails.`,
-    "- An intended slowdown: add the `perf-accepted` label; the verdict re-runs without re-measuring. The label never waives a scenario that errors on the head.",
+    "- An intended slowdown: add the `perf-accepted` label; the verdict re-runs without re-measuring (on a fork PR, re-run the failed `Verdict` job by hand). The label never waives a scenario that errors on the head.",
     "- Reproduce locally: `cd packages/pg-delta && bun scripts/bench/run.ts --base <base checkout> && bun scripts/bench/compare.ts bench-results.json`.",
     "",
     "</details>",
