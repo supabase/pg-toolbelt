@@ -86,7 +86,11 @@ describe("benchmark gate", () => {
       [100, 100],
       [100, 100],
     ]);
-    for (const round of fresh.rounds) round.base = {};
+    // The base measured another scenario, so only "s" is new.
+    for (const round of fresh.rounds) {
+      round.base = { other: { ms: [100] } };
+      round.head = { ...round.head, other: { ms: [100] } };
+    }
     expect(verdicts(fresh)).toEqual({ time: "new" });
     expect(failures(compare(fresh))).toBe(0);
   });
@@ -101,6 +105,12 @@ describe("benchmark gate", () => {
     for (const round of noBase.rounds) round.base = null;
     expect(gateFails(compare(noBase), false)).toBe(true);
     expect(gateFails(compare(noBase), true)).toBe(false);
+
+    // The base worker runs but every scenario errors (harness incompatible
+    // with the base): nothing was compared either.
+    const allErrors = results(Array.from({ length: 3 }, () => [100, 100]));
+    for (const round of allErrors.rounds) round.base = { s: { error: "boom" } };
+    expect(gateFails(compare(allErrors), false)).toBe(true);
 
     const crashed = results(Array.from({ length: 3 }, () => [100, 100]));
     crashed.rounds[0]!.head = null;

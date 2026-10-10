@@ -103,6 +103,14 @@ export function compare(
     ];
   }
 
+  // A scenario the base errors on is new in this PR, but only if the base
+  // measured something else: a base that crashed or errored everywhere means
+  // nothing was compared at all.
+  const baseMeasured = results.rounds.some(
+    (r) =>
+      r.base !== null && Object.values(r.base).some((v) => !("error" in v)),
+  );
+
   return [...names].map((name): ScenarioComparison => {
     const head = results.rounds.map((r) => sampleOf(r.head, name));
     const base = results.rounds.map((r) => sampleOf(r.base, name));
@@ -119,9 +127,6 @@ export function compare(
     const headSamples = head.filter(isSample);
     const baseSamples = base.filter(isSample);
     if (baseSamples.length === 0) {
-      // A scenario the base errors on is new in this PR; a base worker that
-      // crashed every round means nothing was compared at all.
-      const baseCrashed = results.rounds.every((r) => r.base === null);
       return {
         name,
         metrics: [
@@ -129,7 +134,7 @@ export function compare(
             metric: "time",
             base: null,
             head: median(headSamples.map((s) => median(s.ms))),
-            verdict: baseCrashed ? "unmeasured" : "new",
+            verdict: baseMeasured ? "new" : "unmeasured",
           },
         ],
       };
