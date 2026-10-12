@@ -103,8 +103,10 @@ jobs:
           DECLARATIVE_BACKEND: ${{ matrix.backend }}
           DECLARATIVE_SCENARIOS: ${{ (github.event_name == 'schedule' || inputs.scenarios == 'all') && 'all' || '' }}
         run: bun test tests/
+      # A failing scenario leaves the cache complete, so it still seeds the PR runs; a cancelled or
+      # timed-out run may stop mid-download, and a saved key can never be overwritten.
       - name: Save the stack cache
-        if: matrix.backend == 'stack' && steps.stack-cache.outputs.seed == 'true'
+        if: "!cancelled() && matrix.backend == 'stack' && steps.stack-cache.outputs.seed == 'true'"
         uses: actions/cache/save@v4
         with:
           # The daemon identity belongs to this runner's Docker, not the next one's.
