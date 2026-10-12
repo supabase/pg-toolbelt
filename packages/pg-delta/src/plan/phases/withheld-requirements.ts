@@ -29,6 +29,7 @@ import { ambientRequirements } from "../internal.ts";
 import { subtreeIds } from "../renames.ts";
 import { securityLabelProviderExtension } from "../rules/metadata.ts";
 import { isEnforcementFact } from "../rules/constraints.ts";
+import { inlinedDefaultRequirement } from "../rules/tables.ts";
 
 /** Projection stages that take a fact out of the user's hands. `managedBy`
  * (intent replay provisions it), `managementScope` (assumed roles cover it) and
@@ -119,6 +120,14 @@ export function cascadeWithheldRequirements(
     }
     const provider = securityLabelProviderExtension(id);
     if (provider !== undefined && rawDesired.has(provider)) out.push(provider);
+    // A new column that has to inline its default needs that default kept:
+    // reverting it alone would leave an `ADD COLUMN … NOT NULL` the existing
+    // rows reject. Only on a table the target already has — one this plan
+    // creates arrives empty, so the bare column applies.
+    if (parent !== undefined && onTarget(parent)) {
+      const inlined = inlinedDefaultRequirement(desired, id);
+      if (inlined !== undefined) out.push(inlined);
+    }
     return out;
   };
 
