@@ -334,6 +334,7 @@ export function renderMarkdown(
       `${Math.round(t.bytesRatio * 100)}%. All three are deterministic for the fixed fixture catalog.`,
     `- Fewer than ${MIN_ROUNDS} completed rounds (e.g. a slowdown that ate the time budget) also fails.`,
     "- An intended slowdown: add the `perf-accepted` label; the verdict re-runs without re-measuring (on a fork PR, re-run the failed `Verdict` job by hand). The label never waives a scenario that errors on the head.",
+    "- Only warm, steady-state calls are measured (long-lived workers, warmed up first). Module-load cost and per-process cold caches, which every CLI invocation pays, are not covered.",
     "- Reproduce locally: `cd packages/pg-delta && bun scripts/bench/run.ts --base <base checkout> && bun scripts/bench/compare.ts bench-results.json`.",
     "",
     "</details>",
@@ -351,17 +352,36 @@ if (import.meta.main) {
       "head-ref": { type: "string", default: "head" },
     },
   });
-  const results = (await Bun.file(
-    positionals[0] ?? "bench-results.json",
-  ).json()) as BenchResults;
-  const comparisons = compare(results);
-  const markdown = renderMarkdown(comparisons, {
-    accepted: values.accepted,
-    meta: results.meta,
-    baseRef: values["base-ref"],
-    headRef: values["head-ref"],
-  });
+  const file = Bun.file(positionals[0] ?? "bench-results.json");
+  let markdown: string;
+  let failed: boolean;
+  if (await file.exists()) {
+    const results = (await file.json()) as BenchResults;
+    const comparisons = compare(results);
+    markdown = renderMarkdown(comparisons, {
+      accepted: values.accepted,
+      meta: results.meta,
+      baseRef: values["base-ref"],
+      headRef: values["head-ref"],
+    });
+    failed = gateFails(comparisons, values.accepted);
+  } else {
+    // The Measure job failed or timed out (possibly a pathological slowdown):
+    // replace the previous report rather than leave its verdict standing.
+    const { GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID } = process.env;
+    const run =
+      GITHUB_RUN_ID === undefined
+        ? ""
+        : ` ([run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}))`;
+    markdown = [
+      REPORT_MARKER,
+      "## pg-delta benchmark: ❌ measurement failed",
+      "",
+      `No results for \`${values["head-ref"]}\`: the Measure job failed or timed out${run}. \`perf-accepted\` does not waive this.`,
+    ].join("\n");
+    failed = true;
+  }
   console.log(markdown);
   if (values.markdown !== undefined) await Bun.write(values.markdown, markdown);
-  process.exit(gateFails(comparisons, values.accepted) ? 1 : 0);
+  process.exit(failed ? 1 : 0);
 }

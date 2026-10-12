@@ -51,13 +51,31 @@ jobs:
     name: Measure
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      base-sha: ${{ steps.base.outputs.sha }}
     steps:
       - name: Checkout head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+      # On a PR the head is GitHub's merge commit; its first parent is the base
+      # it was merged onto, so head = base + exactly this PR by construction
+      # (pull_request.base.sha can lag when the base moves under the merge ref).
+      - name: Resolve base
+        id: base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ inputs.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            echo "sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${BASE_REF:-$GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
       - name: Checkout base
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha || inputs.base_ref || github.sha }}
+          ref: ${{ steps.base.outputs.sha }}
           path: .bench-base
       - name: Setup
         uses: ./.github/actions/setup
@@ -83,6 +101,10 @@ jobs:
 
   verdict:
     needs: measure
+    # Also after a failed or timed-out Measure, so the PR comment never keeps
+    # an earlier ✅ (compare.ts reports the missing results). Skipped (draft,
+    # release PR) and cancelled runs stay silent.
+    if: ${{ !cancelled() && needs.measure.result != 'skipped' }}
     name: Verdict
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -106,7 +128,7 @@ jobs:
       - name: Download results
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name pg-delta-benchmark --dir "$RUNNER_TEMP"
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name pg-delta-benchmark --dir "$RUNNER_TEMP" || echo "::warning::no benchmark results to download"
       - name: Compare
         id: compare
         working-directory: packages/pg-delta
@@ -114,7 +136,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_ref || github.sha }}
+          BASE_SHA: ${{ needs.measure.outputs.base-sha || github.event.pull_request.base.sha || inputs.base_ref || github.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           # Read labels live, not from the event payload: a re-run after the
