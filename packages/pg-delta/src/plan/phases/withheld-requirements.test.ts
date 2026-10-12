@@ -912,3 +912,64 @@ describe("regression pins — requirements present, produced, or ambient", () =>
     ).toBe(true);
   });
 });
+
+describe("a new NOT NULL column whose default is withheld", () => {
+  const t: StableId = { kind: "table", schema: "public", name: "t" };
+  const colId: StableId = {
+    kind: "column",
+    schema: "public",
+    table: "t",
+    name: "id",
+  };
+  const colKey: StableId = {
+    kind: "column",
+    schema: "public",
+    table: "t",
+    name: "key_id",
+  };
+  const defKey: StableId = {
+    kind: "default",
+    schema: "public",
+    table: "t",
+    name: "key_id",
+  };
+
+  const run = (notNull: boolean, tableOnTarget: boolean) => {
+    const live = [
+      f(publicSchema),
+      f(t, publicSchema, tablePayload()),
+      f(colId, t, colPayload("integer", 1)),
+    ];
+    const source = buildFactBase(tableOnTarget ? live : [f(publicSchema)], []);
+    const desired = buildFactBase(
+      [
+        ...live,
+        pgsodiumFact(),
+        f(colKey, t, { ...colPayload("uuid", 2), notNull }),
+        f(defKey, colKey, { expr: "(pgsodium.create_key()).id" }),
+      ],
+      [{ from: defKey, to: pgsodium, kind: "depends" }],
+    );
+    return plan(source, desired, { policy: supabasePolicy });
+  };
+
+  test("the column is skipped with it: ADD COLUMN … NOT NULL would fail on existing rows", () => {
+    const p = run(true, true);
+    expect(sqlOf(p)).toEqual([]);
+    expect(cascadeSubjects(p)).toEqual([colKey, defKey].map(encodeId).sort());
+  });
+
+  test("a nullable column is still added, without the default", () => {
+    const p = run(false, true);
+    expect(sqlOf(p)).toEqual([
+      `ALTER TABLE "public"."t" ADD COLUMN "key_id" uuid`,
+    ]);
+    expect(cascadeSubjects(p)).toEqual([encodeId(defKey)]);
+  });
+
+  test("a new table keeps the NOT NULL column: it is created empty", () => {
+    const p = run(true, false);
+    expect(sqlOf(p).some((s) => /"key_id" uuid NOT NULL/.test(s))).toBe(true);
+    expect(cascadeSubjects(p)).toEqual([encodeId(defKey)]);
+  });
+});

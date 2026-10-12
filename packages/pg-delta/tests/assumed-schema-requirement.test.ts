@@ -21,7 +21,9 @@
  * Docker required.
  */
 import { afterAll, describe, expect, test } from "bun:test";
+import { apply } from "../src/apply/apply.ts";
 import { extract } from "../src/extract/extract.ts";
+import { encodeId } from "../src/core/stable-id.ts";
 import { plan } from "../src/plan/plan.ts";
 import { supabasePolicy } from "../src/policy/supabase.ts";
 import { sharedCluster, type TestDb } from "./containers.ts";
@@ -119,5 +121,60 @@ describe("assumed-schema requirement guard", () => {
     expect(
       thePlan.actions.some((a) => /CREATE (OR REPLACE )?FUNCTION/i.test(a.sql)),
     ).toBe(false);
+  }, 120_000);
+
+  test("a NOT NULL column whose default needs an absent assumed-schema function is skipped whole", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("notnull_default_src");
+    const desired = await cluster.createDb("notnull_default_dst");
+    dbs.push(source, desired);
+
+    // target: the table is populated, and `auth.make_id()` was never created.
+    await source.pool.query(`
+      CREATE SCHEMA auth;
+      CREATE TABLE public.t (id integer);
+      INSERT INTO public.t (id) VALUES (1), (2);
+    `);
+    // desired: a NOT NULL column defaulting to an auth-schema function the
+    // profile keeps reference-only, plus a nullable one for contrast.
+    await desired.pool.query(`
+      CREATE SCHEMA auth;
+      CREATE FUNCTION auth.make_id() RETURNS integer LANGUAGE sql AS $$ SELECT 7 $$;
+      CREATE TABLE public.t (
+        id integer,
+        n integer NOT NULL DEFAULT auth.make_id(),
+        m integer DEFAULT auth.make_id()
+      );
+    `);
+
+    const [sourceState, desiredState] = await Promise.all([
+      extract(source.pool),
+      extract(desired.pool),
+    ]);
+
+    const thePlan = plan(sourceState.factBase, desiredState.factBase, {
+      policy: supabasePolicy,
+    });
+    // RED before the fix: `ALTER TABLE "public"."t" ADD COLUMN "n" integer NOT
+    // NULL` with only a warning, which apply rejects with `column "n" of
+    // relation "t" contains null values`. The nullable column still arrives.
+    expect(thePlan.actions.map((a) => a.sql)).toEqual([
+      `ALTER TABLE "public"."t" ADD COLUMN "m" integer`,
+    ]);
+    expect(
+      (thePlan.diagnostics ?? []).map((d) => [
+        d.code,
+        d.subject === undefined ? "" : encodeId(d.subject),
+      ]),
+    ).toContainEqual(["excluded-by-cascade", "column:public.t.n"]);
+
+    const report = await apply(thePlan, source.pool, {
+      fingerprintGate: false,
+    });
+    expect(report.status).toBe("applied");
+    const rows = await source.pool.query(
+      `SELECT count(*)::int AS c FROM public.t`,
+    );
+    expect(rows.rows[0].c).toBe(2);
   }, 120_000);
 });
