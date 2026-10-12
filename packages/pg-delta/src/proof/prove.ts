@@ -10,7 +10,11 @@
  *      risk is observed on the clone, not certified by the rule)
  */
 import type { Pool } from "pg";
-import { apply, type ApplyError } from "../apply/apply.ts";
+import {
+  apply,
+  assertNoUnsettableOwners,
+  type ApplyError,
+} from "../apply/apply.ts";
 import { diff, type Delta } from "../core/diff.ts";
 import type { FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
@@ -639,10 +643,11 @@ export async function provePlan(
   desired: FactBase,
   options: ProveOptions = {},
 ): Promise<ProducedProofVerdict> {
-  // planId preflight: a plan mutated after plan() stamped it must be rejected
+  // planId + owner preflight: a mutated or owner-flagged plan must be rejected
   // BEFORE any clone work (re-extract, stats, auto-seed), not deep inside
   // apply — every public execution path validates the immutable plan first.
   assertPlanId(thePlan, "prove");
+  assertNoUnsettableOwners(thePlan, "prove");
   const auditAvailable = thePlan.projectionAudit !== undefined;
   const projectionAuditStatus = auditAvailable ? "available" : "unavailable";
   const projectionAudit: ProjectionAudit = auditAvailable

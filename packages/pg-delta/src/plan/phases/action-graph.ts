@@ -44,6 +44,9 @@ export interface FinalizeInput {
   /** action index → encoded `destroys` ids that are side-effect wipes (see
    *  ActionEmitterOutput.implicitDestroys). */
   implicitDestroys: ReadonlyMap<number, ReadonlySet<string>>;
+  /** extra `[before, after]` action-index edges the emitter knows but ids
+   *  cannot express (e.g. after every action of a multi-statement create). */
+  orderAfter: ReadonlyArray<readonly [number, number]>;
   /** per-action compaction metadata captured during emission (never persisted). */
   foldHints: ReadonlyArray<FoldHint | undefined>;
   acceptsFolds: readonly boolean[];
@@ -105,6 +108,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     desired,
     renameActionIndices,
     implicitDestroys,
+    orderAfter,
     foldHints,
     acceptsFolds,
     assumedRoleNames,
@@ -147,6 +151,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     assumedPresentIds,
     evaluatorActions,
     implicitDestroys,
+    orderAfter,
   );
 
   // Order a table's ADD COLUMN creates by declared column position
