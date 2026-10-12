@@ -149,7 +149,13 @@ loop re-derives the view from `plan.policy` *without* one, so a baseline-shaped
 plan would drift at prove time — plus a corpus/integration case proving a
 baseline plan clean; revisit the Phase 2b seed derivation (the
 `seed-assumed-schemas.test.ts` "non-empty seed" pin fails loudly if missed);
-exercise subtraction in CI.
+exercise subtraction in CI; **fix #531 first** — under a baseline, sync never
+diffs the grants on schema `public` (a revoked default grant leaves no fact on
+one side, and subtraction removes the other side's baseline-identical grant),
+so a user's `REVOKE … ON SCHEMA public` edit syncs to an empty plan. The fix is
+parked in closed PR #532 (branch `avallete/public-grants-baseline-known-issue`):
+`subtractBaseline` keeps grants on `public`, with RED → GREEN tests in
+`tests/baseline-public-grants.test.ts`; merge `main` into it and re-run.
 
 ### ✅ Engine refactors (locality/allocation)
 Cleanup items from the 2026-06-15 branch review (reverse-index rebuild,
