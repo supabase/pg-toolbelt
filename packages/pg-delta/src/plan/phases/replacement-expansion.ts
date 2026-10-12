@@ -342,10 +342,10 @@ export function expandReplacements(
   // index or CHECK calling f(t), where f takes t's row type, puts DROP t before
   // DROP f (the child dies with t) while f must go first (it depends on t's
   // row type). Unfold such children so their own DROP precedes f (#533).
-  const unfolded = new Set<string>();
-  let dropRootOf = computeDropRoots(unfolded);
-  for (;;) {
-    const roots = dropRootOf;
+  const findBridgedChildren = (
+    roots: ReadonlyMap<string, string>,
+    unfolded: ReadonlySet<string>,
+  ): string[] => {
     // a replaced fact (e.g. a function rebuilt because it takes a replaced
     // table's row type) is dropped by its own replace action: a root too
     const rootOf = (key: string): string | undefined =>
@@ -363,7 +363,7 @@ export function expandReplacements(
         break;
       }
     }
-    if (candidatesByRoot.size === 0) break;
+    if (candidatesByRoot.size === 0) return [];
     const membersByRoot = new Map<string, string[]>();
     for (const root of candidatesByRoot.keys())
       if (!roots.has(root)) membersByRoot.set(root, [root]);
@@ -401,9 +401,19 @@ export function expandReplacements(
         if (bridges) bridged.push(key);
       }
     }
-    if (bridged.length === 0) break;
+    return bridged;
+  };
+
+  // Unfolding re-roots the child's own satellites, which can expose another
+  // bridge, so repeat until none is left. Each round only adds keys not yet in
+  // `unfolded`, so this ends within |removed| rounds (one in practice).
+  const unfolded = new Set<string>();
+  let dropRootOf = computeDropRoots(unfolded);
+  let bridged = findBridgedChildren(dropRootOf, unfolded);
+  while (bridged.length > 0) {
     for (const key of bridged) unfolded.add(key);
     dropRootOf = computeDropRoots(unfolded);
+    bridged = findBridgedChildren(dropRootOf, unfolded);
   }
 
   return { replaceIds, dropRootOf };
