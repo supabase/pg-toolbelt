@@ -2132,3 +2132,14 @@ cycle; both reproduce on `main` before #534 too.
   through `DROP EXTENSION`), so it has no drop root and the bridge pass skips
   it. It needs extension members mapped to their extension's drop root. No
   shipped extension defines such a function; it takes a custom extension.
+- **Bridge walk cost on a shared chain reached from every root.** The bridge
+  pass walks backward once per drop root that has a candidate child. When one
+  long chain of dropped objects depends on every such root, each walk
+  re-traverses it, so the pass is O(roots × chain). Codex measured ~4.7 s for
+  a synthetic 2,000-table base whose function chain head depends on every
+  table; that needs one function body referencing thousands of tables.
+  Realistic shapes stay cheap (an index and CHECK calling functions on each of
+  1,000 tables: +0–3 ms over `main`). A linear fix: build the drop-root graph
+  once (edge A → B when a member of A depends on a member of B), compute its
+  strongly connected components, and unfold a folded child of root R whose
+  dependency's root shares R's component.
