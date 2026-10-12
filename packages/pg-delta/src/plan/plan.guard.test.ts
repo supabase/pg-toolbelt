@@ -67,6 +67,7 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   "phases/action-graph.ts": 1,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,
+  "phases/withheld-requirements.ts": 0,
   // 7 → 8: the platform-provisioned assumed-schema-member scan discriminates
   // owner edges to role facts in the RAW extracts (`e.to.kind === "role"`) —
   // 1 deliberate literal, same shape as the dangling-owner auto-add loop.

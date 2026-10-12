@@ -20,6 +20,29 @@ import {
   str,
 } from "./helpers.ts";
 
+/**
+ * The default a new column must inline to be addable, or `undefined` when it
+ * can arrive without one.
+ *
+ * `column.create` below inlines a new column's default because
+ * `ALTER TABLE … ADD COLUMN … NOT NULL` is rejected on a table that already
+ * has rows. A caller that drops the default fact therefore has to drop the
+ * column with it. An identity or generated column materializes its own value
+ * per row, so it needs no default.
+ */
+export function inlinedDefaultRequirement(
+  view: FactView,
+  id: StableId,
+): StableId | undefined {
+  if (id.kind !== "column") return undefined;
+  const fact = view.get(id);
+  if (fact === undefined) return undefined;
+  if (fact.payload["notNull"] !== true) return undefined;
+  if (fact.payload["identity"] != null) return undefined;
+  if (fact.payload["generatedExpr"] != null) return undefined;
+  return view.childrenOf(id).find((c) => c.id.kind === "default")?.id;
+}
+
 export const tableRules: Record<string, KindRules> = {
   table: {
     weight: 4,
