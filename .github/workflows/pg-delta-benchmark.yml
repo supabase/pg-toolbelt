@@ -25,14 +25,9 @@ on:
       - "packages/pg-delta/package.json"
       - "bun.lock"
       - ".github/workflows/pg-delta-benchmark.yml"
-  # Calibration: leave `base_ref` empty to benchmark the ref against itself
-  # (an A/A run — any verdict other than ✅ is a false positive).
-  workflow_dispatch:
-    inputs:
-      base_ref:
-        description: "Ref to compare against (default: the dispatched ref itself)"
-        required: false
-        default: ""
+  # pull_request only: a privileged trigger (workflow_dispatch, push) would run
+  # benchmarked code with write access to the default branch's Actions cache.
+  # A PR that leaves pg-delta's engine untouched is the A/A calibration run.
 
 permissions:
   contents: read
@@ -44,10 +39,9 @@ concurrency:
 jobs:
   measure:
     if: >-
-      github.event_name != 'pull_request' ||
-      (github.event.pull_request.draft == false &&
-       !(github.event.pull_request.head.ref == 'changeset-release/main' &&
-         github.event.pull_request.head.repo.full_name == github.repository))
+      github.event.pull_request.draft == false &&
+      !(github.event.pull_request.head.ref == 'changeset-release/main' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
     name: Measure
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -58,20 +52,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
-      # On a PR the head is GitHub's merge commit; its first parent is the base
-      # it was merged onto, so head = base + exactly this PR by construction
+      # The head is GitHub's merge commit; its first parent is the base it was
+      # merged onto, so head = base + exactly this PR by construction
       # (pull_request.base.sha can lag when the base moves under the merge ref).
       - name: Resolve base
         id: base
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ inputs.base_ref }}
-        run: |
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            echo "sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
-          else
-            echo "sha=${BASE_REF:-$GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          fi
+        run: echo "sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
       - name: Checkout base
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -136,8 +122,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_SHA: ${{ needs.measure.outputs.base-sha || github.event.pull_request.base.sha || inputs.base_ref || github.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ needs.measure.outputs.base-sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # Read labels live, not from the event payload: a re-run after the
           # label is added replays the original (label-less) payload.
@@ -154,9 +140,7 @@ jobs:
           cat "$RUNNER_TEMP/bench-report.md" >> "$GITHUB_STEP_SUMMARY"
           echo "exit-code=$code" >> "$GITHUB_OUTPUT"
       - name: Update PR comment
-        if: >-
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
