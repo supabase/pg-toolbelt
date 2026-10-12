@@ -321,7 +321,10 @@ export function expandReplacements(
     // into its owning column/table, an attached child index into its parent
     // index) — declared per-kind via dropRootRedirect. Replaced facts are not
     // in `removed`; without this pass their DROP is emitted next to the parent
-    // replace and PostgreSQL rejects `DROP INDEX` on an attached child.
+    // replace and PostgreSQL rejects `DROP INDEX` on an attached child. A
+    // redirect wins over `unfolded`: the only bridgeable redirected kind, an
+    // attached partition index, follows its parent index, which bridges and
+    // unfolds in the same round.
     for (const fact of redirectFacts) {
       const redirect = rulesForId(fact.id).dropRootRedirect?.(
         fact,
@@ -337,11 +340,11 @@ export function expandReplacements(
     return dropRootOf;
   };
 
-  // A folded child that depends on a SEPARATELY-dropped object which itself
+  // A folded child that depends on a separately dropped object which itself
   // reaches back into the child's drop root cannot ride that root's DROP: an
   // index or CHECK calling f(t), where f takes t's row type, puts DROP t before
   // DROP f (the child dies with t) while f must go first (it depends on t's
-  // row type). Unfold such children so their own DROP precedes f (#533).
+  // row type). Unfold such children so their own DROP precedes f.
   const findBridgedChildren = (
     roots: ReadonlyMap<string, string>,
     unfolded: ReadonlySet<string>,
@@ -365,39 +368,38 @@ export function expandReplacements(
     }
     if (candidatesByRoot.size === 0) return [];
     const membersByRoot = new Map<string, string[]>();
-    for (const root of candidatesByRoot.keys())
-      if (!roots.has(root)) membersByRoot.set(root, [root]);
     for (const [key, root] of roots) {
-      if (!candidatesByRoot.has(root)) continue;
       const list = membersByRoot.get(root) ?? [];
       list.push(key);
       membersByRoot.set(root, list);
     }
-    // Walk BACKWARD from each candidate root: the separately-dropped objects
-    // that depend on it are usually few, while a forward walk per child would
-    // re-traverse a shared dependency chain once per child (quadratic).
+    // Walk backward one drop action (root) at a time: a root with a member that
+    // depends on any member of `root` drops before it, and so on transitively.
+    // Roots, not single facts: a domain whose folded CHECK reaches the table
+    // drops as one action, while a column depends on the domain itself.
     const bridged: string[] = [];
     for (const [root, candidates] of candidatesByRoot) {
-      const dependsOnRoot = new Set<string>();
-      const stack = [...(membersByRoot.get(root) ?? [])];
+      const dropsBefore = new Set<string>();
+      const stack = [root];
       while (stack.length > 0) {
-        for (const edge of source.incomingEdgesByEncoded(
-          stack.pop() as string,
-        )) {
-          const fromKey = encodeIdMemo(edge.from);
-          const fromRoot = rootOf(fromKey);
-          // a surviving dependent orders no drop
-          if (fromRoot === undefined || fromRoot === root) continue;
-          if (dependsOnRoot.has(fromKey)) continue;
-          dependsOnRoot.add(fromKey);
-          stack.push(fromKey);
+        const current = stack.pop() as string;
+        for (const member of membersByRoot.get(current) ?? [current]) {
+          for (const edge of source.incomingEdgesByEncoded(member)) {
+            const fromRoot = rootOf(encodeIdMemo(edge.from));
+            // a surviving dependent orders no drop
+            if (fromRoot === undefined || fromRoot === root) continue;
+            if (dropsBefore.has(fromRoot)) continue;
+            dropsBefore.add(fromRoot);
+            stack.push(fromRoot);
+          }
         }
       }
-      if (dependsOnRoot.size === 0) continue;
+      if (dropsBefore.size === 0) continue;
       for (const key of candidates) {
-        const bridges = source
-          .outgoingEdgesByEncoded(key)
-          .some((edge) => dependsOnRoot.has(encodeIdMemo(edge.to)));
+        const bridges = source.outgoingEdgesByEncoded(key).some((edge) => {
+          const toRoot = rootOf(encodeIdMemo(edge.to));
+          return toRoot !== undefined && dropsBefore.has(toRoot);
+        });
         if (bridges) bridged.push(key);
       }
     }

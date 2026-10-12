@@ -303,11 +303,14 @@ export function buildActionGraph(
       const key = remember(id);
       const producer = producerOf.get(key);
       const destroyer = destroyerOf.get(key);
-      // A teardown consuming a REPLACED fact (an explicit DROP INDEX / DROP
-      // CONSTRAINT on a table being replaced) removes something from the OLD
+      // A drop consuming a replaced fact (an explicit DROP INDEX / DROP
+      // CONSTRAINT on a table being replaced) removes something from the old
       // incarnation: it orders before the DROP, never after the re-CREATE.
       const tearsDownReplaced =
-        isTeardown && producer !== undefined && destroyer !== undefined;
+        action.verb === "drop" &&
+        isTeardown &&
+        producer !== undefined &&
+        destroyer !== undefined;
       if (producer !== undefined && producer !== index && !tearsDownReplaced)
         edges.push([producer, index]);
       // consumer-before-destroyer applies only when the id is NOT being
