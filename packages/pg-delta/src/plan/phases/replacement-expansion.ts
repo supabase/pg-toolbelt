@@ -11,6 +11,7 @@
 import type { Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
 import { encodeId, encodeIdMemo, type StableId } from "../../core/stable-id.ts";
+import { stronglyConnectedComponents } from "../graph.ts";
 import { cascadesToChildren, isRebuildable } from "../rule-flags.ts";
 import type { ReplaceRootChange, RulesForId } from "../rules.ts";
 
@@ -367,38 +368,34 @@ export function expandReplacements(
       }
     }
     if (candidatesByRoot.size === 0) return [];
-    const membersByRoot = new Map<string, string[]>();
-    for (const [key, root] of roots) {
-      const list = membersByRoot.get(root) ?? [];
-      list.push(key);
-      membersByRoot.set(root, list);
-    }
-    // Walk backward one drop action (root) at a time: a root with a member that
-    // depends on any member of `root` drops before it, and so on transitively.
-    // Roots, not single facts: a domain whose folded CHECK reaches the table
-    // drops as one action, while a column depends on the domain itself.
+    // Drop-root graph: A -> B when a member of A depends on a member of B. A
+    // folded child bridges when its dependency's root shares its own root's
+    // strongly connected component: folding it would close that loop. Roots,
+    // not single facts: a domain whose folded CHECK reaches the table drops as
+    // one action, while a column depends on the domain itself.
+    const dependsOn = new Map<string, Set<string>>();
+    const addEdges = (key: string, root: string): void => {
+      for (const edge of source.outgoingEdgesByEncoded(key)) {
+        const toRoot = rootOf(encodeIdMemo(edge.to));
+        if (toRoot === undefined || toRoot === root) continue;
+        const targets = dependsOn.get(root) ?? new Set<string>();
+        targets.add(toRoot);
+        dependsOn.set(root, targets);
+      }
+    };
+    for (const [key, root] of roots) addEdges(key, root);
+    for (const key of replaceIds) if (!roots.has(key)) addEdges(key, key);
+    const sccOf = stronglyConnectedComponents(dependsOn);
     const bridged: string[] = [];
     for (const [root, candidates] of candidatesByRoot) {
-      const dropsBefore = new Set<string>();
-      const stack = [root];
-      while (stack.length > 0) {
-        const current = stack.pop() as string;
-        for (const member of membersByRoot.get(current) ?? [current]) {
-          for (const edge of source.incomingEdgesByEncoded(member)) {
-            const fromRoot = rootOf(encodeIdMemo(edge.from));
-            // a surviving dependent orders no drop
-            if (fromRoot === undefined || fromRoot === root) continue;
-            if (dropsBefore.has(fromRoot)) continue;
-            dropsBefore.add(fromRoot);
-            stack.push(fromRoot);
-          }
-        }
-      }
-      if (dropsBefore.size === 0) continue;
       for (const key of candidates) {
         const bridges = source.outgoingEdgesByEncoded(key).some((edge) => {
           const toRoot = rootOf(encodeIdMemo(edge.to));
-          return toRoot !== undefined && dropsBefore.has(toRoot);
+          return (
+            toRoot !== undefined &&
+            toRoot !== root &&
+            sccOf.get(toRoot) === sccOf.get(root)
+          );
         });
         if (bridges) bridged.push(key);
       }

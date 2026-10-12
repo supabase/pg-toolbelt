@@ -122,3 +122,69 @@ export function topoSort(
   }
   return order;
 }
+
+/** Tarjan SCC (iterative — no recursion-depth ceiling on large schemas):
+ *  node → component index, over `adjacency` and every node it mentions. */
+export function stronglyConnectedComponents(
+  adjacency: ReadonlyMap<string, ReadonlySet<string>>,
+): Map<string, number> {
+  const sccOf = new Map<string, number>();
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  let counter = 0;
+  let sccCount = 0;
+  const nodes = new Set<string>(adjacency.keys());
+  for (const targets of adjacency.values()) {
+    for (const t of targets) nodes.add(t);
+  }
+  interface Frame {
+    node: string;
+    neighbors: string[];
+    i: number;
+  }
+  const visit = (frames: Frame[], node: string): void => {
+    index.set(node, counter);
+    low.set(node, counter);
+    counter++;
+    stack.push(node);
+    onStack.add(node);
+    frames.push({ node, neighbors: [...(adjacency.get(node) ?? [])], i: 0 });
+  };
+  for (const root of nodes) {
+    if (index.has(root)) continue;
+    const frames: Frame[] = [];
+    visit(frames, root);
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1]!;
+      if (frame.i < frame.neighbors.length) {
+        const next = frame.neighbors[frame.i++]!;
+        if (!index.has(next)) {
+          visit(frames, next);
+        } else if (onStack.has(next)) {
+          low.set(frame.node, Math.min(low.get(frame.node)!, index.get(next)!));
+        }
+      } else {
+        frames.pop();
+        const parent = frames[frames.length - 1];
+        if (parent !== undefined) {
+          low.set(
+            parent.node,
+            Math.min(low.get(parent.node)!, low.get(frame.node)!),
+          );
+        }
+        if (low.get(frame.node) === index.get(frame.node)) {
+          let member: string;
+          do {
+            member = stack.pop()!;
+            onStack.delete(member);
+            sccOf.set(member, sccCount);
+          } while (member !== frame.node);
+          sccCount++;
+        }
+      }
+    }
+  }
+  return sccOf;
+}
