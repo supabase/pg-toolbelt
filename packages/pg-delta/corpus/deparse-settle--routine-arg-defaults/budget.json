@@ -1,0 +1,20 @@
+{
+  "a-to-b": {
+    "forbid": [
+      "replacement:function",
+      "replacement:procedure",
+      "replacement:view",
+      "alter:function",
+      "alter:procedure"
+    ]
+  },
+  "b-to-a": {
+    "forbid": [
+      "replacement:function",
+      "replacement:procedure",
+      "replacement:view",
+      "alter:function",
+      "alter:procedure"
+    ]
+  }
+}

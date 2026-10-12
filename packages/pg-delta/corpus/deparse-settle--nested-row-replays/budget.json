@@ -1,0 +1,5 @@
+{
+  "a-to-b": {
+    "forbid": ["replacement:constraint", "replacement:view"]
+  }
+}

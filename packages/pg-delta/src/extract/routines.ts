@@ -11,13 +11,17 @@ import {
 } from "./scope.ts";
 
 // ── routines (functions + procedures; pg_get_functiondef canonical) ──
-const ROUTINES_SQL = `
+/** `prosqlbody` (a parsed SQL-standard body, deparsed into `def`) is PG14+. */
+function routinesSql(major: number): string {
+  const sqlBodyExpr = major >= 14 ? `p.prosqlbody IS NOT NULL` : `false`;
+  return `
     SELECT n.nspname AS schema, p.proname AS name, r.rolname AS owner,
            p.prokind AS prokind,
            ARRAY(SELECT format_type(t.t, NULL)
                  FROM unnest(p.proargtypes) WITH ORDINALITY AS t(t, ord)
                  ORDER BY t.ord)::text[] AS identity_args,
            pg_get_functiondef(p.oid) AS def,
+           ${sqlBodyExpr} AS sql_body,
            pg_get_function_result(p.oid) AS return_type,
            pg_get_function_arguments(p.oid) AS arg_signature,
            -- proconfig GUC NAMES only (name=value split in POSTGRES, never in
@@ -39,10 +43,11 @@ const ROUTINES_SQL = `
         WHERE idep.classid = 'pg_proc'::regclass AND idep.objid = p.oid
           AND idep.deptype = 'i')
     ORDER BY n.nspname, p.proname`;
+}
 
 export const routinesFamily: CatalogFamily = {
   name: "routines",
-  statements: () => [ROUTINES_SQL],
+  statements: (version) => [routinesSql(version.pgMajor)],
   apply: (ctx, rowSets) => {
     const { pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
     for (const row of rowSets[0]!) {
@@ -97,6 +102,10 @@ export const routinesFamily: CatalogFamily = {
             language: String(row["language"]),
             isWindow: String(row["prokind"]) === "w",
             ...(configGucs.length > 0 ? { _configGucs: configGucs } : {}),
+            // A SQL-standard body is a parse tree, so `def` is a deparse that
+            // may not survive replay verbatim (see frontends/settle-desired.ts);
+            // a string body is stored as written.
+            ...(row["sql_body"] === true ? { _sqlBody: true } : {}),
           },
         },
         row,

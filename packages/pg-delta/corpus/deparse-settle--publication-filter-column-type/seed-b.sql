@@ -1,0 +1,1 @@
+INSERT INTO s.t VALUES (1, 5);

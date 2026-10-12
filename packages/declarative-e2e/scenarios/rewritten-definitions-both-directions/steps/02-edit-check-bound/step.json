@@ -1,0 +1,7 @@
+{
+  "migration": "some",
+  "contains": [
+    "add constraint r_check check (((b >= 0) and (b <= 20) and (a >= 0)))"
+  ],
+  "notContains": ["r_nested", "trigger", "rdef", "rpt"]
+}

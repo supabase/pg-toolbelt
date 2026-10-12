@@ -16,6 +16,10 @@ export interface ScenarioMeta {
    *  implicit bootstrap ADMIN memberships are in the catalog. Implies
    *  isolatedCluster (roles are cluster-global). */
   createroleApplier?: boolean;
+  /** Settle the desired side before planning, as `planSchemaFiles` does, so
+   *  deparse-settle scenarios exercise the declarative path. Every other
+   *  scenario plans and proves the raw database-to-database diff. */
+  settleDesired?: boolean;
 }
 
 export interface Scenario {

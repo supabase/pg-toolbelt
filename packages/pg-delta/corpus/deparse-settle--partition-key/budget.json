@@ -1,0 +1,8 @@
+{
+  "a-to-b": {
+    "forbid": ["replacement:table"]
+  },
+  "b-to-a": {
+    "forbid": ["replacement:table"]
+  }
+}
