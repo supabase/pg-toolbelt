@@ -2084,3 +2084,31 @@ before #500 either (the whole statement was `UNKNOWN`).
   `UNRESOLVED_DEPENDENCY`.
 - **`collation` / `subtype_opclass` options.** Not tracked as dependencies;
   a custom collation or opclass could sort after the range.
+
+## PR #537 review triage (Codex) — benchmark gate
+
+Recorded after six Codex rounds on the benchmark gate
+(`.github/workflows/pg-delta-benchmark*.yml`, `packages/pg-delta/scripts/bench/`).
+Earlier rounds fixed every finding that could let a real regression pass;
+these are narrower and deferred.
+
+- **Label removed while the verdict re-run is in flight.** The accept
+  workflow only re-runs a *completed* benchmark run. If `perf-accepted` is
+  removed during the ~10 s window in which a label-triggered verdict is
+  running, that attempt can finish green with the stale waiver. The next
+  push re-measures and re-judges. A fix would wait for the in-flight
+  attempt, or queue a follow-up re-run, before exiting.
+- **Pool footprint is not gated.** The `connections` metric counts
+  `Client.connect` calls inside a timed sample. Pools are warmed by setup
+  and warmup, so a change that makes extraction hold more concurrent
+  clients reuses them and reports 0 on both sides. Extraction concurrency
+  is an explicit option (default 1), so this needs a deliberate change, and
+  such a change shows up in wall time. A fix would record the summed
+  `pool.totalCount` after warmup as its own metric, or sample from cold
+  pools.
+- **Fork PRs.** The accept workflow skips forks, because a `pull_request`
+  token from a fork is read-only. The waiver still works: a maintainer adds
+  the label, then re-runs the failed `Verdict` job by hand (it reads labels
+  live). Automating this would need a `pull_request_target` or
+  `workflow_run` relay; that wasn't worth the security surface for a
+  non-required check.
