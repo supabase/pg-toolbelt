@@ -349,6 +349,40 @@ function tableRelationOf(id: StableId): string | undefined {
   return undefined;
 }
 
+/* a column ALTER recurses into partitions and inheritance children, rewriting them too */
+async function addInheritanceDescendants(
+  pool: Pool,
+  roots: Set<string>,
+  declared: Set<string>,
+): Promise<void> {
+  const { rows } = await pool.query<{
+    ps: string;
+    pn: string;
+    cs: string;
+    cn: string;
+  }>(`
+    SELECT pn.nspname AS ps, pc.relname AS pn, cn.nspname AS cs, cc.relname AS cn
+    FROM pg_inherits i
+    JOIN pg_class pc ON pc.oid = i.inhparent
+    JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+    JOIN pg_class cc ON cc.oid = i.inhrelid
+    JOIN pg_namespace cn ON cn.oid = cc.relnamespace`);
+  const children = new Map<string, string[]>();
+  for (const r of rows) {
+    const parent = relKey(r.ps, r.pn);
+    const list = children.get(parent);
+    if (list === undefined) children.set(parent, [relKey(r.cs, r.cn)]);
+    else list.push(relKey(r.cs, r.cn));
+  }
+  const seen = new Set(roots);
+  for (const table of seen) {
+    for (const child of children.get(table) ?? []) {
+      seen.add(child);
+      declared.add(child);
+    }
+  }
+}
+
 function tablesReferencedBy(action: Action): Set<string> {
   const out = new Set<string>();
   for (const id of [
@@ -668,6 +702,7 @@ export async function provePlan(
   const recreatedTables = new Set<string>();
   const explicitlyDestroyedRelations = new Set<string>();
   const declaredRewriteTables = new Set<string>();
+  const columnRewriteTables = new Set<string>();
   for (const action of thePlan.actions) {
     for (const id of action.destroys) {
       const rel = tableRelationOf(id);
@@ -682,6 +717,10 @@ export async function provePlan(
     if (action.rewriteRisk) {
       for (const rel of tablesReferencedBy(action))
         declaredRewriteTables.add(rel);
+      for (const id of [...action.produces, ...action.consumes]) {
+        const rel = id.kind === "column" ? tableRelationOf(id) : undefined;
+        if (rel !== undefined) columnRewriteTables.add(rel);
+      }
     }
   }
 
@@ -880,6 +919,12 @@ export async function provePlan(
     preSeedStats === undefined
       ? postSeedStats
       : composeAutoSeedBaseline(preSeedStats, postSeedStats);
+  /* pre-apply is enough: a plan that changes a table's parents rebuilds it */
+  await addInheritanceDescendants(
+    clonePool,
+    columnRewriteTables,
+    declaredRewriteTables,
+  );
   // the proof re-extracts after applying anyway; the fingerprint gate's
   // extra extraction is redundant here (it has its own execution tests)
   const report = await apply(thePlan, clonePool, { fingerprintGate: false });
