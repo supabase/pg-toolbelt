@@ -28,6 +28,7 @@ import { emitActions } from "./phases/action-emitter.ts";
 import { finalizeActions } from "./phases/action-graph.ts";
 import { needsCheckFunctionBodiesOff } from "./preamble.ts";
 import { buildChangeSet } from "./phases/change-set.ts";
+import { relabelRoleNames } from "./identity-normalize.ts";
 import { expandReplacements } from "./phases/replacement-expansion.ts";
 import type { LockClass } from "./locks.ts";
 import type { RenameCandidate, RenameMode } from "./renames.ts";
@@ -415,6 +416,7 @@ export function plan(
     setsByFact,
     renameCandidates,
     acceptedRenames,
+    roleRenameMap,
     projectionSuppressions,
   } = buildChangeSet(rawSource, rawDesired, options, rulesForId);
 
@@ -456,19 +458,17 @@ export function plan(
   // (FK-style: Postgres won't let you drop a server/role a mapping still
   // references) — refusing in plan() just surfaces that earlier and louder.
   //
-  // KNOWN LIMITATION (deliberately not handled here, tracked as a follow-up):
-  // a role RENAME combined with a one-side-hidden mapping. Identity
-  // normalization rewrites visible deltas into the desired role name, while
-  // the extraction diagnostic still names the physical role, so a renamed role
-  // can be invisible to the `unreadableRoles` name-set below. In the realistic
-  // direction (the mapping is hidden on the SOURCE
-  // side), this still fails safely — apply cannot rename a role a hidden
-  // mapping references, for the same FK-style reason as a DROP. The only
-  // truly gap is a hidden mapping combined with a rename that requires an
-  // atypical desired-side privilege inversion, which is not addressed by a
-  // rename-aware translation here.
+  // Role renames (#339): identity normalization rewrote every fact and delta
+  // into desired-name space, but the extraction diagnostics below are read
+  // from the RAW (physical) fact bases. A source-side diagnostic still names
+  // the pre-rename role, so it is relabeled with the SAME `roleRenameMap`
+  // that normalized the deltas; otherwise a mapping hidden on the source
+  // under `old` would miss the `add srv/new` delta and plan a CREATE USER
+  // MAPPING for a mapping PostgreSQL already carries across the rename by
+  // OID. Desired-side diagnostics already name desired-side roles, so they
+  // are left as is.
   //
-  // KNOWN LIMITATION #2 (Codex P1, PR #338 comment 3603601149 — documented,
+  // KNOWN LIMITATION (Codex P1, PR #338 comment 3603601149 — documented,
   // NOT gated): a DESIRED-side unreadable mapping whose containing server (or
   // FDW/role) doesn't exist on the SOURCE side at all. The resulting `add`
   // deltas for the container (CREATE FDW / CREATE SERVER / CREATE ROLE) are
@@ -490,7 +490,15 @@ export function plan(
   const unreadableMappingSubjects = new Set<string>();
   const unreadableServers = new Set<string>();
   const unreadableRoles = new Set<string>();
-  for (const d of [...rawSource.diagnostics, ...rawDesired.diagnostics]) {
+  const diagnosticsInDesiredNameSpace = [
+    ...rawSource.diagnostics.map((d) =>
+      d.subject === undefined
+        ? d
+        : { ...d, subject: relabelRoleNames(d.subject, roleRenameMap) },
+    ),
+    ...rawDesired.diagnostics,
+  ];
+  for (const d of diagnosticsInDesiredNameSpace) {
     if (d.code !== USER_MAPPING_UNREADABLE || d.subject === undefined) {
       continue;
     }

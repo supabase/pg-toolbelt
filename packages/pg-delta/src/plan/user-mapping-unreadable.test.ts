@@ -241,7 +241,7 @@ describe("plan() — unreadable-user-mapping gate extends to server/role drops",
 
 /**
  * Position-pinning (Codex P1, PR #338 comment 3603601149 — DOCUMENTED, NOT
- * gated; see the "KNOWN LIMITATION #2" comment in plan.ts). A desired-side
+ * gated; see the "KNOWN LIMITATION" comment in plan.ts). A desired-side
  * unreadable mapping whose containing server doesn't exist on the source at
  * all produces an un-gated `add` delta for the server; the un-creatable
  * CREATE USER MAPPING is simply never emitted (the mapping fact itself was
