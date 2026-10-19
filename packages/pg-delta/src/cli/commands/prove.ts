@@ -6,7 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 import { parsePlan } from "../../plan/artifact.ts";
-import type { SourceDatabaseIdentity } from "../../plan/plan.ts";
+import type { Plan, SourceDatabaseIdentity } from "../../plan/plan.ts";
 import { rel } from "../../plan/render.ts";
 import {
   provePlan,
@@ -428,10 +428,22 @@ export function assertProofCloneIdentity(
   }
   if (scope !== "database" && source.lineageHash === clone.lineageHash) {
     throw new UsageError(
-      "prove: the clone has the same PostgreSQL lineage as the source; a cluster-scoped plan requires a different lineage",
+      "prove: the clone has the same PostgreSQL lineage as the source; a cluster-scoped plan, or one that changes role settings (ALTER ROLE … SET / RESET), requires a different lineage",
     );
   }
   return "verified";
+}
+
+/** The scope whose clone guarantee the proof needs. Role settings are
+ *  cluster-global even in a database-scope plan, so applying one on a
+ *  same-lineage sibling database would change the source's own roles. */
+function proofCloneScope(thePlan: Plan): Plan["scope"] {
+  const changesRoleSettings = thePlan.actions.some((action) =>
+    [...action.produces, ...action.consumes, ...action.destroys].some(
+      (id) => id.kind === "roleSetting",
+    ),
+  );
+  return changesRoleSettings ? "cluster" : thePlan.scope;
 }
 
 export async function cmdProve(args: string[]): Promise<void> {
@@ -562,7 +574,7 @@ export async function cmdProve(args: string[]): Promise<void> {
     identityStatus = assertProofCloneIdentity(
       undefined,
       undefined,
-      thePlan.scope,
+      proofCloneScope(thePlan),
       allowUnverifiedIdentity,
     );
   } else {
@@ -588,7 +600,7 @@ export async function cmdProve(args: string[]): Promise<void> {
       identityStatus = assertProofCloneIdentity(
         thePlan.source.identity,
         cloneIdentity,
-        thePlan.scope,
+        proofCloneScope(thePlan),
         allowUnverifiedIdentity,
         cloneUnavailableCode,
       );

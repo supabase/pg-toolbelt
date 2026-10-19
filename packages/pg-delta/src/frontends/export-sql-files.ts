@@ -263,6 +263,7 @@ const CATEGORY_PRIORITY: Record<Category, number> = Object.fromEntries(
 const CATEGORY_OF_KIND: Record<string, Category> = {
   role: "cluster",
   membership: "cluster",
+  roleSetting: "cluster",
   defaultPrivilege: "default_privileges",
   fdw: "cluster",
   server: "cluster",
@@ -360,6 +361,7 @@ function scopeRank(id: StableId): number {
     case "defaultPrivilege":
       return 4;
     case "membership":
+    case "roleSetting":
       return 5;
     default:
       return 0;
@@ -370,6 +372,7 @@ function scopeRank(id: StableId): number {
 const CLUSTER_FILES: Record<string, string> = {
   role: "roles.sql",
   membership: "roles.sql",
+  roleSetting: "roles.sql",
   fdw: "foreign_data_wrappers.sql",
   server: "foreign_data_wrappers.sql",
   userMapping: "foreign_data_wrappers.sql",

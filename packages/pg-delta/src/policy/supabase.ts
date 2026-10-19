@@ -277,6 +277,19 @@ export const supabasePolicy: Policy = {
   // method).
   assumedExtensions: ["orioledb"],
 
+  // PostgREST reads its in-database configuration from role-wide `pgrst.*`
+  // settings on the API roles (`ALTER ROLE authenticator SET
+  // "pgrst.db_schemas" = …`). Rule 7 keeps those role OBJECTS platform-owned,
+  // but these settings are the user's, and the non-superuser `postgres` can
+  // set and reset them. Managed apart from the role, in database scope too
+  // (#476).
+  managedRoleSettings: [
+    {
+      roles: ["anon", "authenticated", "authenticator", "service_role"],
+      names: ["pgrst.*"],
+    },
+  ],
+
   // Platform-managed schemas assumed to exist at apply time. Rules 4/5 below
   // project their schema OBJECT out of the managed view, but a kept user object
   // can still reference one as a dependency target — most notably a relocatable

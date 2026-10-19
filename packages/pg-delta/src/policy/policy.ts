@@ -70,10 +70,18 @@
  */
 
 import type { Delta } from "../core/diff.ts";
-import type { DependencyEdge, EdgeKind, Fact, FactBase } from "../core/fact.ts";
+import {
+  buildFactBase,
+  retainOwnerRoleDangling,
+  type DependencyEdge,
+  type EdgeKind,
+  type Fact,
+  type FactBase,
+} from "../core/fact.ts";
 import { contentHash, type PayloadValue } from "../core/hash.ts";
 import type { FactKind, StableId } from "../core/stable-id.ts";
 import { encodeId } from "../core/stable-id.ts";
+import { splitOption } from "../plan/render.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
 import { subtractBaseline } from "./baseline.ts";
 import {
@@ -275,6 +283,16 @@ export interface SerializeRule {
 // Policy
 // ---------------------------------------------------------------------------
 
+/**
+ * Role-wide settings (`ALTER ROLE <role> SET <name> …`, stored in
+ * `pg_db_role_setting` with `setdatabase = 0`) that a policy manages apart from
+ * their role. `roles` and `names` are globs over role and setting names.
+ */
+export interface ManagedRoleSettings {
+  roles: string[];
+  names: string[];
+}
+
 /** A create-time grant the load environment may inject (no privilege list). */
 export interface AssumedDefaultGrant {
   creatingRole: string;
@@ -346,6 +364,16 @@ export interface Policy {
    */
   assumedExtensions?: string[];
   /**
+   * Role-wide settings managed as their own `roleSetting` facts instead of
+   * inside the role fact's `config`. They stay managed when the role object is
+   * excluded by a filter rule (a platform role) and under database scope, so a
+   * declarative file can own them: Supabase's `pgrst.*` settings on the
+   * PostgREST roles (#476). In database scope, declarative files may carry
+   * `ALTER ROLE` only with an isolated shadow, and the shadow's catalog must
+   * show that the load changed nothing else at the cluster level.
+   */
+  managedRoleSettings?: ManagedRoleSettings[];
+  /**
    * The role whose object ownership stays IMPLICIT in a database-scope export:
    * `schema export` suppresses `ALTER … OWNER TO <defaultOwner>` (that role is the
    * expected applier), while every object owned by another role serializes its
@@ -393,6 +421,65 @@ function globMatch(pattern: string, value: string): boolean {
   // `test` on a cached RegExp is only stateful for /g//y regexes; globToRegex
   // never sets either flag, so lastIndex never advances and reuse is safe.
   return globToRegex(pattern).test(value);
+}
+
+/** Whether the role-wide setting `name` on `role` is one of `settings`. */
+export function isManagedRoleSetting(
+  settings: readonly ManagedRoleSettings[],
+  role: string,
+  name: string,
+): boolean {
+  return settings.some(
+    (s) =>
+      s.roles.some((glob) => globMatch(glob, role)) &&
+      s.names.some((glob) => globMatch(glob, name)),
+  );
+}
+
+/**
+ * Move each managed setting out of its role fact's `config` into a standalone
+ * `roleSetting` fact, so the same catalog state is never carried twice.
+ * Returns `fb` itself when nothing matches.
+ */
+export function liftManagedRoleSettings(
+  fb: FactBase,
+  settings: readonly ManagedRoleSettings[],
+): FactBase {
+  if (settings.length === 0) return fb;
+  let lifted = false;
+  const facts: Fact[] = [];
+  for (const fact of fb.facts()) {
+    const config = fact.payload["config"];
+    if (fact.id.kind !== "role" || !Array.isArray(config)) {
+      facts.push(fact);
+      continue;
+    }
+    const role = fact.id.name;
+    const kept: string[] = [];
+    const settingFacts: Fact[] = [];
+    for (const entry of config as string[]) {
+      const [name, value] = splitOption(entry);
+      if (isManagedRoleSetting(settings, role, name)) {
+        settingFacts.push({
+          id: { kind: "roleSetting", role, name },
+          payload: { value },
+        });
+      } else {
+        kept.push(entry);
+      }
+    }
+    if (settingFacts.length === 0) {
+      facts.push(fact);
+      continue;
+    }
+    lifted = true;
+    facts.push({ ...fact, payload: { ...fact.payload, config: kept } });
+    facts.push(...settingFacts);
+  }
+  if (!lifted) return fb;
+  return buildFactBase(facts, [...fb.edges], fb.source, fb.referenceOnly, {
+    allowDangling: retainOwnerRoleDangling,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -813,6 +900,7 @@ export function flattenPolicy(policy: Policy): {
   assumedPublications: string[];
   assumedExtensions: string[];
   assumedDefaultGrants: AssumedDefaultGrant[];
+  managedRoleSettings: ManagedRoleSettings[];
   baseline?: string;
   defaultOwner?: string;
 } {
@@ -832,6 +920,7 @@ function flattenInner(
   assumedPublications: string[];
   assumedExtensions: string[];
   assumedDefaultGrants: AssumedDefaultGrant[];
+  managedRoleSettings: ManagedRoleSettings[];
   baseline?: string;
   defaultOwner?: string;
 } {
@@ -850,6 +939,8 @@ function flattenInner(
   const ownAssumedExtensions: string[] = policy.assumedExtensions ?? [];
   const ownAssumedDefaultGrants: AssumedDefaultGrant[] =
     policy.assumedDefaultGrants ?? [];
+  const ownManagedRoleSettings: ManagedRoleSettings[] =
+    policy.managedRoleSettings ?? [];
   const parentFilter: FilterRule[] = [];
   const parentSerialize: SerializeRule[] = [];
   const parentAssumedRoles: string[] = [];
@@ -857,6 +948,7 @@ function flattenInner(
   const parentAssumedPublications: string[] = [];
   const parentAssumedExtensions: string[] = [];
   const parentAssumedDefaultGrants: AssumedDefaultGrant[] = [];
+  const parentManagedRoleSettings: ManagedRoleSettings[] = [];
   // defaultOwner is scalar: own value wins, else the first parent that declares
   // one (own-before-extends, matching the rule-ordering convention).
   let parentDefaultOwner: string | undefined;
@@ -875,6 +967,7 @@ function flattenInner(
       parentAssumedPublications.push(...flat.assumedPublications);
       parentAssumedExtensions.push(...flat.assumedExtensions);
       parentAssumedDefaultGrants.push(...flat.assumedDefaultGrants);
+      parentManagedRoleSettings.push(...flat.managedRoleSettings);
       if (parentDefaultOwner === undefined && flat.defaultOwner !== undefined) {
         parentDefaultOwner = flat.defaultOwner;
       }
@@ -892,6 +985,7 @@ function flattenInner(
     assumedPublications: string[];
     assumedExtensions: string[];
     assumedDefaultGrants: AssumedDefaultGrant[];
+    managedRoleSettings: ManagedRoleSettings[];
     baseline?: string;
     defaultOwner?: string;
   } = {
@@ -913,6 +1007,10 @@ function flattenInner(
       ...ownAssumedDefaultGrants,
       ...parentAssumedDefaultGrants,
     ]),
+    managedRoleSettings: [
+      ...ownManagedRoleSettings,
+      ...parentManagedRoleSettings,
+    ],
   };
   if (policy.baseline !== undefined) {
     result.baseline = policy.baseline;
@@ -1167,10 +1265,10 @@ function policyRuleAttribution(
  * corpus path is unchanged. This is the SINGLE projection point for the managed view.
  */
 export function resolveView(
-  fb: FactBase,
+  rawFb: FactBase,
   policy: Policy | undefined,
   capability?: ApplierCapability,
-  baseline?: FactBase,
+  rawBaseline?: FactBase,
   collectSuppression?: ProjectionSuppressionCollector,
 ): FactBase {
   // Identity fast path. With no policy, no capability and no baseline, every
@@ -1197,13 +1295,21 @@ export function resolveView(
   if (
     policy === undefined &&
     capability === undefined &&
-    baseline === undefined &&
-    !fb.edges.some(
+    rawBaseline === undefined &&
+    !rawFb.edges.some(
       (edge) => edge.kind === "memberOfExtension" || edge.kind === "managedBy",
     )
   ) {
-    return fb;
+    return rawFb;
   }
+
+  const flat = policy ? flattenPolicy(policy) : undefined;
+  // Split managed role settings out of their role facts first, so the scope
+  // rules below can exclude a platform role without taking these along.
+  const managedSettings = flat?.managedRoleSettings ?? [];
+  const fb = liftManagedRoleSettings(rawFb, managedSettings);
+  const baseline =
+    rawBaseline && liftManagedRoleSettings(rawBaseline, managedSettings);
 
   // Extension members become REFERENCE-ONLY, not pruned: the member OBJECT (and
   // its non-satellite descendants) is kept but never diffed, while its satellite
@@ -1300,7 +1406,6 @@ export function resolveView(
   // `auth.users`, a `publicationRel` membership) resolves its parent while the
   // assumed object itself is never diffed. `verb` rules are left to the delta
   // filter.
-  const flat = policy ? flattenPolicy(policy) : undefined;
   const rules = flat?.filter ?? [];
   const assumed = new Set(flat?.assumedSchemas ?? []);
   const assumedPubs = new Set(flat?.assumedPublications ?? []);
