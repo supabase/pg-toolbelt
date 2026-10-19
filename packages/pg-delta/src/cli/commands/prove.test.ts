@@ -49,7 +49,7 @@ const baseVerdict = (): ProofVerdict => ({
 });
 
 describe("proveOptionsFromProfile", () => {
-  test("drops a live-probed capability so provePlan uses the plan artifact", () => {
+  test("drops the profile's capability and policy so provePlan uses the plan artifact's", () => {
     const fromClone = proveOptionsFromProfile({
       capability: {
         role: "clone_role",
@@ -58,9 +58,11 @@ describe("proveOptionsFromProfile", () => {
         createRole: true,
         pgMajor: 17,
       },
+      policy: { id: "supabase" },
       reextract: async () => ({ factBase: buildFactBase([], []) }),
     });
     expect("capability" in fromClone).toBe(false);
+    expect("policy" in fromClone).toBe(false);
     expect(fromClone.reextract).toBeDefined();
   });
 });

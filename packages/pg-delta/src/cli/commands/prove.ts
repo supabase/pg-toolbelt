@@ -42,13 +42,15 @@ import {
   resolveCliProfile,
 } from "../profile.ts";
 
-/** Drop a live-probed capability so `provePlan` falls through to
- *  `thePlan.capability`. The clone role can differ from the planner
- *  (superuser local clone of a CREATEROLE plan, or the reverse). */
+/** Drop a live-probed capability and the profile's policy so `provePlan`
+ *  falls through to `thePlan.capability` / `thePlan.policy`. The clone role can
+ *  differ from the planner (superuser local clone of a CREATEROLE plan, or the
+ *  reverse), and planning may narrow the profile's policy (co-located ACL rule,
+ *  managed role settings without an isolated shadow). */
 export function proveOptionsFromProfile(
   profileProve: ProveOptions,
-): Omit<ProveOptions, "capability"> {
-  const { capability: _ignored, ...rest } = profileProve;
+): Omit<ProveOptions, "capability" | "policy"> {
+  const { capability: _capability, policy: _policy, ...rest } = profileProve;
   return rest;
 }
 
