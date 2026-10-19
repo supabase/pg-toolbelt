@@ -1,0 +1,11 @@
+create schema app;
+create table app.t (a int, b int);
+create function app.f() returns int language sql begin atomic select max(b) from app.t; end;
+alter table app.t alter column a set default app.f();
+create table app.g (a int, b int, c int generated always as (a) stored);
+create function app.fg() returns int language sql immutable begin atomic select max(b) from app.g; end;
+alter table app.g alter column c set expression as (a + app.fg());
+create domain app.d as int;
+create table app.dt (v app.d);
+create function app.fd() returns int language sql begin atomic select count(*)::int from app.dt; end;
+alter domain app.d add constraint d_check check (value > app.fd() - 1000);
