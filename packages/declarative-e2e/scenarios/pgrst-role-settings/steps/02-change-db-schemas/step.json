@@ -1,0 +1,7 @@
+{
+  "migration": "some",
+  "contains": [
+    "alter role authenticator set pgrst.db_schemas to 'public, graphql_public'"
+  ],
+  "notContains": ["create table"]
+}

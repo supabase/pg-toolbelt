@@ -30,15 +30,18 @@ function isPlannerBodyModuleFilename(name: string): boolean {
 
 // Every production module outside plan/rules/** has an entry, including files
 // with zero FactKind literal occurrences. Keep this table sorted by path.
+// The `roleSetting` kind (#476) adds its registry entries: artifact id-shape
+// validation (73 → 76), role-name relabeling (17 → 19), and the no-relation-lock
+// set (18 → 19).
 const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
-  "artifact.ts": 73,
+  "artifact.ts": 76,
   // Created lock-holding kinds that occupy a lock-table slot until COMMIT,
   // plus the toast-pair kinds counted at 3 slots. Used by splitPlan packing,
   // not per-object planning knowledge.
   "baseline-commit.ts": 10,
   "graph.ts": 0,
   "hazards.ts": 0,
-  "identity-normalize.ts": 17,
+  "identity-normalize.ts": 19,
   // 28 → 30: mergeCoTargetGrants (multi-grantee GRANT merge) discriminates acl
   // actions via the isAclId type guard — 2 deliberate literals (type + guard).
   // 30 → 29: the ADP gate's `desired.facts()` rescan became a prebuilt objtype
@@ -52,7 +55,7 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // 42 → 41: both passes share isOwnerGrant (one role-edge narrowing).
   // 41 → 40: both passes share materializedObjects (one acl exclusion).
   "internal.ts": 40,
-  "locks.ts": 18,
+  "locks.ts": 19,
   // 10 → 11: the extension-replace satellite replay guards on
   // `oldFact.id.kind === "extension"` so a plan with no extension replace
   // never builds the member-closure index — 1 deliberate literal (the closure

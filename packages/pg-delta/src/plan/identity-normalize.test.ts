@@ -352,6 +352,11 @@ describe("role-name-bearing kind registry", () => {
         role: "role_old",
         member: "other",
       },
+      roleSetting: {
+        kind: "roleSetting",
+        role: "role_old",
+        name: "pgrst.db_schemas",
+      },
       userMapping: {
         kind: "userMapping",
         server: "server",

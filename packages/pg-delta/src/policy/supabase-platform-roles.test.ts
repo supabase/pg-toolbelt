@@ -14,8 +14,9 @@
  * Pure policy level — no DB.
  */
 import { describe, expect, test } from "bun:test";
-import { buildFactBase, type Fact } from "../core/fact.ts";
+import { buildFactBase, type Fact, type FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
+import { plan } from "../plan/plan.ts";
 import { flattenPolicy, resolveView } from "./policy.ts";
 import { supabasePolicy } from "./supabase.ts";
 
@@ -75,3 +76,45 @@ describe("supabase policy — platform role plumbing (#371)", () => {
     expect(assumed).toContain("supabase_privileged_role");
   });
 });
+
+// #476: the role objects stay platform state, but their `pgrst.*` settings are
+// the user's (PostgREST config), in both scopes.
+describe.each(["database", "cluster"] as const)(
+  "supabase policy — pgrst.* role settings (%s scope, #476)",
+  (scope) => {
+    const fb = (authenticator: string[], anon: string[] = []) =>
+      buildFactBase(
+        [role("authenticator", authenticator), role("anon", anon)],
+        [],
+      );
+    const planned = (source: FactBase, desired: FactBase) =>
+      plan(source, desired, { policy: supabasePolicy, scope });
+    const sqlOf = (source: FactBase, desired: FactBase) =>
+      planned(source, desired).actions.map((a) => a.sql);
+
+    test("set, change, and reset a managed key; other keys stay platform state", () => {
+      const before = fb(["statement_timeout=8s"]);
+      const withSchemas = fb(["pgrst.db_schemas=api", "statement_timeout=3s"]);
+      expect(sqlOf(before, withSchemas)).toEqual([
+        `ALTER ROLE "authenticator" SET "pgrst.db_schemas" TO 'api'`,
+      ]);
+      expect(sqlOf(withSchemas, fb(["pgrst.db_schemas=api,public"]))).toEqual([
+        `ALTER ROLE "authenticator" SET "pgrst.db_schemas" TO 'api,public'`,
+      ]);
+      expect(sqlOf(withSchemas, before)).toEqual([
+        `ALTER ROLE "authenticator" RESET "pgrst.db_schemas"`,
+      ]);
+      expect(sqlOf(withSchemas, withSchemas)).toEqual([]);
+      // the planned setting is not also audited as a hidden role change
+      expect(
+        planned(before, fb(["pgrst.db_schemas=api", "statement_timeout=8s"]))
+          .projectionAudit?.entries,
+      ).toEqual([]);
+      expect(
+        sqlOf(fb([]), fb([], ["pgrst.db_aggregates_enabled=true"])),
+      ).toEqual([
+        `ALTER ROLE "anon" SET "pgrst.db_aggregates_enabled" TO 'true'`,
+      ]);
+    });
+  },
+);

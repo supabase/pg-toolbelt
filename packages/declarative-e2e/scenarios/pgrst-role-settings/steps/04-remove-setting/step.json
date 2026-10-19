@@ -1,0 +1,6 @@
+{
+  "delete": ["_cluster/roles.sql"],
+  "migration": "some",
+  "contains": ["alter role authenticator reset pgrst.db_schemas"],
+  "notContains": ["drop table"]
+}
