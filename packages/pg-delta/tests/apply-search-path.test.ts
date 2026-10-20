@@ -2,9 +2,9 @@
  * apply() runs under `pg_catalog` followed by the applier's own search_path.
  * Expressions the DDL evaluates (an ADD COLUMN default rewrite) run routine
  * bodies whose UNqualified names must resolve like they did for the user
- * (basejump's generate_token → pgcrypto in `extensions`), while built-ins the
- * deparsed DDL leaves unqualified must never be shadowed by a user schema the
- * role lists before pg_catalog.
+ * (basejump's generate_token → pgcrypto in `extensions`), while built-ins, in
+ * the DDL and in apply's own preamble, must never be shadowed by a user schema
+ * the role lists before pg_catalog.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import pg from "pg";
@@ -23,6 +23,9 @@ const BASE = /* sql */ `
   CREATE SCHEMA app;
   CREATE FUNCTION app.upper(text) RETURNS text LANGUAGE sql
     AS $$ SELECT 'SHADOWED' $$;
+  CREATE FUNCTION app.text_eq(text, text) RETURNS boolean LANGUAGE plpgsql
+    AS $$ BEGIN RAISE EXCEPTION 'shadowed operator ran'; END $$;
+  CREATE OPERATOR app.= (LEFTARG = text, RIGHTARG = text, FUNCTION = app.text_eq);
   CREATE TABLE public.invitations (id integer);
 `;
 const DESIRED = /* sql */ `
