@@ -286,12 +286,10 @@ export const tableRules: Record<string, KindRules> = {
         ...(rewrites ? { rewriteRisk: true } : {}),
       };
       if (fact.parent !== undefined && fact.parent.kind === "table") {
-        // Generated columns reference other columns in their expression; folding
-        // them into an empty CREATE TABLE before those columns are present emits
-        // invalid SQL (dbdev package_upgrades.from_version_struct roundtrip).
-        if (fact.payload["generatedExpr"] == null) {
-          spec.compaction = { foldInto: fact.parent, clause };
-        }
+        // A generated column folds too (#518). Its expression's columns are
+        // pg_depend edges, so compaction's crossing veto keeps it an ADD COLUMN
+        // whenever a column it reads was not folded into the CREATE first.
+        spec.compaction = { foldInto: fact.parent, clause };
       }
       return [spec];
     },

@@ -75,7 +75,11 @@ describe("column order of a table planned from empty (#518)", () => {
        );`,
     );
     expect(result.applied).toEqual(result.declared);
-    expect(result.tableSql).toMatchInlineSnapshot();
+    expect(result.tableSql).toMatchInlineSnapshot(`
+      [
+        "CREATE TABLE "app"."orders" ("id" integer, "placed_on" date, "ship_by" date GENERATED ALWAYS AS ((placed_on + 7)) STORED, "note" text)",
+      ]
+    `);
   }, 60_000);
 
   test("a column waiting on a function keeps its declared position", async () => {
@@ -92,7 +96,13 @@ describe("column order of a table planned from empty (#518)", () => {
        );`,
     );
     expect(result.applied).toEqual(result.declared);
-    expect(result.tableSql).toMatchInlineSnapshot();
+    expect(result.tableSql).toMatchInlineSnapshot(`
+      [
+        "CREATE TABLE "app"."orders" ("id" integer, "placed_on" date)",
+        "ALTER TABLE "app"."orders" ADD COLUMN "ship_by" date GENERATED ALWAYS AS (app.add_week(placed_on)) STORED",
+        "ALTER TABLE "app"."orders" ADD COLUMN "note" text",
+      ]
+    `);
   }, 60_000);
 
   test("a generated column declared before the column it reads still plans", async () => {

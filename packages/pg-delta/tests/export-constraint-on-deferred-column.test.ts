@@ -7,8 +7,9 @@
  *  - `slug s.slug_text` — a domain-typed column. Its ADD COLUMN depends on the
  *    domain CREATE, an edge that crosses the table CREATE, so the column fold is
  *    rejected and the column is deferred.
- *  - `slug_key … GENERATED ALWAYS AS (lower(slug))` — a generated column, which
- *    never gets a fold hint (see src/plan/rules/tables.ts).
+ *  - `slug_key … GENERATED ALWAYS AS (lower(slug))` — a generated column. Its
+ *    pg_depend edge to the deferred `slug` crosses the table CREATE, so its
+ *    fold is rejected too.
  *
  * Before the fix `compactColumnFolds` folded the two UNIQUE constraints inline
  * (`!isConstraintFold` bypassed the crossing guard), so the exported CREATE TABLE

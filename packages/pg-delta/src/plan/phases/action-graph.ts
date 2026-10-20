@@ -32,6 +32,96 @@ import {
   mergeCoTargetRevokes,
 } from "../internal.ts";
 
+/** A column create's table and declared position (`_position`,
+ *  pg_attribute.attnum), or undefined for any other action. */
+function columnCreateSlot(
+  action: Action,
+  id: StableId | undefined,
+  desired: FactBase,
+): { tableKey: string; position: number } | undefined {
+  if (action.verb !== "create" || id?.kind !== "column") return undefined;
+  const position = desired.get(id)?.payload["_position"];
+  if (typeof position !== "number") return undefined;
+  return { tableKey: `${id.schema}\x00${id.table}`, position };
+}
+
+/**
+ * `ADD COLUMN` always appends, so a table's new columns must be added in
+ * declared order (`_position`, pg_attribute.attnum). The tie-break in
+ * `actionTieKey` only orders the columns that are ready at the same time: a
+ * column still waiting on a later dependency (a function its generated
+ * expression calls, rule weight 8 > column 5) lets the ready columns after it
+ * go first (#518). Chain each table's column creates by position so each one
+ * waits for the one before it.
+ *
+ * An edge that would close a cycle with a real dependency is skipped, and that
+ * pair (and the columns around it) keeps only the tie-break order. Two shapes
+ * do this: a generated column that
+ * reads a column declared after it, and a column whose DEFAULT calls a function
+ * that reads a column declared after it.
+ *
+ * Ordering edges only: no SQL changes, so the proof is unaffected.
+ */
+function chainColumnCreatesByPosition(
+  actions: readonly Action[],
+  desired: FactBase,
+  edges: Array<[number, number]>,
+): void {
+  const columnsByTable = new Map<
+    string,
+    Array<{ position: number; index: number }>
+  >();
+  actions.forEach((action, index) => {
+    const slot = columnCreateSlot(action, action.produces[0], desired);
+    if (slot === undefined) return;
+    const columns = columnsByTable.get(slot.tableKey) ?? [];
+    columns.push({ position: slot.position, index });
+    columnsByTable.set(slot.tableKey, columns);
+  });
+  if (![...columnsByTable.values()].some((columns) => columns.length > 1)) {
+    return;
+  }
+
+  const predecessorsOf = new Map<number, number[]>();
+  const addPredecessor = (before: number, after: number): void => {
+    const list = predecessorsOf.get(after) ?? [];
+    list.push(before);
+    predecessorsOf.set(after, list);
+  };
+  for (const [before, after] of edges) addPredecessor(before, after);
+  const addEdge = (before: number, after: number): void => {
+    edges.push([before, after]);
+    addPredecessor(before, after);
+  };
+  // Walks backwards from `node` over the earlier columns of the chain and
+  // their upstream closure (table, schema, types, functions): about
+  // O(chain length + upstream closure) per column.
+  const isAncestor = (candidate: number, node: number): boolean => {
+    const seen = new Set<number>([node]);
+    const stack = [node];
+    while (stack.length > 0) {
+      for (const p of predecessorsOf.get(stack.pop() as number) ?? []) {
+        if (p === candidate) return true;
+        if (seen.has(p)) continue;
+        seen.add(p);
+        stack.push(p);
+      }
+    }
+    return false;
+  };
+
+  for (const columns of columnsByTable.values()) {
+    columns.sort((a, b) => a.position - b.position);
+    for (let j = 1; j < columns.length; j++) {
+      const before = (columns[j - 1] as { index: number }).index;
+      const after = (columns[j] as { index: number }).index;
+      // `before → after` closes a cycle iff `after` already precedes `before`.
+      if (isAncestor(after, before)) continue;
+      addEdge(before, after);
+    }
+  }
+}
+
 export interface FinalizeInput {
   actions: Action[];
   producerOf: ReadonlyMap<string, number>;
@@ -148,6 +238,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     evaluatorActions,
     implicitDestroys,
   );
+  chainColumnCreatesByPosition(actions, desired, edges);
 
   // Order a table's ADD COLUMN creates by declared column position
   // (pg_attribute.attnum, carried as the non-semantic `_position` field) instead
@@ -159,14 +250,12 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     subject: StableId,
     action: Action,
   ): string | undefined => {
-    if (action.verb !== "create" || subject.kind !== "column") return undefined;
-    const pos = desired.get(subject)?.payload["_position"];
-    if (typeof pos !== "number") return undefined;
-    const c = subject as { schema: string; table: string; name: string };
+    const slot = columnCreateSlot(action, subject, desired);
+    if (slot === undefined) return undefined;
     // Group each table's columns together (schema+table prefix), then order
     // within by zero-padded attnum. Every column create uses this same shape, so
     // the total order stays deterministic.
-    return `column\x00${c.schema}\x00${c.table}\x00${String(pos).padStart(6, "0")}`;
+    return `column\x00${slot.tableKey}\x00${String(slot.position).padStart(6, "0")}`;
   };
   const order = topoSort(
     actions.length,
