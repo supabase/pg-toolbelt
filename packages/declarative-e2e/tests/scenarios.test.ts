@@ -523,21 +523,20 @@ async function startStack(projectDir: string, target: Target): Promise<void> {
   }
   await Bun.write(configFile, lines.join("\n"));
   if (BACKEND === "stack") {
-    // `db start` has no runtime flag; it reuses the runtime saved by the stack prepare creates.
+    // `db start` has no runtime flag; it reuses the runtime saved when `start` creates the stack.
     requireSuccess(
       await supabase(
         projectDir,
         [
-          "stack",
-          "prepare",
+          "start",
           "--runtime",
           STACK_RUNTIME,
-          "--capability",
-          "database",
+          "--exclude",
+          "rest,auth,realtime,storage,functions,studio,mail,analytics,pooler",
         ],
         { timeoutMs: STACK_START_TIMEOUT_MS },
       ),
-      "stack prepare",
+      "start",
     );
   }
   requireSuccess(

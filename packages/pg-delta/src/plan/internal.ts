@@ -770,21 +770,27 @@ export function compactColumnFolds(
     // effective position, so it never counts as "after" and passes naturally.
     const lenientCrossing = isConstraintFold && foldConstraints !== undefined;
     const foldTarget = hint.foldInto;
+    const foldTargetKey = encodeId(foldTarget);
     const crossesEdge = (predecessorsOf.get(origIndex) ?? []).some((p) => {
       const pPos = effectivePosOf.get(p) ?? (positionOf[p] as number);
       if (pPos <= targetPos) return false;
       if (!lenientCrossing) return true;
       const predAction = orderedActions[positionOf[p] as number] as Action;
-      if (
-        predAction.produces.some(
+      // A same-table index (e.g. the unique index a self-referencing FK
+      // targets) is emitted in the same file after the CREATE, so it is
+      // equally unrepairable by file reordering.
+      if (foldTarget.kind === "table") {
+        const sameTableColumn = predAction.produces.some(
           (id) =>
             id.kind === "column" &&
-            foldTarget.kind === "table" &&
             id.schema === foldTarget.schema &&
             id.table === foldTarget.name,
-        )
-      ) {
-        return true;
+        );
+        // ADD COLUMN and CREATE INDEX both consume the table they belong to.
+        const sameTableDependent = predAction.consumes.some(
+          (id) => encodeId(id) === foldTargetKey,
+        );
+        if (sameTableColumn || sameTableDependent) return true;
       }
       // A predecessor that itself needs the target (a CHECK calling a function
       // over the table's row type) closes a cycle no file reordering can fix.
