@@ -1,0 +1,1 @@
+INSERT INTO s.child VALUES (1,1); INSERT INTO s.base2 VALUES (2);

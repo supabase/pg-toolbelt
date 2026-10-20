@@ -1,0 +1,1 @@
+INSERT INTO s.p VALUES (1); INSERT INTO s.child VALUES (2);
