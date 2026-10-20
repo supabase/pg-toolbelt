@@ -77,10 +77,10 @@ describe("supabase policy — platform role plumbing (#371)", () => {
   });
 });
 
-// #476: the role objects stay platform state, but their `pgrst.*` settings are
-// the user's (PostgREST config), in both scopes.
+// #476: the role objects stay platform state, but their PostgREST exposure and
+// limit settings are the user's, in both scopes.
 describe.each(["database", "cluster"] as const)(
-  "supabase policy — pgrst.* role settings (%s scope, #476)",
+  "supabase policy — pgrst role settings (%s scope, #476)",
   (scope) => {
     const fb = (authenticator: string[], anon: string[] = []) =>
       buildFactBase(
@@ -110,11 +110,14 @@ describe.each(["database", "cluster"] as const)(
         planned(before, fb(["pgrst.db_schemas=api", "statement_timeout=8s"]))
           .projectionAudit?.entries,
       ).toEqual([]);
-      expect(
-        sqlOf(fb([]), fb([], ["pgrst.db_aggregates_enabled=true"])),
-      ).toEqual([
-        `ALTER ROLE "anon" SET "pgrst.db_aggregates_enabled" TO 'true'`,
+      // GUC names are case-insensitive
+      expect(sqlOf(fb([]), fb([], ["PgRST.db_max_rows=100"]))).toEqual([
+        `ALTER ROLE "anon" SET "PgRST.db_max_rows" TO '100'`,
       ]);
+      // only the exposure and limit keys: secrets and role wiring stay platform
+      expect(
+        sqlOf(fb(["pgrst.jwt_secret=a"]), fb(["pgrst.jwt_secret=b"])),
+      ).toEqual([]);
     });
   },
 );

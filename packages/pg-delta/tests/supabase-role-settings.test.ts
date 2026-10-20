@@ -1,6 +1,7 @@
 /**
- * #476: under the Supabase profile, a declarative file may own the `pgrst.*`
- * settings of the API roles in database scope. Runs schema-plan as the
+ * #476: under the Supabase profile, a declarative file may own the PostgREST
+ * exposure and limit settings (`pgrst.db_schemas`, …) of the API roles in
+ * database scope. Runs schema-plan as the
  * non-superuser `postgres` against a separate (isolated) shadow server, as the
  * Supabase CLI does. Every plan loads into a fresh database on the SAME shadow
  * server on purpose: it keeps the previous load's cluster-global settings, and
@@ -57,7 +58,7 @@ async function authenticatorConfig(pool: pg.Pool): Promise<string[]> {
 }
 
 describe.skipIf(!runSupabaseBareTests)(
-  "supabase profile — pgrst.* role settings in database scope (#476)",
+  "supabase profile — pgrst role settings in database scope (#476)",
   () => {
     test("plan, converge, change, reset, export; other role changes refused", async () => {
       const [targetServer, shadowServer] = await Promise.all([
@@ -99,6 +100,12 @@ describe.skipIf(!runSupabaseBareTests)(
         "pgrst.db_schemas=pgrst_no_exposed_schemas",
       ]);
       expect(await sqlOf(setLine)).toEqual([]);
+      // the catalog check covers only the roles that existed before the load
+      expect(
+        await sqlOf(
+          `${setLine}DO $$ BEGIN CREATE ROLE i476_app; END $$;\nALTER DATABASE postgres SET work_mem = '8MB';\n`,
+        ),
+      ).toEqual([]);
 
       // re-planning the export is a no-op
       const exported = await buildSchemaExport(target, {
@@ -112,15 +119,25 @@ describe.skipIf(!runSupabaseBareTests)(
       ).toEqual([
         `ALTER ROLE "authenticator" SET "pgrst.db_schemas" TO 'pgrst_no_exposed_schemas';`,
       ]);
-      expect(
+      const settingsFile = "_cluster/role_settings.sql";
+      expect(exported.manifest.roleSettingsFiles).toEqual([settingsFile]);
+      const syncExport = async (keep: (f: SqlFile) => boolean) =>
         (
-          await planSchemaFiles(target, await freshShadow(), exported.files, {
-            profile: supabaseProfile,
-            manifest: exported.manifest,
-            isolatedShadow: true,
-          })
-        ).plan.actions.map((a) => a.sql),
-      ).toEqual([]);
+          await planSchemaFiles(
+            target,
+            await freshShadow(),
+            exported.files.filter(keep),
+            {
+              profile: supabaseProfile,
+              manifest: exported.manifest,
+              isolatedShadow: true,
+            },
+          )
+        ).plan.actions.map((a) => a.sql);
+      expect(await syncExport(() => true)).toEqual([]);
+      expect(await syncExport((f) => f.name !== settingsFile)).toEqual([
+        `ALTER ROLE "authenticator" RESET "pgrst.db_schemas"`,
+      ]);
 
       expect(
         await sqlOf(
@@ -130,9 +147,30 @@ describe.skipIf(!runSupabaseBareTests)(
         `ALTER ROLE "authenticator" SET "pgrst.db_schemas" TO 'public, api'`,
       ]);
 
-      expect(await sqlOf("")).toEqual([
-        `ALTER ROLE "authenticator" RESET "pgrst.db_schemas"`,
-      ]);
+      // a dir that neither declares role settings nor records them in its
+      // manifest (exported before they were managed) leaves them unmanaged
+      const warnings: string[] = [];
+      const undeclared = await planSchemaFiles(
+        target,
+        await freshShadow(),
+        files(),
+        {
+          profile: supabaseProfile,
+          isolatedShadow: true,
+          onWarning: (message) => warnings.push(message),
+        },
+      );
+      expect({
+        sql: undeclared.plan.actions.map((a) => a.sql),
+        warnings: warnings.filter((w) => w.includes("role settings")),
+      }).toEqual({
+        sql: [],
+        warnings: [
+          `the target has role settings the profile manages (authenticator: pgrst.db_schemas), but the files declare none ` +
+            `and the export manifest does not record them, so they are left unmanaged: the plan neither sets nor resets them. ` +
+            `Re-export with the current pg-delta to manage them.`,
+        ],
+      });
 
       // any other ALTER ROLE is refused by the catalog comparison after the
       // load (the image already sets a statement_timeout on authenticator)
@@ -153,7 +191,8 @@ describe.skipIf(!runSupabaseBareTests)(
         /: role "authenticator" setting "pgrst.db_schemas" in database "postgres"\./,
       );
 
-      // a co-located shadow shares the target's roles, so the line is refused
+      // a co-located shadow shares the target's roles, so a hand-written line
+      // is refused
       const coLocated = await provisionCoLocatedShadow(
         targetServer.postgresConnectionUri(),
       );
@@ -166,34 +205,47 @@ describe.skipIf(!runSupabaseBareTests)(
             }),
           ),
         ).toMatch(/roles\.sql: ALTER ROLE[^]*only against an isolated shadow/);
-
         // a shadow that is not isolated leaves the settings unmanaged: no
-        // RESET of the target's value, one warning
-        const unmanaged = async (shadow: pg.Pool, coLocatedShadow: boolean) => {
+        // RESET of the target's value, one warning. The export's own
+        // role-settings file is skipped instead of refused.
+        const unmanaged = async (
+          shadow: pg.Pool,
+          coLocatedShadow: boolean,
+          exportDir?: typeof exported,
+        ) => {
           const warnings: string[] = [];
-          const planned = await planSchemaFiles(target, shadow, files(), {
-            profile: supabaseProfile,
-            seedAssumedSchemas: coLocatedShadow,
-            onWarning: (message) => warnings.push(message),
-          });
+          const planned = await planSchemaFiles(
+            target,
+            shadow,
+            exportDir?.files ?? files(),
+            {
+              profile: supabaseProfile,
+              ...(exportDir !== undefined
+                ? { manifest: exportDir.manifest }
+                : {}),
+              seedAssumedSchemas: coLocatedShadow,
+              onWarning: (message) => warnings.push(message),
+            },
+          );
           return {
             sql: planned.plan.actions.map((a) => a.sql),
             warnings: warnings.filter((w) => w.includes("role settings")),
           };
         };
-        const leftUnmanaged = {
+        const leftUnmanaged =
+          `the target has role settings the profile manages (authenticator: pgrst.db_schemas), but the shadow is not isolated, ` +
+          `so they are left unmanaged: the plan neither sets nor resets them. Plan against an isolated shadow (isolatedShadow: true) to manage them.`;
+        expect(await unmanaged(await freshShadow(), false)).toEqual({
+          sql: [],
+          warnings: [leftUnmanaged],
+        });
+        expect(await unmanaged(open(coLocated.url), true, exported)).toEqual({
           sql: [],
           warnings: [
-            `the target has role settings the profile manages (authenticator: pgrst.db_schemas), but the shadow is not isolated, ` +
-              `so they are left unmanaged: the plan neither sets nor resets them. Plan against an isolated shadow (isolatedShadow: true) to manage them.`,
+            `skipped ${settingsFile}: it holds the export's role settings (ALTER ROLE … SET), which database scope manages only against an isolated shadow.`,
+            leftUnmanaged,
           ],
-        };
-        expect(await unmanaged(await freshShadow(), false)).toEqual(
-          leftUnmanaged,
-        );
-        expect(await unmanaged(open(coLocated.url), true)).toEqual(
-          leftUnmanaged,
-        );
+        });
       } finally {
         await coLocated.cleanup();
       }

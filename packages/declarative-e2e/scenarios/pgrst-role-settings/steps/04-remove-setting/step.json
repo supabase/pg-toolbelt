@@ -1,6 +1,8 @@
 {
-  "delete": ["_cluster/roles.sql"],
   "migration": "some",
-  "contains": ["alter role authenticator reset pgrst.db_schemas"],
+  "contains": [
+    "alter role authenticator reset pgrst.db_schemas",
+    "alter role authenticator set pgrst.db_max_rows to '1000'"
+  ],
   "notContains": ["drop table"]
 }

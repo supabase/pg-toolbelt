@@ -372,7 +372,9 @@ function scopeRank(id: StableId): number {
 const CLUSTER_FILES: Record<string, string> = {
   role: "roles.sql",
   membership: "roles.sql",
-  roleSetting: "roles.sql",
+  // Its own file, recorded in the export manifest, so `schema apply` can drop
+  // it whole where these settings cannot be managed (no isolated shadow).
+  roleSetting: "role_settings.sql",
   fdw: "foreign_data_wrappers.sql",
   server: "foreign_data_wrappers.sql",
   userMapping: "foreign_data_wrappers.sql",
@@ -469,6 +471,22 @@ export const RESERVED_ROOT_SEGMENTS: ReadonlySet<string> = new Set([
   "_cluster",
   "_custom",
 ]);
+
+/** Names of the exported `files` that hold the `roleSetting` statements. */
+export function roleSettingsFileNames(
+  files: readonly SqlFile[],
+  layout: ExportOptions["layout"] = "by-object",
+  style: ExportPathStyle = "flat",
+): string[] {
+  const path = `${clusterRoot(style)}/${CLUSTER_FILES["roleSetting"]}`;
+  return files
+    .map((f) => f.name)
+    .filter((name) =>
+      layout === "ordered"
+        ? name.replace(/^\d+_/, "") === path.replaceAll("/", "_")
+        : name === path,
+    );
+}
 
 /** Root directory of the cluster-level files, for a path style. */
 function clusterRoot(style: ExportPathStyle): string {

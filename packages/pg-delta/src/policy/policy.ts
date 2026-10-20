@@ -367,8 +367,8 @@ export interface Policy {
    * Role-wide settings managed as their own `roleSetting` facts instead of
    * inside the role fact's `config`. They stay managed when the role object is
    * excluded by a filter rule (a platform role) and under database scope, so a
-   * declarative file can own them: Supabase's `pgrst.*` settings on the
-   * PostgREST roles (#476). In database scope, declarative files may carry
+   * declarative file can own them: Supabase's PostgREST exposure and limit
+   * settings on the API roles (#476). In database scope, declarative files may carry
    * `ALTER ROLE` only with an isolated shadow, and the shadow's catalog must
    * show that the load changed nothing else at the cluster level.
    */
@@ -423,16 +423,18 @@ function globMatch(pattern: string, value: string): boolean {
   return globToRegex(pattern).test(value);
 }
 
-/** Whether the role-wide setting `name` on `role` is one of `settings`. */
+/** Whether the role-wide setting `name` on `role` is one of `settings`.
+ *  Setting names compare case-insensitively, as PostgreSQL GUC names do. */
 export function isManagedRoleSetting(
   settings: readonly ManagedRoleSettings[],
   role: string,
   name: string,
 ): boolean {
+  const lowerName = name.toLowerCase();
   return settings.some(
     (s) =>
       s.roles.some((glob) => globMatch(glob, role)) &&
-      s.names.some((glob) => globMatch(glob, name)),
+      s.names.some((glob) => globMatch(glob.toLowerCase(), lowerName)),
   );
 }
 

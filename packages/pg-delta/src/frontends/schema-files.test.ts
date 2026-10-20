@@ -75,7 +75,7 @@ describe("prepareSchemaFiles", () => {
       options: Partial<PrepareSchemaFilesOptions> = {},
     ) =>
       prepareSchemaFiles(
-        files({ "r.sql": `CREATE TABLE public.t (id int);\n${sql}` }),
+        files({ "t.sql": "CREATE TABLE public.t (id int);\n", "r.sql": sql }),
         {
           scope: "database",
           managedRoleSettings:
@@ -85,6 +85,8 @@ describe("prepareSchemaFiles", () => {
         },
       );
     const message = (r: ReturnType<typeof prep>) => (r.ok ? "" : r.message);
+    const skipped = (r: ReturnType<typeof prep>) =>
+      r.ok ? r.skipped.map((s) => s.stmt) : r.message;
 
     expect(prep(set).ok).toBe(true);
     for (const stmt of [
@@ -95,17 +97,46 @@ describe("prepareSchemaFiles", () => {
     ]) {
       expect({ stmt, ok: prep(stmt).ok }).toEqual({ stmt, ok: false });
     }
-    const stripped = prep(`${set}CREATE ROLE app;\n`, { skipClusterDdl: true });
-    expect(stripped.ok && stripped.skipped.map((s) => s.stmt)).toEqual([
+    // skipClusterDdl skips every ALTER ROLE, except in the export's own
+    // role-settings file
+    const timeout = `ALTER ROLE anon SET statement_timeout = '5s';\n`;
+    expect(
+      skipped(
+        prep(`${set}${timeout}CREATE ROLE app;\n`, { skipClusterDdl: true }),
+      ),
+    ).toEqual([
+      `ALTER ROLE "authenticator" SET "pgrst.db_schemas" = 'api'`,
+      "ALTER ROLE anon SET statement_timeout = '5s'",
       "CREATE ROLE app",
     ]);
-    expect(stripped.ok && stripped.files[0]?.sql).toContain(
-      `"pgrst.db_schemas"`,
-    );
+    expect(
+      skipped(
+        prep(`${set}CREATE ROLE app;\n`, {
+          skipClusterDdl: true,
+          roleSettingsFiles: ["r.sql"],
+        }),
+      ),
+    ).toEqual(["CREATE ROLE app"]);
     expect(message(prep(set, { isolatedShadow: false }))).toContain(
       "r.sql: ALTER ROLE\nUse scope cluster (with an isolated shadow) to manage roles, or skipClusterDdl to skip these statements.\n" +
         "The profile manages role settings (ALTER ROLE … SET) in database scope only against an isolated shadow.",
     );
+    // without an isolated shadow the export's role-settings file is dropped
+    const dropped = prep(set, {
+      isolatedShadow: false,
+      roleSettingsFiles: ["r.sql"],
+    });
+    expect(
+      dropped.ok && {
+        files: dropped.files.map((f) => f.name),
+        warnings: dropped.warnings,
+      },
+    ).toEqual({
+      files: ["t.sql"],
+      warnings: [
+        "skipped r.sql: it holds the export's role settings (ALTER ROLE … SET), which database scope manages only against an isolated shadow.",
+      ],
+    });
     // the raw profile manages none: refused with no hint
     const raw = message(prep(set, { managedRoleSettings: [] }));
     expect(raw).toContain("r.sql: ALTER ROLE");

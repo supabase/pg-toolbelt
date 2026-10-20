@@ -293,6 +293,7 @@ export function writeExportFiles(
     scope?: "database" | "cluster";
     baselineDigest?: string;
     defaultOwner?: string | null;
+    roleSettingsFiles?: string[];
   },
   pruneUnmanaged: boolean,
 ): {
@@ -618,6 +619,9 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
         "defaultOwner" in result.manifest
           ? { defaultOwner: result.manifest.defaultOwner }
           : {}),
+        ...(result.manifest.roleSettingsFiles !== undefined
+          ? { roleSettingsFiles: result.manifest.roleSettingsFiles }
+          : {}),
       },
       flags["prune-unmanaged"] === true,
     );
@@ -648,7 +652,12 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
 
 /** Discriminated result of {@link prepareApplyFiles}. */
 type PreparedApplyFiles =
-  | { ok: true; files: SqlFile[]; skipped: { file: string; stmt: string }[] }
+  | {
+      ok: true;
+      files: SqlFile[];
+      skipped: { file: string; stmt: string }[];
+      warnings: string[];
+    }
   | { ok: false; message: string };
 
 /**
@@ -661,6 +670,7 @@ export function prepareApplyFiles(
   skipClusterDdl: boolean,
   managedRoleSettings: readonly ManagedRoleSettings[] = [],
   isolatedShadow = false,
+  roleSettingsFiles: readonly string[] = [],
 ): PreparedApplyFiles {
   const files = collectSqlFiles(dir);
   const prepared = prepareSchemaFiles(files, {
@@ -668,6 +678,7 @@ export function prepareApplyFiles(
     skipClusterDdl,
     managedRoleSettings,
     isolatedShadow,
+    roleSettingsFiles,
     label: dir,
   });
   if (!prepared.ok) {
@@ -895,6 +906,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       ? flattenPolicy(profile.policy).managedRoleSettings
       : [],
     flags["isolated-shadow"] === true,
+    manifest?.roleSettingsFiles,
   );
   if (!prepared.ok) {
     throw new UsageError(`schema apply: ${prepared.message}`);
@@ -903,6 +915,9 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     process.stderr.write(
       `  SKIP cluster DDL (--skip-cluster-ddl) in ${s.file}: ${s.stmt}\n`,
     );
+  }
+  for (const warning of prepared.warnings) {
+    process.stderr.write(`  WARNING: ${warning}\n`);
   }
   let files = prepared.files;
 
