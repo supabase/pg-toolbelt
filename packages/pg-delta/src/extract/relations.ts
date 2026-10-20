@@ -35,17 +35,12 @@ const TABLES_SQL = `
            CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) END AS partition_key,
            c.reloptions AS reloptions,
            pg_get_expr(c.relpartbound, c.oid) AS partition_bound,
-           (SELECT json_build_object('schema', pn.nspname, 'name', pc.relname)
+           (SELECT json_agg(json_build_object('schema', pn.nspname, 'name', pc.relname)
+                            ORDER BY inh.inhseqno)
             FROM pg_inherits inh
             JOIN pg_class pc ON pc.oid = inh.inhparent
             JOIN pg_namespace pn ON pn.oid = pc.relnamespace
-            WHERE inh.inhrelid = c.oid
-            -- Multi-parent support is tracked separately; until then capture the
-            -- FIRST-declared parent deterministically. Without ORDER BY the
-            -- unordered LIMIT 1 can pick a different parent across extractions,
-            -- flapping the fact hash and causing spurious table replaces.
-            ORDER BY inh.inhseqno
-            LIMIT 1) AS parent_table,
+            WHERE inh.inhrelid = c.oid) AS parent_tables,
            obj_description(c.oid, 'pg_class') AS comment,
            ${aclJsonMemberAware("c.relacl", "r", "c.relowner", "pg_class", "c.oid")} AS acl,
            ${memberExtensionExpr("pg_class", "c.oid")} AS ext_member_of
@@ -66,6 +61,9 @@ export const tablesFamily: CatalogFamily = {
         schema: String(row["schema"]),
         name: String(row["name"]),
       };
+      const parents = row["parent_tables"] as
+        | { schema: string; name: string }[]
+        | null;
       pushWithMeta(
         {
           id,
@@ -92,10 +90,12 @@ export const tablesFamily: CatalogFamily = {
               row["partition_bound"] == null
                 ? null
                 : (row["partition_bound"] as string),
-            parentTable:
-              row["parent_table"] == null
-                ? null
-                : (row["parent_table"] as { schema: string; name: string }),
+            parentTable: parents?.[0] ?? null,
+            // Further INHERITS parents in declaration order. Omitted for the
+            // common single-parent case so those table hashes stay unchanged.
+            ...(parents !== null && parents.length > 1
+              ? { inheritsAlso: parents.slice(1) }
+              : {}),
             reloptions: reloptions(row),
           },
         },
@@ -441,6 +441,12 @@ const INDEXES_SQL = `
             WHERE ih.inhrelid = i.indexrelid
             ORDER BY ih.inhseqno
             LIMIT 1) AS attached_to,
+           ic.reloptions AS reloptions,
+           (SELECT pc.reloptions FROM pg_inherits ih
+            JOIN pg_class pc ON pc.oid = ih.inhparent
+            WHERE ih.inhrelid = i.indexrelid
+            ORDER BY ih.inhseqno
+            LIMIT 1) AS attached_reloptions,
            obj_description(i.indexrelid, 'pg_class') AS comment
     FROM pg_index i
     JOIN pg_class ic ON ic.oid = i.indexrelid
@@ -495,6 +501,17 @@ export const indexesFamily: CatalogFamily = {
             def: deparsedDef(row, "index"),
             valid: Boolean(row["valid"]),
             attachedTo,
+            // Render hints (unhashed: `def` already carries the options). A
+            // child index that PARTITION OF materializes copies its parent's
+            // options; these let the create restore the child's own.
+            ...(attachedTo != null
+              ? {
+                  _reloptions: reloptions(row),
+                  _attachedReloptions: reloptions({
+                    reloptions: row["attached_reloptions"],
+                  }),
+                }
+              : {}),
           },
         },
         row,

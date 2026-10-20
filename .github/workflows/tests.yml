@@ -229,6 +229,35 @@ jobs:
           PGDELTA_NEXT_PROGRESS: "1"
         run: bun test tests/engine.test.ts
 
+  pg-delta-export-roundtrip:
+    if: >-
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-delta: Export round-trip (PG ${{ matrix.postgres_version }}, shard ${{ matrix.shard }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres_version: ["14", "15", "16", "17", "18"]
+        shard: ["0/2", "1/2"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Corpus export round-trip (all layouts)
+        working-directory: packages/pg-delta
+        env:
+          PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
+          PGDELTA_NEXT_SHARD: ${{ matrix.shard }}
+          # Each worker owns a source + shadow cluster pair (two containers),
+          # so 2 workers fill the 4-vCPU public runner.
+          PGDELTA_NEXT_CONCURRENCY: "2"
+        run: bun test tests/export-roundtrip-corpus.test.ts
+
   pg-delta-integration:
     if: >-
       needs.detect-changes.outputs.is-release-pr != 'true' &&
@@ -254,7 +283,8 @@ jobs:
           PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
           GROUP: ${{ matrix.group }}
         run: |
-          # The corpus proof loop (engine.test.ts) runs in its own sharded job.
+          # The corpus proof loop (engine.test.ts) and the corpus export
+          # round-trip run in their own sharded jobs.
           # The remaining files are split across 5 groups so no single job
           # serializes ~5 minutes of tests. The few files that dominate wall
           # time get pinned groups (0 and 1) — a blind round-robin can put two
@@ -265,7 +295,7 @@ jobs:
           # instead of failing `bun test` with a missing path.
           HEAVY_0=$(printf '%s\n' tests/fixture-validity.test.ts tests/security-label-proof.test.ts)
           HEAVY_1=$(printf '%s\n' tests/cli.test.ts tests/extension-intent-cron-privileges.test.ts tests/generative.test.ts)
-          ALL=$(find tests -maxdepth 1 -name '*.test.ts' ! -name 'engine.test.ts' | sort)
+          ALL=$(find tests -maxdepth 1 -name '*.test.ts' ! -name 'engine.test.ts' ! -name 'export-roundtrip-corpus.test.ts' | sort)
           # `|| true`: grep exits 1 on zero matches, which under the runner's
           # `bash -e` would abort the step before the empty-FILES guard below
           # can turn "all pins renamed" into a graceful no-op.
@@ -296,6 +326,7 @@ jobs:
       # matrices as success and the aggregator goes green on a broken run.
       - detect-changes
       - pg-delta-corpus
+      - pg-delta-export-roundtrip
       - pg-delta-integration
     name: "pg-delta: Integration (PostgreSQL 15)"
     runs-on: ubuntu-latest
@@ -316,6 +347,12 @@ jobs:
             echo "Corpus matrix status: ${{ needs.pg-delta-corpus.result }}"
             exit 1
           fi
+      - name: Validate export round-trip matrix status
+        run: |
+          if [ "${{ needs.pg-delta-export-roundtrip.result }}" != "success" ] && [ "${{ needs.pg-delta-export-roundtrip.result }}" != "skipped" ]; then
+            echo "Export round-trip matrix status: ${{ needs.pg-delta-export-roundtrip.result }}"
+            exit 1
+          fi
       - name: Validate integration matrix status
         run: |
           if [ "${{ needs.pg-delta-integration.result }}" != "success" ] && [ "${{ needs.pg-delta-integration.result }}" != "skipped" ]; then
@@ -333,6 +370,7 @@ jobs:
       # matrices as success and the aggregator goes green on a broken run.
       - detect-changes
       - pg-delta-corpus
+      - pg-delta-export-roundtrip
       - pg-delta-integration
     name: "pg-delta: Integration (PostgreSQL 17)"
     runs-on: ubuntu-latest
@@ -351,6 +389,12 @@ jobs:
         run: |
           if [ "${{ needs.pg-delta-corpus.result }}" != "success" ] && [ "${{ needs.pg-delta-corpus.result }}" != "skipped" ]; then
             echo "Corpus matrix status: ${{ needs.pg-delta-corpus.result }}"
+            exit 1
+          fi
+      - name: Validate export round-trip matrix status
+        run: |
+          if [ "${{ needs.pg-delta-export-roundtrip.result }}" != "success" ] && [ "${{ needs.pg-delta-export-roundtrip.result }}" != "skipped" ]; then
+            echo "Export round-trip matrix status: ${{ needs.pg-delta-export-roundtrip.result }}"
             exit 1
           fi
       - name: Validate integration matrix status

@@ -775,13 +775,20 @@ export function compactColumnFolds(
       if (pPos <= targetPos) return false;
       if (!lenientCrossing) return true;
       const predAction = orderedActions[positionOf[p] as number] as Action;
-      return predAction.produces.some(
-        (id) =>
-          id.kind === "column" &&
-          foldTarget.kind === "table" &&
-          id.schema === foldTarget.schema &&
-          id.table === foldTarget.name,
-      );
+      if (
+        predAction.produces.some(
+          (id) =>
+            id.kind === "column" &&
+            foldTarget.kind === "table" &&
+            id.schema === foldTarget.schema &&
+            id.table === foldTarget.name,
+        )
+      ) {
+        return true;
+      }
+      // A predecessor that itself needs the target (a CHECK calling a function
+      // over the table's row type) closes a cycle no file reordering can fix.
+      return actionReaches(edges, targetOrig, p);
     });
     if (crossesEdge) continue;
     // fold: splice the clause into the CREATE's column list

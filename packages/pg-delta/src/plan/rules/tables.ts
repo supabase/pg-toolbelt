@@ -48,6 +48,7 @@ export const tableRules: Record<string, KindRules> = {
       let createSql: string;
       const consumes: StableId[] = [];
       const alsoProduces: StableId[] = [];
+      const materializedIndexFixups: ActionSpec[] = [];
       if (bound != null && parentT != null) {
         // a partition: columns are inherited, the bound carries the shape
         createSql = `CREATE ${unlogged}TABLE ${relName} PARTITION OF ${rel(parentT.schema, parentT.name)} ${str(bound)}`;
@@ -104,6 +105,14 @@ export const tableRules: Record<string, KindRules> = {
         for (const child of view.childrenOf(fact.id)) {
           if (child.id.kind === "index" && p(child, "attachedTo") != null) {
             alsoProduces.push(child.id);
+            const idx = child.id as { schema: string; name: string };
+            materializedIndexFixups.push(
+              ...reloptionsAlterSpecs(
+                `ALTER INDEX ${rel(idx.schema, idx.name)}`,
+                p(child, "_attachedReloptions") ?? null,
+                p(child, "_reloptions") ?? null,
+              ),
+            );
           }
         }
       } else {
@@ -133,12 +142,16 @@ export const tableRules: Record<string, KindRules> = {
         }
         createSql = `CREATE ${unlogged}TABLE ${relName} (${cols})`;
         if (parentT != null) {
-          createSql += ` INHERITS (${rel(parentT.schema, parentT.name)})`;
-          consumes.push({
-            kind: "table",
-            schema: parentT.schema,
-            name: parentT.name,
-          });
+          const parents = [
+            parentT,
+            ...((p(fact, "inheritsAlso") as
+              | { schema: string; name: string }[]
+              | undefined) ?? []),
+          ];
+          createSql += ` INHERITS (${parents.map((t) => rel(t.schema, t.name)).join(", ")})`;
+          for (const t of parents) {
+            consumes.push({ kind: "table", schema: t.schema, name: t.name });
+          }
         }
         if (partKey != null) createSql += ` PARTITION BY ${str(partKey)}`;
       }
@@ -172,6 +185,7 @@ export const tableRules: Record<string, KindRules> = {
           sql: `ALTER TABLE ${relName} SET (${reloptions.join(", ")})`,
         });
       }
+      specs.push(...materializedIndexFixups);
       return specs;
     },
     drop: (fact) => {
@@ -230,6 +244,7 @@ export const tableRules: Record<string, KindRules> = {
       partitionKey: "replace",
       partitionBound: "replace",
       parentTable: "replace",
+      inheritsAlso: "replace",
     },
   },
 
