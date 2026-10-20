@@ -67,14 +67,14 @@ describe("renderApplyScript", () => {
       BEGIN;
       SET LOCAL lock_timeout = 1000;
       SET LOCAL statement_timeout = 2000;
-      SET LOCAL search_path = pg_catalog;
+      SELECT pg_catalog.set_config('search_path', pg_catalog.concat_ws(', ', 'pg_catalog', NULLIF(NULLIF(pg_catalog.current_setting('search_path'), ''), '""')), true);
       SET LOCAL check_function_bodies = off;
       CREATE TABLE public.widgets (id integer);
       COMMIT;
 
       SET lock_timeout = 1000;
       SET statement_timeout = 2000;
-      SET search_path = pg_catalog;
+      SELECT pg_catalog.set_config('search_path', pg_catalog.concat_ws(', ', 'pg_catalog', NULLIF(NULLIF(pg_catalog.current_setting('search_path'), ''), '""')), false);
       SET check_function_bodies = off;
       CREATE INDEX CONCURRENTLY widgets_id_idx ON public.widgets (id);
       RESET ALL;
@@ -82,7 +82,7 @@ describe("renderApplyScript", () => {
       BEGIN;
       SET LOCAL lock_timeout = 1000;
       SET LOCAL statement_timeout = 2000;
-      SET LOCAL search_path = pg_catalog;
+      SELECT pg_catalog.set_config('search_path', pg_catalog.concat_ws(', ', 'pg_catalog', NULLIF(NULLIF(pg_catalog.current_setting('search_path'), ''), '""')), true);
       SET LOCAL check_function_bodies = off;
       ALTER TABLE public.widgets ADD COLUMN label text;
       COMMIT;
@@ -98,7 +98,7 @@ describe("renderApplyScript", () => {
     ];
 
     expect(renderApplyScript(plan)).toContain(
-      "ALTER TYPE public.mood ADD VALUE 'ok';\nCOMMIT;\n\nBEGIN;\nSET LOCAL search_path",
+      "ALTER TYPE public.mood ADD VALUE 'ok';\nCOMMIT;\n\nBEGIN;\nSELECT pg_catalog.set_config('search_path'",
     );
   });
 

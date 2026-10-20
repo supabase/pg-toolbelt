@@ -11,8 +11,8 @@
  * `pg_catalog` (where `schema_migrations` does not exist) and every
  * pg-delta migration dbmate applies fails.
  *
- * apply() keeps pinning search_path on its OWN connection (it runs no
- * third-party bookkeeping) — pinned via the plan preamble, asserted below.
+ * The plan preamble still records the pin (it is part of the planId hash);
+ * renderers drop it and apply() prepends it to the applier's own path.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { renderPlanFiles } from "../src/frontends/render-plan-files.ts";
@@ -51,8 +51,7 @@ describe("rendered migration files replay under a third-party runner (dbmate)", 
     const to = await extract(populated.pool);
     const p = plan(from.factBase, to.factBase);
 
-    // The plan preamble (consumed unchanged by apply() on its own connection)
-    // still pins search_path — the render path is where it must be dropped.
+    // The plan preamble still records search_path; renderers drop it.
     expect(p.preamble).toContainEqual({
       name: "search_path",
       value: "pg_catalog",

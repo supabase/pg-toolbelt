@@ -30,8 +30,9 @@ export function renderPlanSql(plan: RenderablePlan): string {
   // before deparse), so pinning search_path is redundant here — and a
   // third-party replayer that shares this batch's session with its own
   // UNqualified statements (e.g. dbmate's `INSERT INTO schema_migrations ...`)
-  // would misresolve them under a pinned pg_catalog path. apply() keeps the pin
-  // on its own dedicated connection. check_function_bodies is retained.
+  // would misresolve them under a pinned pg_catalog path. apply() only
+  // prepends pg_catalog to its own connection's path (apply-preamble.ts).
+  // check_function_bodies is retained.
   const settings = plan.preamble.filter((s) => s.name !== "search_path");
   for (const setting of settings) {
     parts.push(`SET ${setting.name} = ${setting.value};`);
