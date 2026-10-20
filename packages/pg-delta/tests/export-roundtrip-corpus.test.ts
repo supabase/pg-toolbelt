@@ -33,6 +33,7 @@ const LAYOUTS: NonNullable<ExportOptions["layout"]>[] = [
 
 /** `<scenario>/<a|b>` → tracking reference. A listed case must still fail, so a
  *  fix that makes it pass forces the entry's removal. */
+const HASH_MISMATCH = "rootHash differs after reload";
 const FOLLOW_UPS = "docs/roadmap/pg-delta-next-follow-ups.md#pr-550";
 const KNOWN_GAPS = new Map<string, string>([
   [
@@ -96,7 +97,7 @@ async function roundTrip(
           fb = (await settleDesired(dst.pool, sourceFb, fb)).factBase;
         }
         if (fb.rootHash !== sourceFb.rootHash) {
-          failures.push(`${layout}: rootHash differs after reload`);
+          failures.push(`${layout}: ${HASH_MISMATCH}`);
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -138,8 +139,14 @@ describe("export: corpus round-trip fidelity (all layouts)", () => {
           }
           const known = KNOWN_GAPS.get(key);
           if (known !== undefined) {
-            if (failures.length === 0) unexpectedPass.push(`${key} (${known})`);
-            continue;
+            // A pinned gap must still fail exactly as recorded on every
+            // layout; any other outcome is a fix or a new regression.
+            const pinned = LAYOUTS.map((l) => `${l}: ${HASH_MISMATCH}`);
+            if (failures.length === 0) {
+              unexpectedPass.push(`${key} (${known})`);
+              continue;
+            }
+            if (failures.join("\n") === pinned.join("\n")) continue;
           }
           if (failures.length > 0) {
             const detail = `${key}\n  ${failures.join("\n  ")}`;
