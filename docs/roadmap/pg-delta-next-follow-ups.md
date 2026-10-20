@@ -2132,3 +2132,20 @@ cycle; both reproduce on `main` before #534 too.
   through `DROP EXTENSION`), so it has no drop root and the bridge pass skips
   it. It needs extension members mapped to their extension's drop root. No
   shipped extension defines such a function; it takes a custom extension.
+
+## PR #550 — export round-trip gate known gaps
+
+- **Sub-partitioned partition with its own partitioned-index options**
+  (`corpus/partitioned-table-operations--subpartition-index-own-options`, both
+  sides, all layouts; pinned in `KNOWN_GAPS` of
+  `tests/export-roundtrip-corpus.test.ts`). `CREATE TABLE … PARTITION OF` for a
+  partition that is itself partitioned materializes its attached index as a
+  partitioned index with the parent index's reloptions, and Postgres rejects
+  `ALTER INDEX … SET/RESET` on partitioned indexes. Restoring the child's own
+  options needs a different create shape (create the partition standalone,
+  build its index, then `ATTACH PARTITION`). Plain leaf partitions are fixed in
+  #550 via `ALTER INDEX … SET/RESET` after `PARTITION OF`.
+- **Second and later `INHERITS` parents diff as a table replace**
+  (`inheritsAlso: "replace"`, same as `parentTable`). Before #550 they were not
+  extracted at all. An in-place `ALTER TABLE … INHERIT / NO INHERIT` path would
+  avoid the rebuild for both attributes.

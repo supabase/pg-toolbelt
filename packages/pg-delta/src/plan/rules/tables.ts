@@ -105,6 +105,9 @@ export const tableRules: Record<string, KindRules> = {
         for (const child of view.childrenOf(fact.id)) {
           if (child.id.kind === "index" && p(child, "attachedTo") != null) {
             alsoProduces.push(child.id);
+            // Postgres rejects SET/RESET on a partitioned index, so a
+            // sub-partitioned partition keeps the materialized options.
+            if (partKey != null) continue;
             const idx = child.id as { schema: string; name: string };
             materializedIndexFixups.push(
               ...reloptionsAlterSpecs(

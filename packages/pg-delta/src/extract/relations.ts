@@ -17,7 +17,10 @@ import {
 /** Canonicalize pg_class.reloptions (a text[] of `key=value`) to a sorted array
  *  so the payload hash is order-independent, or null when there are none. */
 function reloptions(row: Record<string, unknown>): string[] | null {
-  const raw = row["reloptions"];
+  return sortedOptions(row["reloptions"]);
+}
+
+function sortedOptions(raw: unknown): string[] | null {
   if (raw == null) return null;
   const arr = (raw as string[]).slice().sort();
   return arr.length > 0 ? arr : null;
@@ -434,24 +437,24 @@ const INDEXES_SQL = `
            -- gap. Child index facts plus attachedTo fingerprint attach-state;
            -- force the parent valid so it never drives that replace.
            CASE WHEN ic.relkind = 'I' THEN true ELSE i.indisvalid END AS valid,
-           (SELECT json_build_object('schema', pn.nspname, 'name', pc.relname)
-            FROM pg_inherits ih
-            JOIN pg_class pc ON pc.oid = ih.inhparent
-            JOIN pg_namespace pn ON pn.oid = pc.relnamespace
-            WHERE ih.inhrelid = i.indexrelid
-            ORDER BY ih.inhseqno
-            LIMIT 1) AS attached_to,
+           att.attached_to,
            ic.reloptions AS reloptions,
-           (SELECT pc.reloptions FROM pg_inherits ih
-            JOIN pg_class pc ON pc.oid = ih.inhparent
-            WHERE ih.inhrelid = i.indexrelid
-            ORDER BY ih.inhseqno
-            LIMIT 1) AS attached_reloptions,
+           att.attached_reloptions,
            obj_description(i.indexrelid, 'pg_class') AS comment
     FROM pg_index i
     JOIN pg_class ic ON ic.oid = i.indexrelid
     JOIN pg_class c ON c.oid = i.indrelid
     JOIN pg_namespace n ON n.oid = ic.relnamespace
+    LEFT JOIN LATERAL (
+      SELECT json_build_object('schema', pn.nspname, 'name', pc.relname) AS attached_to,
+             pc.reloptions AS attached_reloptions
+      FROM pg_inherits ih
+      JOIN pg_class pc ON pc.oid = ih.inhparent
+      JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+      WHERE ih.inhrelid = i.indexrelid
+      ORDER BY ih.inhseqno
+      LIMIT 1
+    ) att ON true
     WHERE c.relkind IN ('r', 'p', 'm') AND ${USER_SCHEMA_FILTER}
       -- Exclude indexes OWNED by a constraint (PRIMARY KEY / UNIQUE / EXCLUSION),
       -- which are serialized via the constraint, not as standalone CREATE INDEX.
@@ -507,9 +510,9 @@ export const indexesFamily: CatalogFamily = {
             ...(attachedTo != null
               ? {
                   _reloptions: reloptions(row),
-                  _attachedReloptions: reloptions({
-                    reloptions: row["attached_reloptions"],
-                  }),
+                  _attachedReloptions: sortedOptions(
+                    row["attached_reloptions"],
+                  ),
                 }
               : {}),
           },

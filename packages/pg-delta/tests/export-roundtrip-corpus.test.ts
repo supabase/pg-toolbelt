@@ -33,7 +33,17 @@ const LAYOUTS: NonNullable<ExportOptions["layout"]>[] = [
 
 /** `<scenario>/<a|b>` → tracking reference. A listed case must still fail, so a
  *  fix that makes it pass forces the entry's removal. */
-const KNOWN_GAPS = new Map<string, string>([]);
+const FOLLOW_UPS = "docs/roadmap/pg-delta-next-follow-ups.md#pr-550";
+const KNOWN_GAPS = new Map<string, string>([
+  [
+    "partitioned-table-operations--subpartition-index-own-options/a",
+    FOLLOW_UPS,
+  ],
+  [
+    "partitioned-table-operations--subpartition-index-own-options/b",
+    FOLLOW_UPS,
+  ],
+]);
 
 interface Case {
   scenario: Scenario;
