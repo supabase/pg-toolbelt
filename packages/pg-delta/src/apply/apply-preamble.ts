@@ -20,16 +20,15 @@ export function buildApplyPreamble(
     ...(options?.statementTimeoutMs !== undefined
       ? [`SET ${scope}statement_timeout = ${options.statementTimeoutMs}`]
       : []),
-    // search_path: pg_catalog FIRST, then the applier's own path. The DDL is
-    // fully qualified except for built-ins, which must never resolve to a user
-    // schema the role lists before pg_catalog. But expressions the DDL
-    // evaluates (an ADD COLUMN default rewrite, an index or CHECK over a user
-    // function) run routine bodies whose UNqualified names resolve through the
-    // session path — e.g. pgcrypto in Supabase's `extensions` schema — so
-    // pinning pg_catalog alone broke them. An empty path renders as `""`.
+    // search_path: pg_catalog first, so built-ins never resolve to a user
+    // schema; then the applier's own path, which routine bodies the DDL
+    // evaluates (e.g. an ADD COLUMN default) need for unqualified names such as
+    // pgcrypto in Supabase's `extensions`. array_remove compares with the
+    // type's own equality, not an operator looked up on the old path. An
+    // empty path reads back as `""`.
     ...plan.preamble.map((setting) =>
       setting.name === "search_path"
-        ? `SELECT pg_catalog.set_config('search_path', pg_catalog.concat_ws(', ', ${lit(setting.value)}, NULLIF(NULLIF(pg_catalog.current_setting('search_path'), ''), '""')), ${local})`
+        ? `SELECT pg_catalog.set_config('search_path', pg_catalog.array_to_string(pg_catalog.array_remove(pg_catalog.array_remove(ARRAY[${lit(setting.value)}, pg_catalog.current_setting('search_path')], ''), '""'), ', '), ${local})`
         : `SET ${scope}${setting.name} = ${setting.value}`,
     ),
   ];

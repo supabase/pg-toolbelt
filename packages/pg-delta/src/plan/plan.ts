@@ -807,10 +807,9 @@ export function plan(
     source: { fingerprint: physicalSource.rootHash },
     target: { fingerprint: projectedDesired.rootHash },
     preamble: [
-      // Pin the applier's deparse/resolution path to `pg_catalog` so the
-      // rendered (fully qualified) DDL resolves identically regardless of the
-      // applier role's default search_path. Extraction canonicalizes to the
-      // same path, so every emitted statement target is already qualified.
+      // Extraction canonicalizes to `pg_catalog`, so every emitted statement
+      // target is already qualified. apply() puts this path ahead of the
+      // applier's own (apply-preamble.ts); file renderers omit it.
       { name: "search_path", value: "pg_catalog" },
       // check_function_bodies=off lets quoted routine bodies elaborate lazily
       // (the planner records no body-dependency edges — rules/helpers.ts).
