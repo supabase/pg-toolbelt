@@ -260,7 +260,11 @@ describe("apply() onEvent observer", () => {
       // action statement …
       let sawPreambleSet = false;
       events.forEach((e, pos) => {
-        if (e.kind === "control" && e.sql.startsWith("SET ")) {
+        if (
+          e.kind === "control" &&
+          (e.sql.startsWith("SET ") ||
+            e.sql.startsWith("SELECT pg_catalog.set_config("))
+        ) {
           sawPreambleSet = true;
           expect(pos).toBeLessThan(actionStartPos);
         }
