@@ -11,7 +11,7 @@
 import type { FactBase } from "../../core/fact.ts";
 import type { Action, SafetyReport } from "../plan.ts";
 import { topoSort } from "../graph.ts";
-import type { StableId } from "../../core/stable-id.ts";
+import { encodeId, type StableId } from "../../core/stable-id.ts";
 import type { ApplierCapability } from "../../policy/capability.ts";
 import {
   isOverlayDefaultPrivilege,
@@ -54,17 +54,28 @@ function columnCreateSlot(
  * go first (#518). Chain each table's column creates by position so each one
  * waits for the one before it.
  *
- * An edge that would close a cycle with a real dependency is skipped, and that
- * pair (and the columns around it) keeps only the tie-break order. Two shapes
- * do this: a generated column that
- * reads a column declared after it, and a column whose DEFAULT calls a function
- * that reads a column declared after it.
+ * Two kinds of column keep only the tie-break order, so they can land after
+ * the columns declared behind them:
+ *  - an evaluator column (`evaluatorActions`): its DEFAULT calls a user
+ *    function, which Postgres runs at ADD COLUMN time even on an empty table.
+ *    The function may read a later column with no pg_depend edge to it (a
+ *    plpgsql or quoted SQL body), so only the evaluator stratum keeps the
+ *    column after it. No chain edge starts from such a column; the next column
+ *    chains from the last one before it instead. A generated column on a table
+ *    this plan creates is exempt: Postgres computes it per row, and the new
+ *    table has none.
+ *  - a column whose chain edge would close a cycle with a real dependency (a
+ *    generated column reading a column declared after it). That edge is
+ *    skipped.
  *
- * Ordering edges only: no SQL changes, so the proof is unaffected.
+ * Ordering edges change no SQL text, but a wrong edge can make the plan fail to
+ * apply, so every edge here must be one Postgres can honor.
  */
 function chainColumnCreatesByPosition(
   actions: readonly Action[],
   desired: FactBase,
+  producerOf: ReadonlyMap<string, number>,
+  evaluatorActions: ReadonlySet<number>,
   edges: Array<[number, number]>,
 ): void {
   const columnsByTable = new Map<
@@ -82,42 +93,55 @@ function chainColumnCreatesByPosition(
     return;
   }
 
-  const predecessorsOf = new Map<number, number[]>();
-  const addPredecessor = (before: number, after: number): void => {
-    const list = predecessorsOf.get(after) ?? [];
-    list.push(before);
-    predecessorsOf.set(after, list);
+  const successorsOf = new Map<number, number[]>();
+  const addSuccessor = (before: number, after: number): void => {
+    const list = successorsOf.get(before) ?? [];
+    list.push(after);
+    successorsOf.set(before, list);
   };
-  for (const [before, after] of edges) addPredecessor(before, after);
-  const addEdge = (before: number, after: number): void => {
-    edges.push([before, after]);
-    addPredecessor(before, after);
-  };
-  // Walks backwards from `node` over the earlier columns of the chain and
-  // their upstream closure (table, schema, types, functions): about
-  // O(chain length + upstream closure) per column.
-  const isAncestor = (candidate: number, node: number): boolean => {
-    const seen = new Set<number>([node]);
-    const stack = [node];
+  for (const [before, after] of edges) addSuccessor(before, after);
+  // Walks forwards from `from` over its dependents. Columns are chained in
+  // position order, so `from` has no outgoing chain edge yet and the walk
+  // covers only its real downstream closure (constraints, indexes, views),
+  // not the earlier columns of the chain.
+  const reaches = (from: number, target: number): boolean => {
+    const seen = new Set<number>([from]);
+    const stack = [from];
     while (stack.length > 0) {
-      for (const p of predecessorsOf.get(stack.pop() as number) ?? []) {
-        if (p === candidate) return true;
-        if (seen.has(p)) continue;
-        seen.add(p);
-        stack.push(p);
+      for (const s of successorsOf.get(stack.pop() as number) ?? []) {
+        if (s === target) return true;
+        if (seen.has(s)) continue;
+        seen.add(s);
+        stack.push(s);
       }
     }
     return false;
   };
+  // Whether a later column may wait on this one (see the doc comment).
+  const canLead = (index: number): boolean => {
+    if (!evaluatorActions.has(index)) return true;
+    const id = (actions[index] as Action).produces[0] as StableId;
+    const fact = desired.get(id);
+    if (fact?.payload["generatedExpr"] == null || fact.parent === undefined) {
+      return false;
+    }
+    const tableProducer = producerOf.get(encodeId(fact.parent));
+    return (
+      tableProducer !== undefined &&
+      (actions[tableProducer] as Action).verb === "create"
+    );
+  };
 
   for (const columns of columnsByTable.values()) {
     columns.sort((a, b) => a.position - b.position);
-    for (let j = 1; j < columns.length; j++) {
-      const before = (columns[j - 1] as { index: number }).index;
-      const after = (columns[j] as { index: number }).index;
+    let before: number | undefined;
+    for (const { index: after } of columns) {
       // `before → after` closes a cycle iff `after` already precedes `before`.
-      if (isAncestor(after, before)) continue;
-      addEdge(before, after);
+      if (before !== undefined && !reaches(after, before)) {
+        edges.push([before, after]);
+        addSuccessor(before, after);
+      }
+      if (canLead(after)) before = after;
     }
   }
 }
@@ -238,7 +262,13 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     evaluatorActions,
     implicitDestroys,
   );
-  chainColumnCreatesByPosition(actions, desired, edges);
+  chainColumnCreatesByPosition(
+    actions,
+    desired,
+    producerOf,
+    evaluatorActions,
+    edges,
+  );
 
   // Order a table's ADD COLUMN creates by declared column position
   // (pg_attribute.attnum, carried as the non-semantic `_position` field) instead
