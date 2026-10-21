@@ -16,7 +16,6 @@ import pg from "pg";
 import {
   buildAfterCommitRead,
   buildCheckBlock,
-  parseCheckError,
   resolvePolicy,
 } from "../src/index.ts";
 import { applyMigrationLikeCli, runBatch } from "../tests/cli-executor.ts";
