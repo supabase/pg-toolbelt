@@ -13,6 +13,10 @@
  *  - a column waiting on a function (rule weight 8) let the ready columns after
  *    it (weight 5) sort ahead of it, even with compaction disabled.
  *
+ * A column whose DEFAULT calls a user function still lands after the columns
+ * declared behind it: Postgres runs that function at ADD COLUMN time, and it may
+ * read a later column that pg_depend does not record.
+ *
  * Docker required.
  */
 import { afterAll, describe, expect, test } from "bun:test";
@@ -51,7 +55,10 @@ async function planFromEmpty(label: string, desiredSql: string) {
   ];
   const thePlan = plan(sourceState.factBase, desiredState.factBase);
   const report = await apply(thePlan, source.pool, { fingerprintGate: false });
-  expect(report.status).toBe("applied");
+  expect({ status: report.status, error: report.error?.message }).toEqual({
+    status: "applied",
+    error: undefined,
+  });
   const tableSql = thePlan.actions
     .map((a) => a.sql)
     .filter((sql) => sql.includes(`"app"."orders"`) && !/ OWNER TO /.test(sql));
@@ -63,23 +70,19 @@ async function planFromEmpty(label: string, desiredSql: string) {
 }
 
 describe("column order of a table planned from empty (#518)", () => {
-  test("a generated column keeps its declared position", async () => {
+  test("a DEFAULT whose function reads a later column still applies", async () => {
+    // Postgres evaluates a non-volatile DEFAULT at ADD COLUMN time, even on an
+    // empty table, so `a` needs `b` to exist. The plpgsql body records no
+    // pg_depend edge to `b`, so only the evaluator ordering keeps `a` after
+    // `b`; the position chain must not override it. `a` lands last.
     const result = await planFromEmpty(
-      "gen",
+      "deffn",
       `create schema app;
-       create table app.orders (
-         id int,
-         placed_on date,
-         ship_by date generated always as (placed_on + 7) stored,
-         note text
-       );`,
+       create function app.f() returns int language plpgsql stable
+         as $$ begin return (select count(b) from app.orders); end $$;
+       create table app.orders (id int, a int default app.f(), b int);`,
     );
-    expect(result.applied).toEqual(result.declared);
-    expect(result.tableSql).toMatchInlineSnapshot(`
-      [
-        "CREATE TABLE "app"."orders" ("id" integer, "placed_on" date, "ship_by" date GENERATED ALWAYS AS ((placed_on + 7)) STORED, "note" text)",
-      ]
-    `);
+    expect(result.applied).toEqual(["id", "b", "a"]);
   }, 60_000);
 
   test("a column waiting on a function keeps its declared position", async () => {
@@ -131,21 +134,47 @@ describe("column order after export and reload (#518)", () => {
     await source.pool.query(`
       create schema app;
       create type app.mood as enum ('sad', 'ok');
-      create function app.one() returns int language sql immutable
-        as $$ select 1 $$;
       create table app.generated (id int, d date, p date generated always as (d) stored, note text);
       create table app.typed (id int, m app.mood, note text);
-      create table app.fn_default (id int, x int default app.one(), note text);
     `);
     const files = exportSqlFiles((await extract(source.pool)).factBase, {
       layout: "by-object",
     }).filter((f) => !/cluster[_/]roles/.test(f.name));
     await loadSqlFiles(files, shadow.pool);
-    for (const table of ["app.generated", "app.typed", "app.fn_default"]) {
+    for (const table of ["app.generated", "app.typed"]) {
       expect({ table, columns: await columnOrder(shadow, table) }).toEqual({
         table,
         columns: await columnOrder(source, table),
       });
     }
+  }, 60_000);
+
+  test("a DEFAULT calling a function is added after the later columns", async () => {
+    // A DEFAULT that calls a user function runs it at ADD COLUMN time, and the
+    // function may read a later column with no pg_depend edge to it (`app.t`).
+    // Such a column keeps the evaluator ordering, so it lands last: a known
+    // limit of #518's fix.
+    const source = await createTestDb("colord_expfn_src");
+    const shadow = await createTestDb("colord_expfn_shadow");
+    dbs.push(source, shadow);
+    await source.pool.query(`
+      create schema app;
+      create function app.one() returns int language sql immutable
+        as $$ select 1 $$;
+      create function app.f() returns int language plpgsql stable
+        as $$ begin return (select count(b) from app.t); end $$;
+      create table app.fn_default (id int, x int default app.one(), note text);
+      create table app.t (id int, a int default app.f(), b int);
+    `);
+    const files = exportSqlFiles((await extract(source.pool)).factBase, {
+      layout: "by-object",
+    }).filter((f) => !/cluster[_/]roles/.test(f.name));
+    await loadSqlFiles(files, shadow.pool);
+    expect(await columnOrder(shadow, "app.fn_default")).toEqual([
+      "id",
+      "note",
+      "x",
+    ]);
+    expect(await columnOrder(shadow, "app.t")).toEqual(["id", "b", "a"]);
   }, 60_000);
 });

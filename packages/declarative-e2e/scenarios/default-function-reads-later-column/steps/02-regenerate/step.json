@@ -1,0 +1,5 @@
+{
+  "command": "generate",
+  "delete": ["public/ledger.sql"],
+  "migration": "none"
+}
