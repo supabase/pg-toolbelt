@@ -67,6 +67,20 @@ describe("buildCheckBlock", () => {
     );
   });
 
+  test("catches a cancel anywhere in the DO body, not only in the lint query", () => {
+    const [, , check] = buildCheckStatements(
+      resolvePolicy({ rls_disabled_in_public: "error" }),
+      { exposedSchemas: ["public"] },
+    );
+    const body = check!.slice(check!.indexOf("\nbegin\n"));
+    const handler = body.lastIndexOf("exception when query_canceled");
+    expect(handler).toBeGreaterThan(
+      body.indexOf("set_config('search_path', ''"),
+    );
+    expect(handler).toBeGreaterThan(body.indexOf("jsonb_array_length"));
+    expect(handler).toBeGreaterThan(body.lastIndexOf("prev_db_schemas"));
+  });
+
   test("rejects a non-positive timeout and a schema splinter cannot parse", () => {
     expect(() => buildCheckStatements(blocking, { timeoutMs: 0 })).toThrow(
       /timeoutMs/,

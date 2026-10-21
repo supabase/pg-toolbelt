@@ -94,6 +94,19 @@ describe("parseCheckError", () => {
     });
   });
 
+  test("a raw 57014 is a timeout only when the check statement raised it", () => {
+    const cancel = {
+      code: "57014",
+      message: "canceling statement due to statement timeout",
+    };
+    expect(parseCheckError(cancel, { fromCheck: true })).toEqual({
+      kind: "timed_out",
+      message: "canceling statement due to statement timeout",
+    });
+    expect(parseCheckError(cancel)).toBeNull();
+    expect(parseCheckError(cancel, { fromCheck: false })).toBeNull();
+  });
+
   test("anything else is not a check error", () => {
     expect(
       parseCheckError({ code: "42P01", message: "relation does not exist" }),
