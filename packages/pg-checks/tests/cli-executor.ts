@@ -209,6 +209,7 @@ export async function applyMigrationLikeCli(
     params: [file.version, file.name, [...file.statements]],
   };
   const split = isSplitFile(file);
+  let checkRange: readonly [number, number] | undefined;
   const start = performance.now();
   const ms = () => Math.round(performance.now() - start);
   try {
@@ -250,6 +251,10 @@ export async function applyMigrationLikeCli(
               : {}),
             ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
           });
+      checkRange = [
+        file.statements.length,
+        file.statements.length + check.length,
+      ];
       await runBatch(client, [
         ...file.statements.map((sql) => ({ sql })),
         ...check.map((sql) => ({ sql })),
@@ -258,7 +263,14 @@ export async function applyMigrationLikeCli(
     }
     return { outcome: "applied", split, ms: ms() };
   } catch (error) {
-    const check = parseCheckError(error);
+    const index = (error as { statementIndex?: number }).statementIndex;
+    const check = parseCheckError(error, {
+      fromCheck:
+        checkRange !== undefined &&
+        index !== undefined &&
+        index >= checkRange[0] &&
+        index < checkRange[1],
+    });
     if (check !== null) {
       return {
         outcome: check.kind === "blocked" ? "blocked" : "timed_out",

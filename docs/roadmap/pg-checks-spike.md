@@ -90,3 +90,14 @@ One throwaway staging project (PG 17.11.0.003, micro, api.supabase.green, delete
 | Mgmt API `POST /database/query`, `begin; file; check; insert; commit` | Works. SB001 returns HTTP 400 with `message` = `ERROR:  SB001: security check failed\nDETAIL:  {findings json}\nCONTEXT: …`; there is no separate SQLSTATE field, so clients must parse the text. NOTICE/WARNING are dropped. Only the last row-returning statement's rows come back. About 2.5 s per call whatever the SQL. |
 
 Other facts: a fresh project has zero findings across all nine rules in `public`; the check adds about 120 ms over a 90 ms RTT (one rule or nine); the after-commit read as one string works through the API (zero findings returns the `set_config` row, which `parseFindings` ignores).
+
+## Known pitfalls
+
+Both were found on hosted staging (O8) and are pinned by tests.
+
+1. **The timeout can escape the check's handler.** The cancel from `SET LOCAL statement_timeout` can land in any step of the `DO`, not only the lint query. Hosted runs at 1 ms and 50 ms surfaced a raw `57014` instead of `SB002` (rollback stayed correct).
+   - Fixed: the `query_canceled` handler now spans the whole `DO` body.
+   - Residual: a cancel while Postgres compiles the `DO` is uncatchable. Executors must map a raw `57014` from a check statement to `timed_out` with `parseCheckError(error, { fromCheck: true })`. The CLI pipeline knows the failing statement index. A one-string executor (Mgmt API `begin; …; commit;` through `/database/query`) cannot tell it from the file's own timeout, so it reports a plain apply error in that rare case.
+2. **`pgrst.db_schemas` cannot be restored to unset.** Once any `set_config('pgrst.db_schemas', …)` runs on a session, Postgres keeps the placeholder: after rollback or `RESET` it reads `''`, never NULL again (checked on postgres:17-alpine). Splinter does `coalesce(current_setting('pgrst.db_schemas', true), 'public')`, so `''` means "no exposed schema" and the exposure-scoped rules silently find nothing. Through Supavisor the backend is reused, so a later client inherits `''`.
+   - Not fixable in SQL. Rule: every splinter run (check block, after-commit read, and any other caller on a pooled connection, e.g. Advisors) must set `pgrst.db_schemas` itself. pg-checks always does.
+   - To raise with splinter: treat `''` like unset (`nullif(…, '')`), which would remove the trap for every caller.
