@@ -26,6 +26,9 @@ performance, then DX.
 - **[declarative-e2e-test-architecture.md](declarative-e2e-test-architecture.md)** —
   end-to-end declarative-schema scenarios run through the Supabase CLI (in
   progress): what they cover, known issues they pin, and open items.
+- **[pg-checks-spike.md](pg-checks-spike.md)** — spike of `@supabase/pg-checks`
+  (security checks on migration apply): what was built, the dogfood results,
+  and the new evidence on the RFC's open questions.
 
 ## How the engine got here
 
