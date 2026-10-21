@@ -68,11 +68,17 @@ export function parseFindings(
   });
 }
 
+const QUERY_CANCELED_SQLSTATE = "57014";
+
 /**
  * The check's own failure, from a driver error carrying `code` and `detail`
  * (node-postgres `DatabaseError`, pg-meta's error body). `null` for any other error.
+ * Pass `fromCheck` when the executor knows the error came from a check statement.
  */
-export function parseCheckError(error: unknown): CheckError | null {
+export function parseCheckError(
+  error: unknown,
+  options: { readonly fromCheck?: boolean } = {},
+): CheckError | null {
   if (typeof error !== "object" || error === null) return null;
   const { code, message, detail } = error as {
     code?: unknown;
@@ -80,6 +86,14 @@ export function parseCheckError(error: unknown): CheckError | null {
     detail?: unknown;
   };
   if (code === CHECK_TIMED_OUT_SQLSTATE) {
+    return {
+      kind: "timed_out",
+      message: stringOrNull(message) ?? "security check timed out",
+    };
+  }
+  // A cancel while Postgres compiles the check's DO escapes its handler. Only
+  // the executor knows which statement failed, so it says so.
+  if (code === QUERY_CANCELED_SQLSTATE && options.fromCheck === true) {
     return {
       kind: "timed_out",
       message: stringOrNull(message) ?? "security check timed out",

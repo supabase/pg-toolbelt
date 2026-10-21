@@ -80,31 +80,34 @@ export function buildCheckStatements(
     policy.exclude,
   );
   // The timeout must be set by its own statement: the timer starts with the
-  // statement, so setting it inside the DO has no effect (RFC §3.1). search_path
-  // and pgrst.db_schemas are saved and restored inside the DO; on a raise the
-  // transaction aborts, so only the success path restores.
+  // statement, so setting it inside the DO has no effect (RFC §3.1). The
+  // handler spans the whole body because the cancel can land in any step, not
+  // only the lint query (seen on hosted). A cancel while Postgres compiles the
+  // DO is still uncatchable: executors map a raw 57014 from this statement
+  // with parseCheckError(..., { fromCheck: true }). On a raise the transaction
+  // aborts, so only the success path restores search_path and pgrst.db_schemas.
   const check = `do $sbc$
 declare
   prev_search_path pg_catalog.text := pg_catalog.current_setting('search_path');
   prev_db_schemas pg_catalog.text := pg_catalog.current_setting('pgrst.db_schemas', true);
   findings pg_catalog.jsonb;
 begin
-  perform pg_catalog.set_config('search_path', '', true);
-  perform pg_catalog.set_config('pgrst.db_schemas', ${quoteLiteral(dbSchemas(options))}, true);
   begin
+    perform pg_catalog.set_config('search_path', '', true);
+    perform pg_catalog.set_config('pgrst.db_schemas', ${quoteLiteral(dbSchemas(options))}, true);
     execute $sbcq$
 ${select}
 $sbcq$ into findings;
+    if pg_catalog.jsonb_array_length(findings->'errors') > 0 then
+      raise exception using errcode = '${CHECK_FAILED_SQLSTATE}', message = 'security check failed',
+        detail = findings::pg_catalog.text;
+    end if;
+    perform pg_catalog.set_config('search_path', prev_search_path, true);
+    perform pg_catalog.set_config('pgrst.db_schemas', coalesce(prev_db_schemas, ''), true);
   exception when query_canceled then
     raise exception using errcode = '${CHECK_TIMED_OUT_SQLSTATE}', message = 'security check timed out',
       hint = 'retry with --skip-checks, or raise the check timeout';
   end;
-  if pg_catalog.jsonb_array_length(findings->'errors') > 0 then
-    raise exception using errcode = '${CHECK_FAILED_SQLSTATE}', message = 'security check failed',
-      detail = findings::pg_catalog.text;
-  end if;
-  perform pg_catalog.set_config('search_path', prev_search_path, true);
-  perform pg_catalog.set_config('pgrst.db_schemas', coalesce(prev_db_schemas, ''), true);
 end
 $sbc$`;
   return [

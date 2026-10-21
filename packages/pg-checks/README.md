@@ -26,7 +26,8 @@ const statements = buildCheckStatements(policy, { exposedSchemas, timeoutMs: 200
 const script = buildCheckBlock(policy, { exposedSchemas });                          // one-string executors (Mgmt API)
 
 try { /* run file + statements + history insert */ } catch (error) {
-  const check = parseCheckError(error); // { kind: "blocked", errors, warnings } | { kind: "timed_out" } | null
+  // fromCheck: the failing statement was one of `statements` (a cancel while the DO compiles is a raw 57014).
+  const check = parseCheckError(error, { fromCheck }); // { kind: "blocked", errors, warnings } | { kind: "timed_out" } | null
 }
 
 // After commit, outside any transaction: begin; set_config...; select; rollback.
@@ -96,7 +97,9 @@ See `docs/roadmap/pg-checks-spike.md`. Short version:
   "exposed schemas only" does not hold for them.
 - After any `set_config('pgrst.db_schemas', …, true)`, the session keeps the
   placeholder as `''`, and splinter then sees no exposed schema. Every read must
-  set it (the after-commit read does).
+  set it (the after-commit read does). Postgres cannot unset it, and a pooled
+  backend passes `''` to the next client. See "Known pitfalls" in
+  `docs/roadmap/pg-checks-spike.md`.
 - The `pg_depend.classid` fix (O9) is already in splinter since 2026.07.0.
 - Rule rows are filtered by name inside one 75 KB statement; the whole query
   text is sent (and logged under `log_statement = all`) on every migration.
