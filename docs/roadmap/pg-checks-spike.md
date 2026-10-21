@@ -73,3 +73,20 @@ Canonical PG17 run:
 7. **Repo:** `packages/pg-topo` `knip` already fails on `main` (unused `src/index.ts`, `src/validate-sql.ts`). That is unrelated to this spike.
 
 Not done: hosted project / Supavisor (O8); the Mgmt API executor beyond the one-string block test; replay mode (D18); a PG15 stack fixture (the PG15 dogfood stops early on missing `storage.buckets`).
+
+## O8 hosted staging results
+
+One throwaway staging project (PG 17.11.0.003, micro, api.supabase.green, deleted afterwards). Probe: `packages/pg-checks/scripts/o8-probe.ts`. Full report: `~/.cache/supabase-pg-checks-dogfood/o8-20261021-1737/REPORT.md`.
+
+| Cell | Verdict |
+| -- | -- |
+| Direct, `postgres` (non-superuser): blocked file raises SB001, no table, no history row | PASS |
+| Direct: secure file applies, its own `SET LOCAL statement_timeout` / `search_path` survive the check | PASS |
+| Direct: `set_config('sbc.*', …, true)` under supautils | PASS |
+| Direct: timeout reports SB002 | **FAIL**: SB002 at 5 and 20 ms, raw `57014` at 1 and 50 ms (the cancel escapes the inner `exception` block). Rollback is correct either way, but `parseCheckError` would not classify it. |
+| Supavisor transaction mode (6543): block and secure apply | PASS. One backend reused across clients, no `statement_timeout` / `search_path` leak. `pgrst.db_schemas` stays `''` (NULL on a fresh session) on the pooled backend, so O23 holds hosted. |
+| Supavisor session mode (5432): block | PASS |
+| Log volume | Hosted `log_statement=ddl`, `pgaudit.log=none`, no role override raises it: a passing check is not logged. A failing check is (`log_min_error_statement=error` writes the ~75 KB statement). Bytes not observable: staging analytics has no postgres log source for the project. |
+| Mgmt API `POST /database/query`, `begin; file; check; insert; commit` | Works. SB001 returns HTTP 400 with `message` = `ERROR:  SB001: security check failed\nDETAIL:  {findings json}\nCONTEXT: …`; there is no separate SQLSTATE field, so clients must parse the text. NOTICE/WARNING are dropped. Only the last row-returning statement's rows come back. About 2.5 s per call whatever the SQL. |
+
+Other facts: a fresh project has zero findings across all nine rules in `public`; the check adds about 120 ms over a 90 ms RTT (one rule or nine); the after-commit read as one string works through the API (zero findings returns the `set_config` row, which `parseFindings` ignores).
