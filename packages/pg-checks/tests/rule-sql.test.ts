@@ -42,7 +42,7 @@ create function public.f_mutable() returns int language sql as 'select 1';
 create table public.meta (id int primary key);
 alter table public.meta enable row level security;
 create policy meta_p on public.meta for select to authenticated
-  using ((auth.jwt() -> 'user_metadata' ->> 'role') = 'admin');
+  using ((current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role') = 'admin');
 `;
 
 const canonical = (rows: readonly unknown[]) =>
