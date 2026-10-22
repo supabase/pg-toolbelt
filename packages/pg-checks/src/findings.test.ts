@@ -43,6 +43,7 @@ describe("parseFindings", () => {
         schema: "public",
         name: "foo",
         type: "table",
+        splinterLevel: "ERROR",
         detail: "public.foo finding",
         fix: "alter table public.foo enable row level security; then add a policy for each role that needs access: create policy ... on public.foo for <command> to <role> using (<condition>);",
         docs: "https://supabase.com/docs/guides/database/database-linter?lint=rls_disabled_in_public",
@@ -53,6 +54,7 @@ describe("parseFindings", () => {
         schema: "public",
         name: "bar",
         type: "function",
+        splinterLevel: "ERROR",
         detail: "public.bar finding",
         fix: "alter function public.bar set search_path = ''; then schema-qualify every object its body references.",
         docs: "https://supabase.com/docs/guides/database/database-linter?lint=function_search_path_mutable",
@@ -105,6 +107,24 @@ describe("parseFindings", () => {
     );
   });
 
+  test("keeps splinter's own level next to the policy severity", () => {
+    const at = (level: unknown) => ({
+      ...row("rls_enabled_no_policy", "public", "t"),
+      level,
+    });
+    const findings = parseFindings(
+      [at("ERROR"), at("WARN"), at("INFO"), at("FATAL"), at(undefined)],
+      resolvePolicy({ rls_enabled_no_policy: "error" }),
+    );
+    expect(findings.map((f) => [f.severity, f.splinterLevel])).toEqual([
+      ["error", "ERROR"],
+      ["error", "WARN"],
+      ["error", "INFO"],
+      ["error", null],
+      ["error", null],
+    ]);
+  });
+
   test("drops rows for rules the policy turned off", () => {
     const policy = resolvePolicy({ rls_disabled_in_public: "off" });
     expect(
@@ -126,9 +146,9 @@ describe("parseCheckError", () => {
     });
     expect(result?.kind).toBe("blocked");
     if (result?.kind !== "blocked") return;
-    expect(result.errors.map((f) => [f.rule, f.severity, f.name])).toEqual([
-      ["rls_disabled_in_public", "error", "foo"],
-    ]);
+    expect(
+      result.errors.map((f) => [f.rule, f.severity, f.name, f.splinterLevel]),
+    ).toEqual([["rls_disabled_in_public", "error", "foo", "ERROR"]]);
     expect(result.warnings.map((f) => [f.rule, f.severity, f.name])).toEqual([
       ["rls_enabled_no_policy", "warn", "bar"],
     ]);
