@@ -39,7 +39,8 @@ const findings = parseFindings(rowsOf(read.statements[read.resultIndex]), policy
   `policy_exists_rls_disabled`, `security_definer_view`, `rls_policy_always_true`,
   `sensitive_columns_exposed`, `auth_users_exposed`, `function_search_path_mutable`,
   `rls_references_user_metadata`; severity `error | warn | off`, absent = `warn`;
-  `exclude: ["schema.relation"]`. Unknown rules, severities and malformed
+  `exclude: { <rule>: ["schema.name"] }` (per rule, mirrors
+  `[db.migrations.checks.exclude]`; duplicates removed). Unknown rules, severities and malformed
   exclusions are all reported in one `PolicyError`.
 - Check block: `set_config('sbc.statement_timeout', …)`, `SET LOCAL statement_timeout`,
   one `DO` block, restore. The `DO` saves and restores `search_path` (`''` for

@@ -1,6 +1,6 @@
 /**
  * The `[db.migrations.checks]` policy (RFC §5): a severity per rule plus
- * relations excluded from every rule.
+ * objects excluded from individual rules (`[db.migrations.checks.exclude]`).
  */
 
 /** Splinter security rules the check evaluates (RFC §5, D8). */
@@ -25,8 +25,11 @@ const SEVERITIES: readonly Severity[] = ["error", "warn", "off"];
 
 export interface ResolvedPolicy {
   readonly severities: Readonly<Record<Rule, Severity>>;
-  /** `schema.relation` entries, matched against splinter's `metadata`. */
-  readonly exclude: readonly string[];
+  /** `object` is `schema.name`, matched against splinter's `metadata`. */
+  readonly exclude: ReadonlyArray<{
+    readonly rule: Rule;
+    readonly object: string;
+  }>;
 }
 
 export class PolicyError extends Error {
@@ -38,9 +41,12 @@ export class PolicyError extends Error {
   }
 }
 
-// Splinter metadata carries raw (unquoted) names, so one dot separates the two
-// parts; a name that itself contains a dot or whitespace cannot be excluded.
-const EXCLUDE_PATTERN = /^[^.\s]+\.[^.\s]+$/;
+// Splinter metadata carries raw (unquoted) names: an entry is `schema.name`
+// with a dot and text on both sides, and no quoting.
+const isObjectName = (entry: string) => {
+  const dot = entry.indexOf(".");
+  return entry === entry.trim() && dot > 0 && dot < entry.length - 1;
+};
 
 const isRule = (key: string): key is Rule =>
   (RULES as readonly string[]).includes(key);
@@ -58,24 +64,10 @@ export function resolvePolicy(input: unknown): ResolvedPolicy {
   const severities = Object.fromEntries(
     RULES.map((rule) => [rule, "warn"]),
   ) as Record<Rule, Severity>;
-  let exclude: string[] = [];
+  const exclude: Array<{ rule: Rule; object: string }> = [];
   for (const [key, value] of Object.entries(source)) {
     if (key === "exclude") {
-      if (
-        !Array.isArray(value) ||
-        value.some((entry) => typeof entry !== "string")
-      ) {
-        issues.push("exclude must be an array of strings");
-        continue;
-      }
-      exclude = value as string[];
-      exclude.forEach((entry, index) => {
-        if (!EXCLUDE_PATTERN.test(entry)) {
-          issues.push(
-            `exclude[${index}]: expected "schema.relation", got ${JSON.stringify(entry)}`,
-          );
-        }
-      });
+      collectExclusions(value, exclude, issues);
     } else if (!isRule(key)) {
       issues.push(`unknown rule ${JSON.stringify(key)}`);
     } else if (!SEVERITIES.includes(value as Severity)) {
@@ -87,7 +79,39 @@ export function resolvePolicy(input: unknown): ResolvedPolicy {
     }
   }
   if (issues.length > 0) throw new PolicyError(issues);
-  return { severities, exclude: [...new Set(exclude)] };
+  return { severities, exclude };
+}
+
+function collectExclusions(
+  value: unknown,
+  out: Array<{ rule: Rule; object: string }>,
+  issues: string[],
+): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    issues.push("exclude must be a table of rule names to lists");
+    return;
+  }
+  const seen = new Set<string>();
+  for (const [rule, entries] of Object.entries(value)) {
+    if (!isRule(rule)) {
+      issues.push(`exclude: unknown rule ${JSON.stringify(rule)}`);
+    } else if (!Array.isArray(entries)) {
+      issues.push(
+        "values under [db.migrations.checks.exclude] must be lists; severities go above it",
+      );
+    } else {
+      entries.forEach((entry: unknown, index) => {
+        if (typeof entry !== "string" || !isObjectName(entry)) {
+          issues.push(
+            `exclude.${rule}[${index}]: expected "schema.name", got ${JSON.stringify(entry)}`,
+          );
+        } else if (!seen.has(`${rule}\0${entry}`)) {
+          seen.add(`${rule}\0${entry}`);
+          out.push({ rule, object: entry });
+        }
+      });
+    }
+  }
 }
 
 /** Rules resolved to `severity`, in {@link RULES} order. */

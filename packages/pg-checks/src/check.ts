@@ -39,16 +39,16 @@ function dbSchemas(options: CheckOptions): string {
   return schemas.join(",");
 }
 
-/** The splinter query restricted to `rules`, minus excluded relations. */
+/** The splinter query restricted to `rules`, minus per-rule excluded objects. */
 function lintSelect(
   columns: string,
   rules: readonly Rule[],
-  exclude: readonly string[],
+  exclude: ResolvedPolicy["exclude"],
 ): string {
   const excluded =
     exclude.length === 0
       ? ""
-      : `\n  and not coalesce((l.metadata->>'schema') || '.' || (l.metadata->>'name') = any(${textArray(exclude)}), false)`;
+      : `\n  and not exists (select 1 from unnest(${textArray(exclude.map((e) => e.rule))}, ${textArray(exclude.map((e) => e.object))}) as x(rule, object) where x.rule = l.name and x.object = (l.metadata->>'schema') || '.' || (l.metadata->>'name'))`;
   return `select ${columns}
 from (
 ${SPLINTER_QUERY}
