@@ -28,6 +28,8 @@ import {
   type Finding,
   RULES,
   SPLINTER_VERSION,
+  buildAfterCommitRead,
+  buildCheckBlock,
   resolvePolicy,
 } from "../src/index.ts";
 import {
@@ -188,6 +190,10 @@ interface FileRecord {
 
 interface PassSummary {
   applied: number;
+  /** Bytes the check adds to each transactional file (the file itself excluded). */
+  checkBytes?: number;
+  /** Bytes of the after-commit read. */
+  readBytes?: number;
   stoppedAt?: string;
   stopReason?: string;
   historyRows?: number;
@@ -267,6 +273,10 @@ async function runPass(
       exposedSchemas: project.exposedSchemas,
       ...(pass === "a" ? { skipChecks: true } : {}),
     };
+    if (pass !== "a") {
+      summary.checkBytes = buildCheckBlock(policy, options).length;
+      summary.readBytes = buildAfterCommitRead(policy, options).sql.length;
+    }
     let seen = new Set<string>();
     for (const [index, file] of migrations.entries()) {
       const record = project.files[index]!;
@@ -571,6 +581,19 @@ lines.push(
 );
 lines.push(
   `- Per-file apply overhead vs (a), files applied in both: (c) ${stats(overheads("c"))}; (d) ${stats(overheads("d"))}. Passes run on concurrent containers, so this is noisy.`,
+);
+const bytes = (pass: Pass, key: "checkBytes" | "readBytes") =>
+  [...new Set(projects.flatMap((p) => p.passes[pass]?.[key] ?? []))].sort(
+    (x, y) => x - y,
+  );
+const range = (xs: number[]) =>
+  xs.length === 0
+    ? "-"
+    : xs.length === 1
+      ? `${xs[0]}`
+      : `${xs[0]}–${xs.at(-1)}`;
+lines.push(
+  `- SQL the check adds per transactional file, bytes (range over projects' exposed schemas): (c) ${range(bytes("c", "checkBytes"))}; (d) ${range(bytes("d", "checkBytes"))}. After-commit read: (b) ${range(bytes("b", "readBytes"))}.`,
 );
 lines.push("", "## Findings by rule", "");
 lines.push(

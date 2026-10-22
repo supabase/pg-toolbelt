@@ -101,3 +101,38 @@ Both were found on hosted staging (O8) and are pinned by tests.
 2. **`pgrst.db_schemas` cannot be restored to unset.** Once any `set_config('pgrst.db_schemas', …)` runs on a session, Postgres keeps the placeholder: after rollback or `RESET` it reads `''`, never NULL again (checked on postgres:17-alpine). Splinter does `coalesce(current_setting('pgrst.db_schemas', true), 'public')`, so `''` means "no exposed schema" and the exposure-scoped rules silently find nothing. Through Supavisor the backend is reused, so a later client inherits `''`.
    - Not fixable in SQL. Rule: every splinter run (check block, after-commit read, and any other caller on a pooled connection, e.g. Advisors) must set `pgrst.db_schemas` itself. pg-checks always does.
    - Do **not** ask splinter to treat `''` like unset (`nullif`): `''` is how a project with the Data API off says "nothing exposed" (Studio writes `db_schema = ''`; splinter test 0017 relies on it), so that change would report exposure findings on projects without an API. Pass `exposedSchemas: []` for Data API off. Other callers are tracked in CLI-2824 (CLI `db advisors`), CLI-2825 (platform Advisors), FE-4708 (pg-meta), CLI-2826 (pg-checks: skip the set when unneeded).
+
+## Spike round 3: D27, D28, fix text, splinter level, CLI-2826
+
+Local, 2026-10-22. Same images; pg-meta `v0.100.0` for D28.
+
+- **Verdict:** all five land with no change in what applies or blocks. The PG17 dogfood re-run matches the canonical run file for file, and the check overhead drops from p50 56 ms to 13 ms.
+- **D27, send only the selected rules.** The sync now cuts `splinter.sql` into one branch per rule and checks each branch against the tag's `lints/*.sql` (the transform in splinter's `bin/compile.py`), so a cut cannot land inside a rule. `src/vendor/splinter.ts` exports `RULE_SQL` for the nine rules. The check and both reads union only the rules they need. None of the nine reads `splinter.*`, so the `public_buckets` preamble is not vendored. Each rule run alone returns exactly the full release's rows for that rule (`tests/rule-sql.test.ts`, PG17 and PG15, a fixture with findings for all nine).
+- **D28, warn read before commit.** `buildInTransactionWarnRead` goes between the history insert and `commit`. Its `DO` catches `query_canceled` and `others` and stores `{findings}` or `{read_error}` in `sbc.findings`. It restores `statement_timeout` inside the `DO`, then one `sbc_findings` row comes back. `parseInTransactionWarnRead` finds that row by column name. Through a real pg-meta (`tests/mgmt-api.test.ts`): the happy path returns 200 and commits; a 1 ms read timeout returns 200 with `read_error: 57014`, and the migration still commits (4 of 4 runs); SB001 returns 400 and commits nothing; with zero findings only the sentinel row comes back, not the file's own rows. Residual risk: a cancel that lands while Postgres compiles the `DO` can still roll the migration back. At the 2 s default the timer cannot fire that early.
+- **O13 fix text.** `Finding.fix` is now pg-checks' own text per rule, naming the object (`src/fix.ts`). `docs` stays splinter's URL.
+- **Splinter level.** `Finding.splinterLevel` is splinter's `level` (`ERROR | WARN | INFO`), so a client can show that `rls_enabled_no_policy` is `INFO` in splinter even when the policy blocks on it.
+- **CLI-2826.** All three paths set `pgrst.db_schemas` only when `coalesce(current, 'public')` differs from the exposed list. A public-only project never creates the placeholder, so a fresh or pooled session still reads NULL afterwards (`tests/db-schemas.test.ts`). A leftover `''` is overridden, an equal value is left alone, and `[]` (Data API off) sets `''`.
+
+SQL the check or read adds to each migration, `exposedSchemas = ["public"]`, in bytes:
+
+| Statement | Before | After |
+| -- | -- | -- |
+| Check, all rules `error`, or core `error` + rest `warn` | 76,238 | 27,346 |
+| Check, one rule `error`, rest `off` | 75,796 | 3,444 |
+| After-commit read, all `warn` | 74,601 | 25,644 |
+| In-transaction warn read, all `warn` | n/a | 26,877 |
+
+At `error`, the check still includes every `warn` rule, because their rows go into `DETAIL`. A default policy therefore sends all nine rules.
+
+Dogfood PG17 re-run (`~/.cache/supabase-pg-checks-dogfood/2026-10-22T10-47-12-292Z-pg17/REPORT.md`) against the canonical run:
+
+| | Canonical (2026-10-21) | Round 3 |
+| -- | -- | -- |
+| Outcomes (a)/(b)/(c)/(d): applied, with findings, blocked, apply_error | identical per file | identical per file |
+| Final findings (b): search_path / always_true / no_policy / definer_view | 358 / 47 / 36 / 1 | 358 / 47 / 36 / 1 |
+| Catalog md5, history rows, anomalies | — | identical, 0 anomalies |
+| Check overhead vs (a), (c) / (d), p50 · p95 | 56 · 163 / 56 · 153 ms | 13 · 21 / 13 · 49 ms |
+| After-commit read (b), p50 · p95 | 65 · 180 ms | 69 · 269 ms |
+
+- `blockedBy` and `introduced` differ only in order in 12 files, and are equal as sets. The union now follows the `RULES` order instead of splinter's file order, so for example `rls_policy_always_true` rows now come before `function_search_path_mutable`.
+- The read cost did not drop, but the check overhead did. This was not profiled. A likely reason is that the old filter on the constant `name` column already let the planner prune the other branches at execution, so the gain comes from parse and plan only. The read's p95 is noisy: the four passes run on concurrent containers.
