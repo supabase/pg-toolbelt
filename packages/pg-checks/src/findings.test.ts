@@ -44,7 +44,7 @@ describe("parseFindings", () => {
         name: "foo",
         type: "table",
         detail: "public.foo finding",
-        fix: "https://supabase.com/docs/guides/database/database-linter?lint=rls_disabled_in_public",
+        fix: "alter table public.foo enable row level security; then add a policy for each role that needs access: create policy ... on public.foo for <command> to <role> using (<condition>);",
         docs: "https://supabase.com/docs/guides/database/database-linter?lint=rls_disabled_in_public",
       },
       {
@@ -54,10 +54,55 @@ describe("parseFindings", () => {
         name: "bar",
         type: "function",
         detail: "public.bar finding",
-        fix: "https://supabase.com/docs/guides/database/database-linter?lint=function_search_path_mutable",
+        fix: "alter function public.bar set search_path = ''; then schema-qualify every object its body references.",
         docs: "https://supabase.com/docs/guides/database/database-linter?lint=function_search_path_mutable",
       },
     ]);
+  });
+
+  test("fix text names the object, per rule; docs stays splinter's URL", () => {
+    const withMetadata = (
+      base: ReturnType<typeof row>,
+      extra: Record<string, unknown>,
+    ) => ({ ...base, metadata: { ...base.metadata, ...extra } });
+    const findings = parseFindings(
+      [
+        row("rls_disabled_in_public", "public", "Profiles"),
+        row("rls_enabled_no_policy", "app", "customers"),
+        row("policy_exists_rls_disabled", "public", "blog"),
+        row("security_definer_view", "public", "v", "view"),
+        withMetadata(row("rls_policy_always_true", "public", "posts"), {
+          policy_name: "allow all",
+        }),
+        row("sensitive_columns_exposed", "public", "users"),
+        row("auth_users_exposed", "public", "members", "view"),
+        row("function_search_path_mutable", "public", "f", "function"),
+        row("rls_references_user_metadata", "public", "docs"),
+      ],
+      resolvePolicy({}),
+    );
+    expect(Object.fromEntries(findings.map((f) => [f.rule, f.fix])))
+      .toMatchInlineSnapshot(`
+      {
+        "auth_users_exposed": "View public.members exposes auth.users to the API: revoke select on public.members from anon, authenticated; or drop it and copy the columns you need into a table with RLS (e.g. public.profiles filled by a trigger on auth.users).",
+        "function_search_path_mutable": "alter function public.f set search_path = ''; then schema-qualify every object its body references.",
+        "policy_exists_rls_disabled": "The policies on public.blog have no effect until RLS is on: alter table public.blog enable row level security;",
+        "rls_disabled_in_public": "alter table public."Profiles" enable row level security; then add a policy for each role that needs access: create policy ... on public."Profiles" for <command> to <role> using (<condition>);",
+        "rls_enabled_no_policy": "If only service_role should use this table, state it: create policy "service_role only" on app.customers for all using (false); otherwise add a policy for the roles that need access.",
+        "rls_policy_always_true": "Policy "allow all" on public.posts allows every row: alter policy "allow all" on public.posts using (<condition>) with check (<condition>);",
+        "rls_references_user_metadata": "A policy on public.docs reads user_metadata, which users can edit: base it on app_metadata or on a table you control.",
+        "security_definer_view": "alter view public.v set (security_invoker = on);",
+        "sensitive_columns_exposed": "public.users has sensitive columns and no RLS: alter table public.users enable row level security; and add policies, or move those columns to a table the API cannot read.",
+      }
+    `);
+    expect(new Set(findings.map((f) => f.docs))).toEqual(
+      new Set(
+        findings.map(
+          (f) =>
+            `https://supabase.com/docs/guides/database/database-linter?lint=${f.rule}`,
+        ),
+      ),
+    );
   });
 
   test("drops rows for rules the policy turned off", () => {
