@@ -1028,6 +1028,73 @@ describe("a new NOT NULL column whose default is withheld", () => {
       [colKey, fk, defKey].map(encodeId).sort(),
     );
   });
+
+  // A fact over the skipped column and a live one, or a restrictive policy
+  // (which restricts rows, not columns), would loosen the table that stays.
+  const withSkippedColumn = (extra: Fact, edges: StableId[]) => {
+    const live = [
+      f(publicSchema),
+      f(t, publicSchema, tablePayload()),
+      f(colId, t, colPayload("integer", 1)),
+    ];
+    const desired = buildFactBase(
+      [
+        ...live,
+        pgsodiumFact(),
+        f(colKey, t, { ...colPayload("uuid", 2), notNull: true }),
+        f(defKey, colKey, { expr: "(pgsodium.create_key()).id" }),
+        extra,
+      ],
+      [
+        { from: defKey, to: pgsodium, kind: "depends" },
+        ...edges.map((to) => ({ from: extra.id, to, kind: "depends" as const })),
+      ],
+    );
+    return () =>
+      plan(buildFactBase(live, []), desired, { policy: supabasePolicy });
+  };
+  const gate: StableId = {
+    kind: "policy",
+    schema: "public",
+    table: "t",
+    name: "gate",
+  };
+  const gatePolicy = f(gate, t, {
+    cmd: "r",
+    permissive: false,
+    roles: ["authenticated"],
+    usingExpr: "((id > 0) AND (key_id IS NOT NULL))",
+    checkExpr: null,
+  });
+
+  test("a restrictive policy over the skipped column is refused", () => {
+    expect(withSkippedColumn(gatePolicy, [colId, colKey])).toThrow(
+      /policy:public\.t\.gate/,
+    );
+  });
+
+  test("a restrictive policy that also needs pgsodium directly is refused", () => {
+    expect(withSkippedColumn(gatePolicy, [pgsodium, colKey])).toThrow(
+      /policy:public\.t\.gate[\s\S]*extension:pgsodium/,
+    );
+  });
+
+  test("a CHECK over the skipped column and a live one is refused", () => {
+    const check: StableId = {
+      kind: "constraint",
+      schema: "public",
+      table: "t",
+      name: "t_pair_check",
+    };
+    const fact = f(check, t, {
+      def: "CHECK (((id > 0) OR (key_id IS NOT NULL)))",
+      type: "c",
+      validated: true,
+    });
+    expect(withSkippedColumn(fact, [colId, colKey])).toThrow(
+      /constraint:public\.t\.t_pair_check/,
+    );
+  });
 });
 
 describe("skipping is opt-in per kind", () => {
