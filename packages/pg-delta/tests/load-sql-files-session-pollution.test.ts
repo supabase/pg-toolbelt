@@ -3,6 +3,7 @@
  * ROLLBACK cannot undo. Stock Postgres — no supautils.
  */
 import { describe, expect, test } from "bun:test";
+import pg from "pg";
 import {
   loadSqlFiles,
   ShadowLoadError,
@@ -157,6 +158,53 @@ describe("loadSqlFiles — connectionReuse", () => {
         result.diagnostics.some((d) => d.code === "session_pollution"),
       ).toBe(false);
     } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+  test("synchronous_commit is off for every load session and reset before release", async () => {
+    const shadow = await createTestDb("pollute_sync_commit");
+    // One client, so the connection checked afterwards is the one the loader released.
+    const pool = new pg.Pool({ connectionString: shadow.uri, max: 1 });
+    const settingOnPool = async () =>
+      (await pool.query(`SELECT current_setting('synchronous_commit') AS v`))
+        .rows[0].v;
+    try {
+      await lockSchemaForRole(shadow.pool, "load_weak_sync", "locked");
+      const record = `INSERT INTO public.seen VALUES (current_setting('synchronous_commit'));`;
+      const result = await loadSqlFiles(
+        [
+          {
+            name: "00_set.sql",
+            sql: `CREATE TABLE public.seen (v text); GRANT ALL ON public.seen TO PUBLIC; ${record} SET ROLE load_weak_sync;`,
+          },
+          {
+            name: "01_table.sql",
+            sql: `CREATE TABLE locked.t (id integer); ${record}`,
+          },
+        ],
+        pool,
+        { connectionReuse: "reconnect-on-stuck", reorderOnFailure: false },
+      );
+      expect(
+        result.diagnostics.some((d) => d.code === "session_pollution"),
+      ).toBe(true);
+      const seen = await shadow.pool.query(`SELECT v FROM public.seen`);
+      expect(seen.rows.map((r) => r.v)).toEqual(["off", "off"]);
+      expect(await settingOnPool()).toBe("on");
+      await pool.query(`DROP TABLE public.seen; DROP TABLE locked.t`);
+
+      const err = await captureError(
+        loadSqlFiles([{ name: "bad.sql", sql: "CREATE TABLE (;" }], pool, {
+          reorderOnFailure: false,
+        }),
+      );
+      expect(err).toBeInstanceOf(ShadowLoadError);
+      expect(await settingOnPool()).toBe("on");
+    } finally {
+      await pool.end();
+      await shadow.pool
+        .query(`DROP ROLE IF EXISTS load_weak_sync`)
+        .catch(() => {});
       await shadow.drop();
     }
   }, 60_000);
