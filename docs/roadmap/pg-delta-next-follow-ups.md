@@ -2155,7 +2155,18 @@ Deferred (not blocking):
   `assumedPresentIds`, or an absent assumed schema), the fact stays in the
   projected target, so `plan.target.fingerprint` differs from the applied
   state. Predates this change; `provePlan`'s drift diff skips reference-only
-  facts, so it does not report it.
+  facts, so it does not report it. The cascade's own synthesized `add` deltas
+  for reference-only facts (never emitted by `diff()`) share this fix: tag them
+  distinctly so `deltas` + `filteredDeltas` stays a partition of the diff.
+- **CLI surfacing of `excluded-by-cascade`.** The Supabase CLI prints coverage
+  diagnostics only under `--strict-coverage`, so a skipped trigger or view is
+  silent and a re-sync can report "No schema changes found". Needs a summary
+  line in `reportPgDeltaNextDiagnostics` (supabase/cli) and a declarative-e2e
+  scenario for one of CLI-2300 / CLI-2342 / CLI-2178.
+- **Nullable new column loses its default.** A nullable new column whose
+  default is skipped is still added, so existing rows get NULL instead of the
+  default value. Applies cleanly; the default arrives once the prerequisite does,
+  but backfill does not.
 - **Export of TCE artefacts.** `schema export` still emits pgsodium-dependent
   defaults / views / labels that a pgsodium-less shadow cannot load.
 - **Kinds not yet opted in to skipping.** A new materialized view, foreign
