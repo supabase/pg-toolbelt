@@ -1,18 +1,15 @@
 /** Rule definitions for domains, user-defined types (enum / composite / range),
  *  composite-type attributes, and collations. */
+import type { Fact } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { lit, qid, rel } from "../render.ts";
-import type { ActionSpec, KindRules } from "../rules.ts";
+import type { ActionSpec, FactView, KindRules } from "../rules.ts";
 import {
   byteLength,
-  clipToByteLength,
-  compositeUserColumns,
   dependencyConsumes,
-  isSubsequence,
   p,
   renameRule,
   str,
-  typeAttributeClause,
 } from "./helpers.ts";
 
 export const typeRules: Record<string, KindRules> = {
@@ -541,3 +538,48 @@ export const typeRules: Record<string, KindRules> = {
     },
   },
 };
+
+/** Clip `s` to at most `maxBytes` UTF-8 bytes WITHOUT splitting a code point, so
+ *  the result is an identifier PostgreSQL will store verbatim (never itself
+ *  truncate). Iterates by code point (`for…of`), never by UTF-16 unit. */
+function clipToByteLength(s: string, maxBytes: number): string {
+  if (maxBytes <= 0) return "";
+  if (byteLength(s) <= maxBytes) return s;
+  let out = "";
+  let used = 0;
+  for (const ch of s) {
+    const chBytes = byteLength(ch);
+    if (used + chBytes > maxBytes) break;
+    out += ch;
+    used += chBytes;
+  }
+  return out;
+}
+
+/** true when `partial` appears in `full` in order (possibly with gaps) */
+function isSubsequence(partial: string[], full: string[]): boolean {
+  let i = 0;
+  for (const value of full) {
+    if (i < partial.length && value === partial[i]) i++;
+  }
+  return i === partial.length;
+}
+
+/** A composite type attribute's `name type [COLLATE …]` clause. */
+function typeAttributeClause(fact: Fact): string {
+  const name = (fact.id as { name: string }).name;
+  const collation = p(fact, "collation");
+  return `${qid(name)} ${str(p(fact, "type"))}${collation != null ? ` COLLATE ${str(collation)}` : ""}`;
+}
+
+/** Table columns that USE a given composite type (via the column→type
+ *  dependency edge). ALTER TYPE … ATTRIBUTE … CASCADE rewrites those
+ *  tables; referencing the columns lets the proof's rewrite attribution
+ *  map the type-scoped action to the tables it actually touches. */
+function compositeUserColumns(view: FactView, typeId: StableId): StableId[] {
+  const key = encodeId(typeId);
+  return view.edges
+    .filter((e) => e.from.kind === "column" && encodeId(e.to) === key)
+    .map((e) => e.from)
+    .filter((id) => view.get(id) !== undefined);
+}

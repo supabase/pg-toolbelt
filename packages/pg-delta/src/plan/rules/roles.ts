@@ -9,9 +9,24 @@ import {
   defaultPrivilegeDropActions,
   p,
   renameRule,
-  ROLE_FLAGS,
-  roleFlagSql,
 } from "./helpers.ts";
+
+/** Role attribute keyword map (CREATE ROLE / ALTER ROLE flags). */
+const ROLE_FLAGS: Record<string, [on: string, off: string]> = {
+  superuser: ["SUPERUSER", "NOSUPERUSER"],
+  inherit: ["INHERIT", "NOINHERIT"],
+  createRole: ["CREATEROLE", "NOCREATEROLE"],
+  createDb: ["CREATEDB", "NOCREATEDB"],
+  login: ["LOGIN", "NOLOGIN"],
+  replication: ["REPLICATION", "NOREPLICATION"],
+  bypassRls: ["BYPASSRLS", "NOBYPASSRLS"],
+};
+
+function roleFlagSql(payload: Fact["payload"]): string {
+  return Object.entries(ROLE_FLAGS)
+    .map(([key, [on, off]]) => (payload[key] ? on : off))
+    .join(" ");
+}
 
 /** Parse a `pg_db_role_setting` search_path value into list elements.
  *  One string literal is one element (`TO 'a, b'` → schema `a, b`).
