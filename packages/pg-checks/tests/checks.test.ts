@@ -257,7 +257,7 @@ commit;`,
   test("exclude skips only that relation", async () => {
     const { schema, version, exposedSchemas } = await fixture();
     const policy = errorOn("rls_disabled_in_public", {
-      exclude: [`${schema}.legacy`],
+      exclude: { rls_disabled_in_public: [`${schema}.legacy`] },
     });
     const both = await applyMigrationLikeCli(
       client,
@@ -287,6 +287,38 @@ commit;`,
     );
     expect(legacyOnly.outcome).toBe("applied");
     expect(await exists(`${schema}.legacy`)).toBe(true);
+  });
+
+  test("an exclusion for one rule leaves the same object reported under another rule", async () => {
+    const { schema, version, exposedSchemas } = await fixture();
+    const policy = errorOn("rls_disabled_in_public", {
+      policy_exists_rls_disabled: "error",
+      exclude: { rls_disabled_in_public: [`${schema}.t`] },
+    });
+    const result = await applyMigrationLikeCli(
+      client,
+      {
+        version,
+        name: "per-rule",
+        statements: [
+          `create table ${schema}.t (id int primary key)`,
+          `create policy p on ${schema}.t using (true)`,
+        ],
+      },
+      policy,
+      { exposedSchemas },
+    );
+    expect(result.outcome).toBe("blocked");
+    if (result.outcome !== "blocked" || result.check.kind !== "blocked") return;
+    expect(result.check.errors.map((f) => [f.rule, f.name])).toEqual([
+      ["policy_exists_rls_disabled", "t"],
+    ]);
+    const open = errorOn("rls_disabled_in_public", {
+      policy_exists_rls_disabled: "off",
+      exclude: { rls_disabled_in_public: [`${schema}.t`] },
+    });
+    const findings = await readFindings(client, open, exposedSchemas);
+    expect(findings.filter((f) => f.schema === schema)).toEqual([]);
   });
 
   test("a check over its timeout fails closed with SB002 and rolls back", async () => {

@@ -16,7 +16,7 @@ const ruleFilter = (sql: string) =>
 const blocking = resolvePolicy({
   rls_disabled_in_public: "error",
   function_search_path_mutable: "off",
-  exclude: ["public.o'brien"],
+  exclude: { rls_disabled_in_public: ["public.o'brien"] },
 });
 
 describe("quoteLiteral", () => {
@@ -88,6 +88,31 @@ describe("buildCheckBlock", () => {
     expect(() =>
       buildCheckStatements(blocking, { exposedSchemas: ["a,b"] }),
     ).toThrow(/comma/);
+  });
+});
+
+describe("exclusions", () => {
+  const policy = resolvePolicy({
+    rls_disabled_in_public: "error",
+    exclude: {
+      rls_disabled_in_public: ["public.a", "public.o'brien"],
+      security_definer_view: ["app.v"],
+    },
+  });
+  const filter =
+    "\n  and not exists (select 1 from unnest(array['rls_disabled_in_public', 'rls_disabled_in_public', 'security_definer_view']::pg_catalog.text[], array['public.a', 'public.o''brien', 'app.v']::pg_catalog.text[]) as x(rule, object) where x.rule = l.name and x.object = (l.metadata->>'schema') || '.' || (l.metadata->>'name'))";
+
+  test("filter pairs each rule with its object in the check and the read", () => {
+    const check = buildCheckStatements(policy, {})[2] ?? "";
+    expect(check.includes(filter)).toBe(true);
+    const read = buildAfterCommitRead(policy, {});
+    expect(read.statements[read.resultIndex]?.includes(filter)).toBe(true);
+  });
+
+  test("no exclusions adds no filter", () => {
+    expect(buildCheckStatements(allWarn, {})).toEqual([]);
+    const read = buildAfterCommitRead(allWarn, {});
+    expect(read.statements[read.resultIndex]?.includes("unnest")).toBe(false);
   });
 });
 
