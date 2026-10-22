@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { renderVendoredModule, splitSplinter } from "./splinter-shape.ts";
+import { RULES } from "../src/policy.ts";
+import {
+  renderVendoredModule,
+  splitSplinter,
+  verifyLintSources,
+} from "./splinter-shape.ts";
 
 const vendorDir = join(import.meta.dir, "..", "src", "vendor");
 
@@ -45,11 +50,13 @@ describe("splitSplinter", () => {
         name: "rule_a",
         categories: ["SECURITY"],
         readsSplinterSettings: false,
+        sql: branch("rule_a", "'SECURITY'"),
       },
       {
         name: "rule_b",
         categories: ["PERFORMANCE"],
         readsSplinterSettings: false,
+        sql: branch("rule_b", "'PERFORMANCE'"),
       },
     ]);
   });
@@ -88,12 +95,56 @@ describe("splitSplinter", () => {
   });
 });
 
+/** A `lints/*.sql` source the way splinter's bin/compile.py reads it. */
+const lintSource = (name: string, categories: string) =>
+  `create view lint."${name}" as\n\n${branch(name, categories).slice(2, -1)};\n`;
+
+describe("verifyLintSources", () => {
+  const text = release(
+    `${branch("rule_a", "'SECURITY'")}\nunion all\n${branch("rule_b", "'SECURITY'")}`,
+  );
+
+  test("accepts branches that are the release's compiled lint files, in file order", () => {
+    expect(() =>
+      verifyLintSources(splitSplinter(text), [
+        { file: "0002_b.sql", text: lintSource("rule_b", "'SECURITY'") },
+        { file: "0001_a.sql", text: lintSource("rule_a", "'SECURITY'") },
+      ]),
+    ).not.toThrow();
+  });
+
+  test("fails loudly when a branch is not its lint file or a lint file is missing", () => {
+    expect(() =>
+      verifyLintSources(splitSplinter(text), [
+        { file: "0001_a.sql", text: lintSource("rule_a", "'SECURITY'") },
+        { file: "0002_b.sql", text: lintSource("rule_c", "'SECURITY'") },
+      ]),
+    ).toThrow(/0002_b\.sql/);
+    expect(() =>
+      verifyLintSources(splitSplinter(text), [
+        { file: "0001_a.sql", text: lintSource("rule_a", "'SECURITY'") },
+      ]),
+    ).toThrow(/2 branches, 1 lint files/);
+  });
+});
+
+describe("renderVendoredModule", () => {
+  test("fails loudly when a checked rule is missing", () => {
+    expect(() =>
+      renderVendoredModule(release(branch("rule_a", "'SECURITY'")), "v", [
+        "rule_a",
+        "rule_b",
+      ]),
+    ).toThrow(/rule_b/);
+  });
+});
+
 describe("vendored splinter", () => {
   test("splinter.ts is the rendering of splinter.sql", () => {
     const sql = readFileSync(join(vendorDir, "splinter.sql"), "utf8");
     const ts = readFileSync(join(vendorDir, "splinter.ts"), "utf8");
     const version = /SPLINTER_VERSION = "([^"]+)"/.exec(ts)?.[1];
     expect(version).toBeDefined();
-    expect(renderVendoredModule(sql, version ?? "")).toBe(ts);
+    expect(renderVendoredModule(sql, version ?? "", RULES)).toBe(ts);
   });
 });

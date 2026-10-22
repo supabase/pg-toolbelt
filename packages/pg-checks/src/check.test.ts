@@ -1,18 +1,25 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   buildAfterCommitRead,
   buildCheckBlock,
   buildCheckStatements,
   quoteLiteral,
 } from "./check.ts";
-import { resolvePolicy } from "./policy.ts";
-import { SPLINTER_QUERY } from "./vendor/splinter.ts";
+import { RULES, type Rule, resolvePolicy } from "./policy.ts";
+import { RULE_SQL } from "./vendor/splinter.ts";
 
 const allWarn = resolvePolicy({});
 
-/** The rule filter applied outside the splinter union. */
-const ruleFilter = (sql: string) =>
-  /\) l\nwhere l\.name = any\((.*)\)$/m.exec(sql)?.[1];
+/** The lint subquery made of exactly these rules' splinter SQL. */
+const lintUnion = (rules: readonly Rule[]) =>
+  `from (\n${rules.map((rule) => RULE_SQL[rule]).join("\nunion all\n")}\n) l`;
+const rulesSent = (sql: string) =>
+  RULES.filter((rule) => sql.includes(RULE_SQL[rule] ?? "<missing>"));
+const allButSearchPath: Rule[] = RULES.filter(
+  (rule) => rule !== "function_search_path_mutable",
+);
 const blocking = resolvePolicy({
   rls_disabled_in_public: "error",
   function_search_path_mutable: "off",
@@ -46,16 +53,14 @@ describe("buildCheckBlock", () => {
       "select pg_catalog.set_config('statement_timeout', pg_catalog.current_setting('sbc.statement_timeout'), true)",
     );
     const check = statements[2] ?? "";
-    expect(check.includes(SPLINTER_QUERY)).toBe(true);
-    const outside = check.replace(SPLINTER_QUERY, "<splinter>");
+    expect(check).toContain(lintUnion(allButSearchPath));
+    expect(rulesSent(check)).toEqual(allButSearchPath);
+    const outside = check.replace(lintUnion(allButSearchPath), "<splinter>");
     expect(outside).toContain(
       "pg_catalog.set_config('pgrst.db_schemas', 'public,app', true)",
     );
     expect(outside).toContain(
       "filter (where l.name = any(array['rls_disabled_in_public']::pg_catalog.text[]))",
-    );
-    expect(ruleFilter(outside)).toBe(
-      "array['rls_disabled_in_public', 'rls_enabled_no_policy', 'policy_exists_rls_disabled', 'security_definer_view', 'rls_policy_always_true', 'sensitive_columns_exposed', 'auth_users_exposed', 'rls_references_user_metadata']::pg_catalog.text[]",
     );
     expect(outside).toContain(
       "array['rls_disabled_in_public']::pg_catalog.text[], array['public.o''brien']::pg_catalog.text[]) as x(rule, object)",
@@ -100,7 +105,7 @@ describe("exclusions", () => {
     },
   });
   const filter =
-    "\n  and not exists (select 1 from unnest(array['rls_disabled_in_public', 'rls_disabled_in_public', 'security_definer_view']::pg_catalog.text[], array['public.a', 'public.o''brien', 'app.v']::pg_catalog.text[]) as x(rule, object) where x.rule = l.name and x.object = (l.metadata->>'schema') || '.' || (l.metadata->>'name'))";
+    "\nwhere not exists (select 1 from unnest(array['rls_disabled_in_public', 'rls_disabled_in_public', 'security_definer_view']::pg_catalog.text[], array['public.a', 'public.o''brien', 'app.v']::pg_catalog.text[]) as x(rule, object) where x.rule = l.name and x.object = (l.metadata->>'schema') || '.' || (l.metadata->>'name'))";
 
   test("filter pairs each rule with its object in the check and the read", () => {
     const check = buildCheckStatements(policy, {})[2] ?? "";
@@ -124,10 +129,8 @@ describe("buildAfterCommitRead", () => {
     expect(read.statements[0]).toBe("begin");
     expect(read.statements.at(-1)).toBe("rollback");
     const select = read.statements[read.resultIndex] ?? "";
-    expect(select.includes(SPLINTER_QUERY)).toBe(true);
-    expect(ruleFilter(select.replace(SPLINTER_QUERY, "<splinter>"))).toBe(
-      "array['rls_disabled_in_public', 'rls_enabled_no_policy', 'policy_exists_rls_disabled', 'security_definer_view', 'rls_policy_always_true', 'sensitive_columns_exposed', 'auth_users_exposed', 'rls_references_user_metadata']::pg_catalog.text[]",
-    );
+    expect(select).toContain(lintUnion(allButSearchPath));
+    expect(rulesSent(select)).toEqual(allButSearchPath);
     expect(read.sql).toBe(`${read.statements.join(";\n")};\n`);
   });
 
@@ -138,5 +141,25 @@ describe("buildAfterCommitRead", () => {
       ),
     );
     expect(buildAfterCommitRead(off, {}).statements).toEqual([]);
+  });
+});
+
+describe("payload size", () => {
+  const released = readFileSync(
+    join(import.meta.dir, "vendor", "splinter.sql"),
+    "utf8",
+  ).length;
+  const only = (rule: Rule) =>
+    resolvePolicy(
+      Object.fromEntries(RULES.map((r) => [r, r === rule ? "error" : "off"])),
+    );
+
+  test("sends only the selected rules' SQL, a fraction of the released file", () => {
+    const one = buildCheckBlock(only("rls_disabled_in_public"), {});
+    expect(rulesSent(one)).toEqual(["rls_disabled_in_public"]);
+    expect(one.length).toBeLessThan(released / 15);
+    const nine = buildAfterCommitRead(allWarn, {}).sql;
+    expect(rulesSent(nine)).toEqual([...RULES]);
+    expect(nine.length).toBeLessThan(released / 2);
   });
 });
