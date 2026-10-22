@@ -13,6 +13,7 @@ export {
 export {
   type CheckError,
   type Finding,
+  type SplinterLevel,
   parseCheckError,
   parseFindings,
   parseInTransactionWarnRead,
