@@ -39,6 +39,29 @@ function dbSchemas(options: CheckOptions): string {
   return schemas.join(",");
 }
 
+/**
+ * Splinter reads `coalesce(current_setting('pgrst.db_schemas', true), 'public')`.
+ * Once set, the placeholder stays `''` for the rest of the session (known
+ * pitfall 2), so it is set only when that would not already give the exposed
+ * schemas (CLI-2826). `current` is an SQL expression for the current value.
+ */
+function dbSchemasDiffer(current: string, options: CheckOptions): string {
+  return `coalesce(${current}, 'public') operator(pg_catalog.<>) ${quoteLiteral(dbSchemas(options))}`;
+}
+
+/** plpgsql that sets `pgrst.db_schemas` when needed, and its restore. */
+function dbSchemasSteps(options: CheckOptions) {
+  const differ = dbSchemasDiffer("prev_db_schemas", options);
+  return {
+    set: `if ${differ} then
+      perform pg_catalog.set_config('pgrst.db_schemas', ${quoteLiteral(dbSchemas(options))}, true);
+    end if;`,
+    restore: `if ${differ} then
+      perform pg_catalog.set_config('pgrst.db_schemas', coalesce(prev_db_schemas, ''), true);
+    end if;`,
+  };
+}
+
 function ruleSql(rule: Rule): string {
   const sql = RULE_SQL[rule];
   if (sql === undefined)
@@ -92,6 +115,7 @@ export function buildCheckStatements(
   // DO is still uncatchable: executors map a raw 57014 from this statement
   // with parseCheckError(..., { fromCheck: true }). On a raise the transaction
   // aborts, so only the success path restores search_path and pgrst.db_schemas.
+  const dbSchemasSet = dbSchemasSteps(options);
   const check = `do $sbc$
 declare
   prev_search_path pg_catalog.text := pg_catalog.current_setting('search_path');
@@ -100,7 +124,7 @@ declare
 begin
   begin
     perform pg_catalog.set_config('search_path', '', true);
-    perform pg_catalog.set_config('pgrst.db_schemas', ${quoteLiteral(dbSchemas(options))}, true);
+    ${dbSchemasSet.set}
     execute $sbcq$
 ${select}
 $sbcq$ into findings;
@@ -109,7 +133,7 @@ $sbcq$ into findings;
         detail = findings::pg_catalog.text;
     end if;
     perform pg_catalog.set_config('search_path', prev_search_path, true);
-    perform pg_catalog.set_config('pgrst.db_schemas', coalesce(prev_db_schemas, ''), true);
+    ${dbSchemasSet.restore}
   exception when query_canceled then
     raise exception using errcode = '${CHECK_TIMED_OUT_SQLSTATE}', message = 'security check timed out',
       hint = 'retry with --skip-checks, or raise the check timeout';
@@ -167,7 +191,7 @@ export function buildAfterCommitRead(
   if (rules.length === 0) return { statements: [], resultIndex: -1, sql: "" };
   const statements = [
     "begin",
-    `select pg_catalog.set_config('search_path', '', true), pg_catalog.set_config('pgrst.db_schemas', ${quoteLiteral(dbSchemas(options))}, true)`,
+    `select pg_catalog.set_config('search_path', '', true), case when ${dbSchemasDiffer("pg_catalog.current_setting('pgrst.db_schemas', true)", options)} then pg_catalog.set_config('pgrst.db_schemas', ${quoteLiteral(dbSchemas(options))}, true) end`,
     lintSelect("l.*", rules, policy.exclude),
     "rollback",
   ];
@@ -201,6 +225,7 @@ export function buildInTransactionWarnRead(
   // undone, so the handler only records the error. statement_timeout is
   // restored inside the DO so the sentinel select and commit never run under
   // the read's timeout.
+  const dbSchemasSet = dbSchemasSteps(options);
   const read = `do $sbc$
 declare
   prev_search_path pg_catalog.text := pg_catalog.current_setting('search_path');
@@ -209,12 +234,12 @@ declare
 begin
   begin
     perform pg_catalog.set_config('search_path', '', true);
-    perform pg_catalog.set_config('pgrst.db_schemas', ${quoteLiteral(dbSchemas(options))}, true);
+    ${dbSchemasSet.set}
     execute $sbcq$
 ${select}
 $sbcq$ into findings;
     perform pg_catalog.set_config('search_path', prev_search_path, true);
-    perform pg_catalog.set_config('pgrst.db_schemas', coalesce(prev_db_schemas, ''), true);
+    ${dbSchemasSet.restore}
     perform pg_catalog.set_config('sbc.findings', pg_catalog.jsonb_build_object('findings', findings)::pg_catalog.text, true);
   exception when query_canceled or others then
     perform pg_catalog.set_config('sbc.findings', pg_catalog.jsonb_build_object('read_error', sqlstate || ': ' || sqlerrm)::pg_catalog.text, true);
