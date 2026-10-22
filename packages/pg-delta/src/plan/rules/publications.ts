@@ -2,8 +2,9 @@
 import type { Fact } from "../../core/fact.ts";
 import { SUBSCRIPTION_CONNINFO_PLACEHOLDER } from "../../extract/sensitive-options.ts";
 import { lit, qid, rel } from "../render.ts";
-import type { ActionSpec, KindRules } from "../rules.ts";
-import { p, publicationObjects, publicationRelClause, str } from "./helpers.ts";
+import type { StableId } from "../../core/stable-id.ts";
+import type { ActionSpec, FactView, KindRules } from "../rules.ts";
+import { p, str } from "./helpers.ts";
 
 export const publicationRules: Record<string, KindRules> = {
   publication: {
@@ -282,4 +283,60 @@ function subscriptionStringSet(opt: string): KindRules["attributes"][string] {
       sql: `ALTER SUBSCRIPTION ${subscriptionName(fact)} SET (${opt} = ${lit(str(to))})`,
     }),
   };
+}
+
+/** The `rel [(cols)] [WHERE (…)]` member for a publicationRel fact, without the
+ *  leading `TABLE` keyword (so it can be grouped under a single `TABLE`). */
+function publicationRelMember(fact: Fact): string {
+  const id = fact.id as { schema: string; table: string };
+  let member = rel(id.schema, id.table);
+  const cols = p(fact, "columns") as string[] | null;
+  if (cols != null && cols.length > 0) {
+    member += ` (${cols.map((c) => qid(c)).join(", ")})`;
+  }
+  const where = p(fact, "where");
+  if (where != null) member += ` WHERE (${str(where)})`;
+  return member;
+}
+
+/** The `TABLE rel [(cols)] [WHERE (…)]` clause for a publicationRel fact, used
+ *  by the standalone `ALTER PUBLICATION … ADD TABLE` path. */
+function publicationRelClause(fact: Fact): string {
+  return `TABLE ${publicationRelMember(fact)}`;
+}
+
+/** Inlined FOR-clause object list for a fresh publication, gathered from its
+ *  publicationRel / publicationSchema children, with the ids consumed and
+ *  the child facts produced (delta-set inlining). */
+function publicationObjects(
+  fact: Fact,
+  view: FactView,
+): { clauses: string[]; consumes: StableId[]; produced: StableId[] } {
+  // Group all table relations under a single `TABLE` keyword and all schemas
+  // under a single `TABLES IN SCHEMA`. Repeating the keyword per item
+  // (`FOR TABLE a, TABLE b`) is only valid grammar on PG15+; PG14 requires the
+  // collapsed `FOR TABLE a, b` form, and the collapsed form is valid on every
+  // version (PG14 never has schema members).
+  const tableMembers: string[] = [];
+  const schemaMembers: string[] = [];
+  const consumes: StableId[] = [];
+  const produced: StableId[] = [];
+  for (const child of view.childrenOf(fact.id)) {
+    if (child.id.kind === "publicationRel") {
+      const cid = child.id as { schema: string; table: string };
+      tableMembers.push(publicationRelMember(child));
+      consumes.push({ kind: "table", schema: cid.schema, name: cid.table });
+      produced.push(child.id);
+    } else if (child.id.kind === "publicationSchema") {
+      const cid = child.id as { schema: string };
+      schemaMembers.push(qid(cid.schema));
+      consumes.push({ kind: "schema", name: cid.schema });
+      produced.push(child.id);
+    }
+  }
+  const clauses: string[] = [];
+  if (tableMembers.length > 0) clauses.push(`TABLE ${tableMembers.join(", ")}`);
+  if (schemaMembers.length > 0)
+    clauses.push(`TABLES IN SCHEMA ${schemaMembers.join(", ")}`);
+  return { clauses, consumes, produced };
 }
