@@ -22,7 +22,7 @@ DECLARATIVE_BACKEND=legacy bun test tests/
 `DECLARATIVE_BACKEND` picks the CLI's local backend:
 
 - `stack` (default): the new stack backend (`[experimental] stack = true`),
-  created with `stack prepare --runtime native`, so Postgres runs without
+  created with `start --runtime native` (database only), so Postgres runs without
   Docker. `DECLARATIVE_STACK_RUNTIME` overrides the runtime (`docker`,
   `podman`, `auto`).
 - `legacy`: the Docker-based backend.

@@ -241,7 +241,7 @@ describe("plan() — unreadable-user-mapping gate extends to server/role drops",
 
 /**
  * Position-pinning (Codex P1, PR #338 comment 3603601149 — DOCUMENTED, NOT
- * gated; see the "KNOWN LIMITATION #2" comment in plan.ts). A desired-side
+ * gated; see the "KNOWN LIMITATION" comment in plan.ts). A desired-side
  * unreadable mapping whose containing server doesn't exist on the source at
  * all produces an un-gated `add` delta for the server; the un-creatable
  * CREATE USER MAPPING is simply never emitted (the mapping fact itself was
@@ -271,5 +271,99 @@ describe("plan() — desired-side unreadable mapping with no source-side contain
     const sql = thePlan!.actions.map((a) => a.sql);
     expect(sql.some((s) => s.includes("CREATE SERVER"))).toBe(true);
     expect(sql.some((s) => s.includes("CREATE USER MAPPING"))).toBe(false);
+  });
+});
+
+/**
+ * #339: a role RENAME combined with a one-side-hidden mapping. Identity
+ * normalization rewrites every fact and delta into desired-name space, so the
+ * gate must compare the extraction diagnostics in that same space. A
+ * source-side diagnostic names the PHYSICAL (pre-rename) role; without a
+ * relabel, `set.has()` misses the renamed `add` delta and plan() emits a
+ * CREATE USER MAPPING for a mapping PostgreSQL already carries by OID.
+ */
+describe("plan() — unreadable-user-mapping gate under a role rename (#339)", () => {
+  const rolePayload = () => ({
+    superuser: false,
+    inherit: true,
+    createRole: false,
+    createDb: false,
+    login: false,
+    replication: false,
+    bypassRls: false,
+    config: [],
+  });
+  const roleFact = (name: string): Fact => ({
+    id: { kind: "role", name },
+    payload: rolePayload(),
+  });
+  const mappingFor = (role: string): Fact => ({
+    id: { kind: "userMapping", server: "srv", role },
+    parent: serverId,
+    payload: { options: [] },
+  });
+  const hidden = (role: string, message: string) => ({
+    code: USER_MAPPING_UNREADABLE,
+    severity: "warning" as const,
+    subject: { kind: "userMapping", server: "srv", role } as StableId,
+    message,
+  });
+
+  test("mapping hidden on the SOURCE side for the renamed role throws", () => {
+    const source = buildFactBase([serverFact, roleFact("old_role")], []);
+    source.diagnostics.push(hidden("old_role", "hidden on source"));
+    const desired = buildFactBase(
+      [serverFact, roleFact("new_role"), mappingFor("new_role")],
+      [],
+    );
+
+    expect(() => plan(source, desired, { renames: "auto" })).toThrow(
+      /user mappings is unknown on one side/,
+    );
+    expect(() => plan(source, desired, { renames: "auto" })).toThrow(
+      /srv\/new_role \(mapping\)/,
+    );
+  });
+
+  test("mapping hidden on the DESIRED side for the renamed role throws", () => {
+    const source = buildFactBase(
+      [serverFact, roleFact("old_role"), mappingFor("old_role")],
+      [],
+    );
+    const desired = buildFactBase([serverFact, roleFact("new_role")], []);
+    desired.diagnostics.push(hidden("new_role", "hidden on desired"));
+
+    expect(() => plan(source, desired, { renames: "auto" })).toThrow(
+      /srv\/new_role \(mapping\)/,
+    );
+  });
+
+  test("mapping hidden on BOTH sides still plans the bare rename", () => {
+    const source = buildFactBase([serverFact, roleFact("old_role")], []);
+    source.diagnostics.push(hidden("old_role", "hidden on source"));
+    const desired = buildFactBase([serverFact, roleFact("new_role")], []);
+    desired.diagnostics.push(hidden("new_role", "hidden on desired"));
+
+    const sql = plan(source, desired, { renames: "auto" }).actions.map(
+      (a) => a.sql,
+    );
+    expect(sql).toEqual(['ALTER ROLE "old_role" RENAME TO "new_role"']);
+  });
+
+  test("renaming an unrelated role does not trip another role's hidden mapping", () => {
+    const source = buildFactBase(
+      [serverFact, roleFact("old_role"), roleFact("other_role")],
+      [],
+    );
+    source.diagnostics.push(hidden("other_role", "hidden on source"));
+    const desired = buildFactBase(
+      [serverFact, roleFact("new_role"), roleFact("other_role")],
+      [],
+    );
+
+    const sql = plan(source, desired, { renames: "auto" }).actions.map(
+      (a) => a.sql,
+    );
+    expect(sql).toEqual(['ALTER ROLE "old_role" RENAME TO "new_role"']);
   });
 });
