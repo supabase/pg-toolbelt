@@ -76,7 +76,7 @@ function dropHarnessRoles(sql: string): string {
     .filter(
       (line) =>
         !/^CREATE ROLE "?(test|crl_applier)"?[\s;]/.test(line) &&
-        !/^GRANT "crl_applier" TO "test";/.test(line),
+        !line.startsWith('GRANT "crl_applier" TO "test";'),
     )
     .join("\n");
 }
