@@ -13,6 +13,7 @@
 import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parsePlan } from "../../plan/artifact.ts";
+import { printDiagnostics } from "../diagnostics.ts";
 import { CliExit, parseFlags, UsageError } from "../flags.ts";
 import { renderPlan } from "../render.ts";
 
@@ -81,6 +82,9 @@ export async function cmdRender(args: string[]): Promise<void> {
 
   const json = readFileSync(planPath, "utf8");
   const thePlan = parsePlan(json);
+  // Warn, don't refuse: the files may be applied by a more privileged role than
+  // the one the plan was made for (e.g. `capability.owner`).
+  printDiagnostics(thePlan.diagnostics ?? [], { label: "plan" });
 
   let result;
   try {

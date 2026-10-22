@@ -86,6 +86,41 @@ describe("accepted rename + owner change (review P1 #1)", () => {
   });
 });
 
+describe("accepted rename + owner change needs the pre-rename owner", () => {
+  test("flags an applier that cannot act as the renamed object's current owner", () => {
+    const source = buildFactBase(
+      [
+        { id: role1, payload: rolePayload(false) },
+        { id: schema, payload: {} },
+        { id: oldTable, parent: schema, payload: tablePayload() },
+      ],
+      [{ from: oldTable, to: role1, kind: "owner" }],
+    );
+    const desired = buildFactBase(
+      [
+        { id: role1, payload: rolePayload(false) },
+        { id: role2, payload: rolePayload(true) },
+        { id: schema, payload: {} },
+        { id: newTable, parent: schema, payload: tablePayload() },
+      ],
+      [{ from: newTable, to: role2, kind: "owner" }],
+    );
+
+    const p = plan(source, desired, {
+      renames: "auto",
+      compact: false,
+      capability: {
+        role: "app",
+        isSuperuser: false,
+        memberOf: ["r2"],
+        usageOf: [],
+      },
+    });
+
+    expect(p.diagnostics?.map((d) => d.code)).toEqual(["capability.owner"]);
+  });
+});
+
 describe("accepted table rename + accepted owner-role rename (review P1 #2)", () => {
   test("owner carried through both renames → no cycle, no spurious OWNER TO", () => {
     // r1 and r2 are structurally identical → the role rename is accepted too
@@ -329,16 +364,15 @@ describe("role-only rename carries ownership on a stable object (review P1)", ()
     expect(p.actions.filter((a) => a.sql.includes("OWNER TO"))).toHaveLength(0);
   });
 
-  test("a restrictive capability does not falsely fail (no owner action to authorize)", () => {
+  test("a restrictive capability does not falsely flag (no owner action to authorize)", () => {
     // applier cannot set owner r2; but no ALTER … OWNER TO is required, so plan
-    // must not throw the capability error.
-    expect(() =>
-      plan(source, desired, {
-        renames: "auto",
-        compact: false,
-        capability: { role: "applier", isSuperuser: false, memberOf: [] },
-      }),
-    ).not.toThrow();
+    // must not flag an owner capability problem.
+    const p = plan(source, desired, {
+      renames: "auto",
+      compact: false,
+      capability: { role: "applier", isSuperuser: false, memberOf: [] },
+    });
+    expect(p.diagnostics).toBeUndefined();
   });
 });
 

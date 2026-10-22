@@ -1793,6 +1793,113 @@ Deferred from the same review (not blocking):
   we start modeling grant options on the tuples.
 
 
+## `capability.owner` — unsettable owners (SUPABASE-API-8RT)
+
+The owner check moved from a `plan()` throw to a `capability.owner` warning that
+`apply()` refuses. Resolved in the same PR: the probe lists SET-able roles on
+PG16+ (an ADMIN-only grant no longer counts), an owner ALTER orders after a
+planned `GRANT r TO <applier>`, and an applier that may grant `r` to itself
+gets one `GRANT` before and one `REVOKE` after all of `r`'s owner ALTERs
+(separate actions chained by explicit edges). Remaining:
+
+- **Missing CREATE on the schema is not predicted (also PR #493 Codex).** A non-superuser
+  `ALTER … OWNER TO r` also needs `r` to hold CREATE on the object's schema.
+  The owner ALTER now orders after a planned schema grant to `r`, but when
+  the desired state has none, the plan carries no warning and apply fails
+  with `permission denied for schema`. Predicting it needs CREATE resolved
+  through PUBLIC and inherited memberships.
+- **Roles the applier cannot grant stay flagged**, e.g. a Supabase role
+  created by `supabase_admin` (no ADMIN for `postgres` on PG16+). Only a
+  superuser or member applier can apply those.
+- **An applier's own `SET FALSE` self-grant (PG16+, PR #493 Codex).** If the
+  applier already granted `r` to itself `WITH SET FALSE`, the bare
+  `GRANT r TO <applier>` keeps SET off and the ALTER fails at apply (the
+  segment rolls back; the REVOKE never runs, so nothing is lost). Forcing
+  `WITH SET TRUE` would make it run but let the REVOKE delete that grant.
+  Needs the probe to report grantor-scoped self-grants; unusual setup.
+- **Schema owner needs database CREATE (PR #493 Codex).** A non-superuser
+  `ALTER SCHEMA … OWNER TO r` also requires `r` to hold CREATE on the
+  database; database privileges are not modeled or probed, so such a plan
+  carries no warning. A co-created schema folded into
+  `CREATE SCHEMA … AUTHORIZATION r` does not need it (only the invoker's
+  CREATE), so a check must know whether the fold applies. Belongs with the
+  wrapper redesign; the direct-route case predates this PR.
+- **Plan revokes the applier's membership in the current owner (PR #493
+  Codex).** If the same plan drops `REVOKE r1 FROM <applier>` while changing
+  an object's owner r1 → r2, the drop phase can run the REVOKE first and the
+  ALTER then lacks the current owner's privileges. Same shape for the
+  wrapper: a planned REVOKE of the applier's ADMIN on the new owner can sort
+  before the wrapper's GRANT. Needs owner work (ALTER / wrapper GRANT) to
+  order before removal of the membership that supplies its privileges; the
+  current-owner case applies to the direct route too and predates this PR.
+- **Existing object with no modeled source owner (PR #493 Codex).** The
+  current-owner check only runs when the source owner edge is known. The
+  `public` schema's built-in `pg_database_owner` edge is omitted at extract,
+  so an owner change of `public` is treated like a fresh object and may be
+  wrapped without proving the applier can act as its owner.
+- **Executing role ≠ plan applier (PR #493 Codex).** The wrapper names
+  `plan.capability.role`; `apply()` / `pgdelta apply --plan` never compare
+  it with `current_user`. A plan run by another non-superuser can fail at
+  the owner change. Planned as an apply guard (refuse or re-probe on
+  mismatch).
+- **Serial sequence re-owned to a wrapped role (PR #493 review).** The
+  wrapper's GRANT has no subject, so it sorts late; the owned sequence's
+  owner ALTER then runs after `ALTER SEQUENCE … OWNED BY`, and PostgreSQL
+  refuses (`cannot change owner of sequence`). Reproduces for a new
+  `bigserial` table and for an existing serial table. No diagnostic.
+- **PG16+ desired self-membership hidden by the ADMIN projection (PR #493
+  review).** `extract/roles.ts` merges grantor rows with
+  `bool_or(admin_option)`, so a desired SET/INHERIT grant of `r` to the
+  applier folds into the bootstrap ADMIN row and #461 projects it out. The
+  wrapper then REVOKEs it: the base diverges (applier loses `r`'s
+  privileges) while the re-plan is `[]`. Needs PG16+ `set`/`inherit`
+  modeled on memberships and the projection limited to the pure ADMIN row.
+- **Superuser-executed wrapper REVOKE drops the applier's ADMIN row (PR #493
+  review).** Run over a superuser connection, the bare `GRANT r TO a` is a
+  no-op and the bare `REVOKE r FROM a` removes `a`'s bootstrap ADMIN row
+  (PG16+); apply and prove report success and the re-plan is `[]`. Distinct
+  from the executing-role entry below. Candidate fix: `GRANTED BY a` on
+  both statements (verified on PG15–17 by the reviewer).
+- **NOINHERIT applier: schema + object re-own (PR #493 review).** The bare
+  GRANT gives SET but no inherited privileges, so after re-owning a schema
+  to `r` the object ALTER in it fails with `permission denied for schema`.
+  Candidate fix: `GRANT … WITH INHERIT TRUE` on PG16+, flag before PG16
+  when the applier has no `rolinherit`.
+- **Temporary grant outlives a segment boundary (PR #493 Codex / review).**
+  The wrapper's GRANT and REVOKE are ordered around the owner ALTERs only;
+  a `commitBoundaryAfter` or non-transactional action (e.g. `CREATE INDEX
+  CONCURRENTLY` on the re-owned table, `ALTER TYPE … ADD VALUE`) can land
+  between them, so a later failure leaves the grant committed. Needs the
+  wrapper kept inside one transactional segment.
+- **Owner role renamed in the same plan.** `createdByPlan` is read from the
+  role's producer, which is the RENAME action for an accepted role rename, so
+  a renamed role the applier did not create is treated as plan-created
+  (wrapped or direct) and the ALTER fails at apply inside its segment. Fix:
+  ignore rename producers and look up `memberOf`/`adminOf` under the source
+  name. The reverse also happens (PR #493 Codex): the probe's role lists
+  carry pre-rename names, so an owner route to the renamed role can be
+  flagged although PostgreSQL keeps the membership by OID. That direction
+  only over-refuses; normalizing the capability's role sets through accepted
+  role renames fixes both.
+- **Lock-budget split between the wrapper's actions.** `splitActions` packs
+  by lock estimate without edge knowledge, so `--max-locks` (or a depleted
+  lock probe) can put the GRANT and the ALTER in different transactions. A
+  failed ALTER then leaves `GRANT r TO <applier>` committed (no escalation; a
+  re-plan emits the REVOKE). Needs a keep-with-previous marker.
+- **Multi-statement actions under batched apply (pre-existing).** Batched
+  apply maps a failure to an action by counting CommandComplete, one per
+  action. The extension-member ACL restore (`rules/metadata.ts`) emits several
+  statements in one action, so a failure inside it can be attributed to a
+  later action. The owner wrapper avoids this by being three actions.
+- **`renderApplyScript()` does not verify `planId`.** It refuses a plan carrying
+  a `capability.owner` diagnostic, but a library caller that strips the
+  diagnostic from a stamped plan and then renders gets the owner ALTERs
+  (`apply()` and `parsePlan()` catch that via `assertPlanId`). The only
+  in-repo caller (`schema apply --dry-run`) renders a freshly stamped plan.
+  Adding `assertPlanId` would make the public renderer reject hand-built or
+  mutated plans, which is an API contract change for its own PR (PR #493
+  review triage).
+
 ## PR #484 review triage (Codex) — domain NOT NULL on PG 17+
 
 PostgreSQL 17+ catalogs a domain NOT NULL as a `pg_constraint` row
