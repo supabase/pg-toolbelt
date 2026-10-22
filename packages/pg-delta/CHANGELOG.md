@@ -1,5 +1,17 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.60
+
+### Patch Changes
+
+- db34692: When apply fails because a function or operator does not exist, the error now explains that apply runs with `search_path = pg_catalog`: schema-qualify the call, or give the routine that makes it its own `SET search_path`. A routine body that calls `gen_random_bytes()` without a schema (pgcrypto lives in `extensions` on Supabase) is the common case.
+- 63b3f65: Keep a table's declared column order when a plan creates it, or when it is exported and reloaded, if a column is generated or waits on a same-schema type. Before, such a column was added after the columns declared behind it, so `SELECT *`, positional `INSERT` and `COPY` without a column list saw a different order. Two cases still put a column after the columns declared behind it: a column whose `DEFAULT` calls a user function (Postgres runs the function when the column is added, and it may read a later column), and a generated column declared before a column it reads.
+- 50adfef: Fix three export round-trip gaps found by the new corpus-wide export fidelity gate: a table inheriting from several parents now keeps every `INHERITS` parent when created, a partition's attached index keeps its own storage options instead of the parent index's, and a CHECK constraint that calls a function over its own table's row type is no longer folded into `CREATE TABLE` by `schema export`, which left the shadow load stuck.
+- 7931d41: The proof no longer fails with `relfilenode changed, no rewriteRisk declared` when a plan retypes a column of a partitioned table or a table with inheritance children. A rewrite declared on a table now also covers the partitions and children that Postgres rewrites with it.
+- 28b6e06: Fix declarative export of a self-referencing foreign key that targets a unique index: the key is no longer inlined into `CREATE TABLE` before the index, so the exported files load again (#543).
+- 88b9dea: Speed up loading declarative files into the shadow database: the load session now runs with `synchronous_commit = off`, so the per-file commits no longer wait for a WAL flush. A no-op `declarative sync` on the benchmark fixture drops from about 11 s to about 2.2 s locally.
+- 72e47ea: `plan` now refuses, instead of planning a wrong `CREATE USER MAPPING`, when a role is renamed and the source extraction could not read that role's user mapping (a non-superuser extractor). Postgres keeps the mapping attached across `ALTER ROLE ... RENAME`, so the extra `CREATE` failed at apply with `must be owner of foreign server` or `user mapping ... already exists`. The refusal names the mapping and asks for an extraction role that can read `pg_user_mapping`.
+
 ## 1.0.0-alpha.59
 
 ### Patch Changes
