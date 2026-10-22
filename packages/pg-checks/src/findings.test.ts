@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { parseCheckError, parseFindings } from "./findings.ts";
+import {
+  parseCheckError,
+  parseFindings,
+  parseInTransactionWarnRead,
+} from "./findings.ts";
 import { resolvePolicy } from "./policy.ts";
 
 const row = (
@@ -119,5 +123,68 @@ describe("parseCheckError", () => {
     expect(() => parseCheckError({ code: "SB001", detail: "{" })).toThrow(
       /DETAIL/,
     );
+  });
+});
+
+describe("parseInTransactionWarnRead", () => {
+  const policy = resolvePolicy({ rls_disabled_in_public: "error" });
+
+  test("finds the sentinel row by column name and parses its findings", () => {
+    const sentinel = JSON.stringify({
+      findings: [
+        row("rls_disabled_in_public", "public", "foo"),
+        row("rls_enabled_no_policy", "public", "bar"),
+      ],
+    });
+    const result = parseInTransactionWarnRead(
+      [{ answer: 42 }, { sbc_findings: sentinel }],
+      policy,
+    );
+    expect(
+      "findings" in result
+        ? result.findings.map((f) => [f.rule, f.severity, f.name])
+        : result,
+    ).toEqual([
+      ["rls_disabled_in_public", "error", "foo"],
+      ["rls_enabled_no_policy", "warn", "bar"],
+    ]);
+  });
+
+  test("zero findings is an empty list", () => {
+    expect(
+      parseInTransactionWarnRead(
+        [{ sbc_findings: JSON.stringify({ findings: [] }) }],
+        policy,
+      ),
+    ).toEqual({ findings: [] });
+  });
+
+  test("a read error is reported, not thrown", () => {
+    expect(
+      parseInTransactionWarnRead(
+        [
+          {
+            sbc_findings: JSON.stringify({
+              read_error: "57014: canceling statement due to statement timeout",
+            }),
+          },
+        ],
+        policy,
+      ),
+    ).toEqual({
+      readError: "57014: canceling statement due to statement timeout",
+    });
+  });
+
+  test("rows without the sentinel are a read error, never findings", () => {
+    expect(
+      parseInTransactionWarnRead(
+        [row("rls_disabled_in_public", "public", "foo")],
+        policy,
+      ),
+    ).toEqual({ readError: "no sbc_findings row in the result" });
+    expect(
+      parseInTransactionWarnRead([{ sbc_findings: "{" }], policy),
+    ).toMatchObject({ readError: expect.stringContaining("unreadable") });
   });
 });

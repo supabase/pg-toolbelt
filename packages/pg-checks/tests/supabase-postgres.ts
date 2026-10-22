@@ -6,6 +6,7 @@
 import pg from "pg";
 import {
   GenericContainer,
+  type StartedNetwork,
   type StartedTestContainer,
   Wait,
 } from "testcontainers";
@@ -23,8 +24,16 @@ export interface SupabasePostgres {
 
 export async function startSupabasePostgres(
   image: string,
+  /** Join `network` as host `alias`, for a sidecar such as pg-meta. */
+  network?: { readonly network: StartedNetwork; readonly alias: string },
 ): Promise<SupabasePostgres> {
-  const container: StartedTestContainer = await new GenericContainer(image)
+  let builder = new GenericContainer(image);
+  if (network !== undefined) {
+    builder = builder
+      .withNetwork(network.network)
+      .withNetworkAliases(network.alias);
+  }
+  const container: StartedTestContainer = await builder
     .withEnvironment({ POSTGRES_PASSWORD: "postgres" })
     .withExposedPorts(5432)
     .withWaitStrategy(Wait.forHealthCheck())
