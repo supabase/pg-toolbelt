@@ -1,5 +1,9 @@
 /** Findings in the RFC §8 shape, from the check's `DETAIL` or the after-commit read. */
-import { CHECK_FAILED_SQLSTATE, CHECK_TIMED_OUT_SQLSTATE } from "./check.ts";
+import {
+  CHECK_FAILED_SQLSTATE,
+  CHECK_TIMED_OUT_SQLSTATE,
+  WARN_READ_COLUMN,
+} from "./check.ts";
 import { RULES, type ResolvedPolicy, type Rule } from "./policy.ts";
 
 export interface Finding {
@@ -66,6 +70,38 @@ export function parseFindings(
     const finding = toFinding(row, severity);
     return finding === null ? [] : [finding];
   });
+}
+
+/**
+ * The rows a one-string executor got back for a migration that ended with
+ * {@link buildInTransactionWarnRead}. The sentinel row is found by column name
+ * (pg-meta returns the last result that has rows); without it, nothing in
+ * `rows` is taken for findings.
+ */
+export function parseInTransactionWarnRead(
+  rows: readonly unknown[],
+  policy: ResolvedPolicy,
+): { readonly findings: Finding[] } | { readonly readError: string } {
+  const sentinel = rows.findLast(
+    (row) => typeof row === "object" && row !== null && WARN_READ_COLUMN in row,
+  ) as Record<string, unknown> | undefined;
+  if (sentinel === undefined) {
+    return { readError: `no ${WARN_READ_COLUMN} row in the result` };
+  }
+  const value = sentinel[WARN_READ_COLUMN];
+  let parsed: { findings?: unknown; read_error?: unknown };
+  try {
+    parsed = JSON.parse(String(value)) as typeof parsed;
+  } catch {
+    return { readError: `unreadable ${WARN_READ_COLUMN}: ${String(value)}` };
+  }
+  if (typeof parsed?.read_error === "string") {
+    return { readError: parsed.read_error };
+  }
+  if (!Array.isArray(parsed?.findings)) {
+    return { readError: `unreadable ${WARN_READ_COLUMN}: ${String(value)}` };
+  }
+  return { findings: parseFindings(parsed.findings, policy) };
 }
 
 const QUERY_CANCELED_SQLSTATE = "57014";

@@ -77,10 +77,7 @@ export function buildCheckStatements(
   const errors = rulesAt(policy, "error");
   if (errors.length === 0) return [];
   const warnings = rulesAt(policy, "warn");
-  const timeoutMs = options.timeoutMs ?? 2000;
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
-    throw new Error(`timeoutMs must be a positive integer, got ${timeoutMs}`);
-  }
+  const timeoutMs = checkTimeout(options);
   const select = lintSelect(
     `pg_catalog.jsonb_build_object(
   'errors', coalesce(pg_catalog.jsonb_agg(l) filter (where l.name = any(${textArray(errors)})), '[]'::pg_catalog.jsonb),
@@ -120,12 +117,25 @@ $sbcq$ into findings;
 end
 $sbc$`;
   return [
-    "select pg_catalog.set_config('sbc.statement_timeout', pg_catalog.current_setting('statement_timeout'), true)",
+    SAVE_STATEMENT_TIMEOUT,
     `set local statement_timeout = '${timeoutMs}ms'`,
     check,
-    "select pg_catalog.set_config('statement_timeout', pg_catalog.current_setting('sbc.statement_timeout'), true)",
+    `select ${RESTORE_STATEMENT_TIMEOUT}`,
   ];
 }
+
+function checkTimeout(options: Pick<CheckOptions, "timeoutMs">): number {
+  const timeoutMs = options.timeoutMs ?? 2000;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(`timeoutMs must be a positive integer, got ${timeoutMs}`);
+  }
+  return timeoutMs;
+}
+
+const SAVE_STATEMENT_TIMEOUT =
+  "select pg_catalog.set_config('sbc.statement_timeout', pg_catalog.current_setting('statement_timeout'), true)";
+const RESTORE_STATEMENT_TIMEOUT =
+  "pg_catalog.set_config('statement_timeout', pg_catalog.current_setting('sbc.statement_timeout'), true)";
 
 /** {@link buildCheckStatements} as one script, or `""` when no rule is at `error`. */
 export function buildCheckBlock(
@@ -162,6 +172,62 @@ export function buildAfterCommitRead(
     "rollback",
   ];
   return { statements, resultIndex: 2, sql: joinStatements(statements) };
+}
+
+/** Column of the one row {@link buildInTransactionWarnRead} returns. */
+export const WARN_READ_COLUMN = "sbc_findings";
+
+/**
+ * The warn read for one-string executors (Mgmt API, D28): placed after the
+ * history insert and before `commit`, it reads rules at `warn` and `error` and
+ * returns exactly one row, `sbc_findings` = `{"findings": [...]}` or
+ * `{"read_error": "<sqlstate>: <message>"}`. It never raises from the lint, so a
+ * slow or failing read cannot roll the migration back (a cancel while Postgres
+ * compiles the DO still can; see the check block). `""` when every rule is `off`.
+ */
+export function buildInTransactionWarnRead(
+  policy: ResolvedPolicy,
+  options: CheckOptions,
+): string {
+  const rules = [...rulesAt(policy, "error"), ...rulesAt(policy, "warn")];
+  if (rules.length === 0) return "";
+  const timeoutMs = checkTimeout(options);
+  const select = lintSelect(
+    "coalesce(pg_catalog.jsonb_agg(l), '[]'::pg_catalog.jsonb)",
+    rules,
+    policy.exclude,
+  );
+  // The inner block is a subtransaction: on error its set_config calls are
+  // undone, so the handler only records the error. statement_timeout is
+  // restored inside the DO so the sentinel select and commit never run under
+  // the read's timeout.
+  const read = `do $sbc$
+declare
+  prev_search_path pg_catalog.text := pg_catalog.current_setting('search_path');
+  prev_db_schemas pg_catalog.text := pg_catalog.current_setting('pgrst.db_schemas', true);
+  findings pg_catalog.jsonb;
+begin
+  begin
+    perform pg_catalog.set_config('search_path', '', true);
+    perform pg_catalog.set_config('pgrst.db_schemas', ${quoteLiteral(dbSchemas(options))}, true);
+    execute $sbcq$
+${select}
+$sbcq$ into findings;
+    perform pg_catalog.set_config('search_path', prev_search_path, true);
+    perform pg_catalog.set_config('pgrst.db_schemas', coalesce(prev_db_schemas, ''), true);
+    perform pg_catalog.set_config('sbc.findings', pg_catalog.jsonb_build_object('findings', findings)::pg_catalog.text, true);
+  exception when query_canceled or others then
+    perform pg_catalog.set_config('sbc.findings', pg_catalog.jsonb_build_object('read_error', sqlstate || ': ' || sqlerrm)::pg_catalog.text, true);
+  end;
+  perform ${RESTORE_STATEMENT_TIMEOUT};
+end
+$sbc$`;
+  return joinStatements([
+    SAVE_STATEMENT_TIMEOUT,
+    `set local statement_timeout = '${timeoutMs}ms'`,
+    read,
+    `select pg_catalog.current_setting('sbc.findings', true) as ${WARN_READ_COLUMN}`,
+  ]);
 }
 
 const joinStatements = (statements: readonly string[]) =>
