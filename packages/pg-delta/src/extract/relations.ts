@@ -17,7 +17,10 @@ import {
 /** Canonicalize pg_class.reloptions (a text[] of `key=value`) to a sorted array
  *  so the payload hash is order-independent, or null when there are none. */
 function reloptions(row: Record<string, unknown>): string[] | null {
-  const raw = row["reloptions"];
+  return sortedOptions(row["reloptions"]);
+}
+
+function sortedOptions(raw: unknown): string[] | null {
   if (raw == null) return null;
   const arr = (raw as string[]).slice().sort();
   return arr.length > 0 ? arr : null;
@@ -35,17 +38,12 @@ const TABLES_SQL = `
            CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) END AS partition_key,
            c.reloptions AS reloptions,
            pg_get_expr(c.relpartbound, c.oid) AS partition_bound,
-           (SELECT json_build_object('schema', pn.nspname, 'name', pc.relname)
+           (SELECT json_agg(json_build_object('schema', pn.nspname, 'name', pc.relname)
+                            ORDER BY inh.inhseqno)
             FROM pg_inherits inh
             JOIN pg_class pc ON pc.oid = inh.inhparent
             JOIN pg_namespace pn ON pn.oid = pc.relnamespace
-            WHERE inh.inhrelid = c.oid
-            -- Multi-parent support is tracked separately; until then capture the
-            -- FIRST-declared parent deterministically. Without ORDER BY the
-            -- unordered LIMIT 1 can pick a different parent across extractions,
-            -- flapping the fact hash and causing spurious table replaces.
-            ORDER BY inh.inhseqno
-            LIMIT 1) AS parent_table,
+            WHERE inh.inhrelid = c.oid) AS parent_tables,
            obj_description(c.oid, 'pg_class') AS comment,
            ${aclJsonMemberAware("c.relacl", "r", "c.relowner", "pg_class", "c.oid")} AS acl,
            ${memberExtensionExpr("pg_class", "c.oid")} AS ext_member_of
@@ -66,6 +64,9 @@ export const tablesFamily: CatalogFamily = {
         schema: String(row["schema"]),
         name: String(row["name"]),
       };
+      const parents = row["parent_tables"] as
+        | { schema: string; name: string }[]
+        | null;
       pushWithMeta(
         {
           id,
@@ -92,10 +93,12 @@ export const tablesFamily: CatalogFamily = {
               row["partition_bound"] == null
                 ? null
                 : (row["partition_bound"] as string),
-            parentTable:
-              row["parent_table"] == null
-                ? null
-                : (row["parent_table"] as { schema: string; name: string }),
+            parentTable: parents?.[0] ?? null,
+            // Further INHERITS parents in declaration order. Omitted for the
+            // common single-parent case so those table hashes stay unchanged.
+            ...(parents !== null && parents.length > 1
+              ? { inheritsAlso: parents.slice(1) }
+              : {}),
             reloptions: reloptions(row),
           },
         },
@@ -434,18 +437,24 @@ const INDEXES_SQL = `
            -- gap. Child index facts plus attachedTo fingerprint attach-state;
            -- force the parent valid so it never drives that replace.
            CASE WHEN ic.relkind = 'I' THEN true ELSE i.indisvalid END AS valid,
-           (SELECT json_build_object('schema', pn.nspname, 'name', pc.relname)
-            FROM pg_inherits ih
-            JOIN pg_class pc ON pc.oid = ih.inhparent
-            JOIN pg_namespace pn ON pn.oid = pc.relnamespace
-            WHERE ih.inhrelid = i.indexrelid
-            ORDER BY ih.inhseqno
-            LIMIT 1) AS attached_to,
+           att.attached_to,
+           ic.reloptions AS reloptions,
+           att.attached_reloptions,
            obj_description(i.indexrelid, 'pg_class') AS comment
     FROM pg_index i
     JOIN pg_class ic ON ic.oid = i.indexrelid
     JOIN pg_class c ON c.oid = i.indrelid
     JOIN pg_namespace n ON n.oid = ic.relnamespace
+    LEFT JOIN LATERAL (
+      SELECT json_build_object('schema', pn.nspname, 'name', pc.relname) AS attached_to,
+             pc.reloptions AS attached_reloptions
+      FROM pg_inherits ih
+      JOIN pg_class pc ON pc.oid = ih.inhparent
+      JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+      WHERE ih.inhrelid = i.indexrelid
+      ORDER BY ih.inhseqno
+      LIMIT 1
+    ) att ON true
     WHERE c.relkind IN ('r', 'p', 'm') AND ${USER_SCHEMA_FILTER}
       -- Exclude indexes OWNED by a constraint (PRIMARY KEY / UNIQUE / EXCLUSION),
       -- which are serialized via the constraint, not as standalone CREATE INDEX.
@@ -495,6 +504,17 @@ export const indexesFamily: CatalogFamily = {
             def: deparsedDef(row, "index"),
             valid: Boolean(row["valid"]),
             attachedTo,
+            // Render hints (unhashed: `def` already carries the options). A
+            // child index that PARTITION OF materializes copies its parent's
+            // options; these let the create restore the child's own.
+            ...(attachedTo != null
+              ? {
+                  _reloptions: reloptions(row),
+                  _attachedReloptions: sortedOptions(
+                    row["attached_reloptions"],
+                  ),
+                }
+              : {}),
           },
         },
         row,

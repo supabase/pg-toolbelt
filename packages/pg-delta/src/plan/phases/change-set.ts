@@ -58,6 +58,11 @@ export interface ChangeSet {
   setsByFact: Map<string, Extract<Delta, { verb: "set" }>[]>;
   renameCandidates: RenameCandidate[];
   acceptedRenames: AcceptedRename[];
+  /** source-role-name to desired-role-name map that normalized `source` and
+   * `desired` into desired-name space. Physical-space data that bypassed that
+   * normalization (e.g. raw extraction diagnostics) must be relabeled with this
+   * same map before it is compared against `deltas`. */
+  roleRenameMap: ReadonlyMap<string, string>;
   /** every projection decision the two managed-view reconstructions above hid,
    * tagged with its side — collected HERE so `plan()` can build the projection
    * audit without reconstructing both sides a second time. Source-side records
@@ -291,6 +296,7 @@ export function buildChangeSet(
     setsByFact,
     renameCandidates,
     acceptedRenames,
+    roleRenameMap,
     projectionSuppressions,
   };
 }

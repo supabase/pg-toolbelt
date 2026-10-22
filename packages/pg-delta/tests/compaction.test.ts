@@ -206,7 +206,7 @@ describe("compaction", () => {
     }
   }, 120_000);
 
-  test("generated columns stay as ADD COLUMN so dependency columns exist first", async () => {
+  test("a generated column folds into CREATE TABLE after the columns it reads", async () => {
     const cluster = await sharedCluster();
     const source = await cluster.createDb("compact_gen_src");
     const desired = await cluster.createDb("compact_gen_dst");
@@ -223,14 +223,17 @@ describe("compaction", () => {
         await extract(desired.pool),
       ];
       const thePlan = plan(sourceState.factBase, desiredState.factBase);
+      // `base` folds first, so the generated column's pg_depend edge to it does
+      // not cross the CREATE and it folds in declared order (#518).
       const createTable = thePlan.actions.find(
         (a) => a.verb === "create" && a.produces[0]?.kind === "table",
       );
-      expect(createTable?.sql).not.toContain("GENERATED ALWAYS AS");
-      const addGenerated = thePlan.actions.find((a) =>
-        a.sql.includes("GENERATED ALWAYS AS"),
+      expect(createTable?.sql).toMatchInlineSnapshot(
+        `"CREATE TABLE "app"."t" ("base" integer NOT NULL, "doubled" integer GENERATED ALWAYS AS ((base * 2)) STORED)"`,
       );
-      expect(addGenerated?.sql).toMatch(/ADD COLUMN.*GENERATED ALWAYS AS/);
+      expect(thePlan.actions.some((a) => a.sql.includes("ADD COLUMN"))).toBe(
+        false,
+      );
 
       const verdict = await provePlan(
         thePlan,

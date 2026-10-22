@@ -763,25 +763,38 @@ export function compactColumnFolds(
     // relation) may be created by a LATER file and the loader reorders files to
     // satisfy it. The one crossing an export constraint fold must NOT tolerate
     // is a SAME-TABLE column of its own fold target that was deferred to a
-    // later `ADD COLUMN` (its column fold crossed a domain-type edge, or it is
-    // a generated column that never hints) — folding the constraint inline
+    // later `ADD COLUMN` (its column fold crossed a domain-type edge, or a
+    // dependency edge of a generated column) — folding the constraint inline
     // would reference a column the CREATE TABLE does not yet declare, and no
     // file reordering can repair that. An inlined column shares the target's
     // effective position, so it never counts as "after" and passes naturally.
     const lenientCrossing = isConstraintFold && foldConstraints !== undefined;
     const foldTarget = hint.foldInto;
+    const foldTargetKey = encodeId(foldTarget);
     const crossesEdge = (predecessorsOf.get(origIndex) ?? []).some((p) => {
       const pPos = effectivePosOf.get(p) ?? (positionOf[p] as number);
       if (pPos <= targetPos) return false;
       if (!lenientCrossing) return true;
       const predAction = orderedActions[positionOf[p] as number] as Action;
-      return predAction.produces.some(
-        (id) =>
-          id.kind === "column" &&
-          foldTarget.kind === "table" &&
-          id.schema === foldTarget.schema &&
-          id.table === foldTarget.name,
-      );
+      // A same-table index (e.g. the unique index a self-referencing FK
+      // targets) is emitted in the same file after the CREATE, so it is
+      // equally unrepairable by file reordering.
+      if (foldTarget.kind === "table") {
+        const sameTableColumn = predAction.produces.some(
+          (id) =>
+            id.kind === "column" &&
+            id.schema === foldTarget.schema &&
+            id.table === foldTarget.name,
+        );
+        // ADD COLUMN and CREATE INDEX both consume the table they belong to.
+        const sameTableDependent = predAction.consumes.some(
+          (id) => encodeId(id) === foldTargetKey,
+        );
+        if (sameTableColumn || sameTableDependent) return true;
+      }
+      // A predecessor that itself needs the target (a CHECK calling a function
+      // over the table's row type) closes a cycle no file reordering can fix.
+      return actionReaches(edges, targetOrig, p);
     });
     if (crossesEdge) continue;
     // fold: splice the clause into the CREATE's column list

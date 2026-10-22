@@ -11,7 +11,7 @@
 import type { FactBase } from "../../core/fact.ts";
 import type { Action, SafetyReport } from "../plan.ts";
 import { topoSort } from "../graph.ts";
-import type { StableId } from "../../core/stable-id.ts";
+import { encodeId, type StableId } from "../../core/stable-id.ts";
 import type { ApplierCapability } from "../../policy/capability.ts";
 import {
   isOverlayDefaultPrivilege,
@@ -31,6 +31,120 @@ import {
   mergeCoTargetGrants,
   mergeCoTargetRevokes,
 } from "../internal.ts";
+
+/** A column create's table and declared position (`_position`,
+ *  pg_attribute.attnum), or undefined for any other action. */
+function columnCreateSlot(
+  action: Action,
+  id: StableId | undefined,
+  desired: FactBase,
+): { tableKey: string; position: number } | undefined {
+  if (action.verb !== "create" || id?.kind !== "column") return undefined;
+  const position = desired.get(id)?.payload["_position"];
+  if (typeof position !== "number") return undefined;
+  return { tableKey: `${id.schema}\x00${id.table}`, position };
+}
+
+/**
+ * `ADD COLUMN` always appends, so a table's new columns must be added in
+ * declared order (`_position`, pg_attribute.attnum). The tie-break in
+ * `actionTieKey` only orders the columns that are ready at the same time: a
+ * column still waiting on a later dependency (a function its generated
+ * expression calls, rule weight 8 > column 5) lets the ready columns after it
+ * go first (#518). Chain each table's column creates by position so each one
+ * waits for the one before it.
+ *
+ * Two kinds of column keep only the tie-break order, so they can land after
+ * the columns declared behind them:
+ *  - an evaluator column (`evaluatorActions`): its DEFAULT calls a user
+ *    function, which Postgres runs at ADD COLUMN time even on an empty table.
+ *    The function may read a later column with no pg_depend edge to it (a
+ *    plpgsql or quoted SQL body), so only the evaluator stratum keeps the
+ *    column after it. No chain edge starts from such a column; the next column
+ *    chains from the last one before it instead. A generated column on a table
+ *    this plan creates is exempt: Postgres computes it per row, and the new
+ *    table has none.
+ *  - a column whose chain edge would close a cycle with a real dependency (a
+ *    generated column reading a column declared after it). That edge is
+ *    skipped.
+ *
+ * Ordering edges change no SQL text, but a wrong edge can make the plan fail to
+ * apply, so every edge here must be one Postgres can honor.
+ */
+function chainColumnCreatesByPosition(
+  actions: readonly Action[],
+  desired: FactBase,
+  producerOf: ReadonlyMap<string, number>,
+  evaluatorActions: ReadonlySet<number>,
+  edges: Array<[number, number]>,
+): void {
+  const columnsByTable = new Map<
+    string,
+    Array<{ position: number; index: number }>
+  >();
+  actions.forEach((action, index) => {
+    const slot = columnCreateSlot(action, action.produces[0], desired);
+    if (slot === undefined) return;
+    const columns = columnsByTable.get(slot.tableKey) ?? [];
+    columns.push({ position: slot.position, index });
+    columnsByTable.set(slot.tableKey, columns);
+  });
+  if (![...columnsByTable.values()].some((columns) => columns.length > 1)) {
+    return;
+  }
+
+  const successorsOf = new Map<number, number[]>();
+  const addSuccessor = (before: number, after: number): void => {
+    const list = successorsOf.get(before) ?? [];
+    list.push(after);
+    successorsOf.set(before, list);
+  };
+  for (const [before, after] of edges) addSuccessor(before, after);
+  // Walks forwards from `from` over its dependents. Columns are chained in
+  // position order, so `from` has no outgoing chain edge yet and the walk
+  // covers only its real downstream closure (constraints, indexes, views),
+  // not the earlier columns of the chain.
+  const reaches = (from: number, target: number): boolean => {
+    const seen = new Set<number>([from]);
+    const stack = [from];
+    while (stack.length > 0) {
+      for (const s of successorsOf.get(stack.pop() as number) ?? []) {
+        if (s === target) return true;
+        if (seen.has(s)) continue;
+        seen.add(s);
+        stack.push(s);
+      }
+    }
+    return false;
+  };
+  // Whether a later column may wait on this one (see the doc comment).
+  const canLead = (index: number): boolean => {
+    if (!evaluatorActions.has(index)) return true;
+    const id = (actions[index] as Action).produces[0] as StableId;
+    const fact = desired.get(id);
+    if (fact?.payload["generatedExpr"] == null || fact.parent === undefined) {
+      return false;
+    }
+    const tableProducer = producerOf.get(encodeId(fact.parent));
+    return (
+      tableProducer !== undefined &&
+      (actions[tableProducer] as Action).verb === "create"
+    );
+  };
+
+  for (const columns of columnsByTable.values()) {
+    columns.sort((a, b) => a.position - b.position);
+    let before: number | undefined;
+    for (const { index: after } of columns) {
+      // `before → after` closes a cycle iff `after` already precedes `before`.
+      if (before !== undefined && !reaches(after, before)) {
+        edges.push([before, after]);
+        addSuccessor(before, after);
+      }
+      if (canLead(after)) before = after;
+    }
+  }
+}
 
 export interface FinalizeInput {
   actions: Action[];
@@ -148,6 +262,13 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     evaluatorActions,
     implicitDestroys,
   );
+  chainColumnCreatesByPosition(
+    actions,
+    desired,
+    producerOf,
+    evaluatorActions,
+    edges,
+  );
 
   // Order a table's ADD COLUMN creates by declared column position
   // (pg_attribute.attnum, carried as the non-semantic `_position` field) instead
@@ -159,14 +280,12 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     subject: StableId,
     action: Action,
   ): string | undefined => {
-    if (action.verb !== "create" || subject.kind !== "column") return undefined;
-    const pos = desired.get(subject)?.payload["_position"];
-    if (typeof pos !== "number") return undefined;
-    const c = subject as { schema: string; table: string; name: string };
+    const slot = columnCreateSlot(action, subject, desired);
+    if (slot === undefined) return undefined;
     // Group each table's columns together (schema+table prefix), then order
     // within by zero-padded attnum. Every column create uses this same shape, so
     // the total order stays deterministic.
-    return `column\x00${c.schema}\x00${c.table}\x00${String(pos).padStart(6, "0")}`;
+    return `column\x00${slot.tableKey}\x00${String(slot.position).padStart(6, "0")}`;
   };
   const order = topoSort(
     actions.length,
