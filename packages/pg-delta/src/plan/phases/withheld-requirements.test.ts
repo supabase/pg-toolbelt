@@ -1047,7 +1047,11 @@ describe("a new NOT NULL column whose default is withheld", () => {
       ],
       [
         { from: defKey, to: pgsodium, kind: "depends" },
-        ...edges.map((to) => ({ from: extra.id, to, kind: "depends" as const })),
+        ...edges.map((to) => ({
+          from: extra.id,
+          to,
+          kind: "depends" as const,
+        })),
       ],
     );
     return () =>

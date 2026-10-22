@@ -223,9 +223,14 @@ export interface KindRules {
    *  `excluded-by-cascade` warning, when a prerequisite the policy withholds is
    *  absent from the target (./phases/withheld-requirements.ts). Absent means
    *  the plan refuses instead, so a kind opts in only when its absence leaves
-   *  no looser state live. A fact whose ancestor or own column is left out
-   *  goes with it whatever this says. */
+   *  no looser state live. A fact whose ancestor is left out goes with it
+   *  whatever this says. */
   skipWhenWithheld?: boolean | ((fact: Fact) => boolean);
+  /** Whether a fact of this kind restricts only the columns of its own table
+   *  it names, so it can be left out when every one of those columns is (a
+   *  CHECK, FK or index on skipped columns alone). A RESTRICTIVE policy restricts
+   *  rows, so it does not qualify. */
+  scopedToOwnColumns?: boolean;
 }
 
 /**

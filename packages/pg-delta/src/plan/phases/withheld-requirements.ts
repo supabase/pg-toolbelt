@@ -155,16 +155,29 @@ export function cascadeWithheldRequirements(
   });
   const onTarget = (id: StableId): boolean =>
     source.has(id) || rawSourceHas(id);
-  // A fact cannot exist without its ancestors or the columns of its own table
-  // (a constraint, index or trigger on a new column), so leaving it out with
-  // them loosens nothing.
-  const isContainedBy = (requirement: StableId, id: StableId): boolean => {
+  // A fact cannot exist without its ancestors, so leaving it out with them
+  // loosens nothing. The same holds for a column-scoped fact (a CHECK or FK)
+  // once every column of its own table it names is left out; one that also
+  // covers a kept column would loosen that column.
+  const isContainedBy = (
+    requirement: StableId,
+    fact: Fact,
+    list: readonly StableId[],
+  ): boolean => {
     const key = encodeId(requirement);
-    for (let cursor = desired.get(id)?.parent; cursor !== undefined; ) {
+    for (let cursor = fact.parent; cursor !== undefined; ) {
       if (encodeId(cursor) === key) return true;
       cursor = desired.get(cursor)?.parent;
     }
-    return isSiblingColumn(desired, id, requirement);
+    return (
+      inputs.rulesForId(fact.id).scopedToOwnColumns === true &&
+      isSiblingColumn(desired, fact.id, requirement) &&
+      list.every(
+        (other) =>
+          !isSiblingColumn(desired, fact.id, other) ||
+          reverted.has(encodeId(other)),
+      )
+    );
   };
   const skippable = (fact: Fact): boolean => {
     const choice = inputs.rulesForId(fact.id).skipWhenWithheld;
@@ -231,7 +244,7 @@ export function cascadeWithheldRequirements(
         if (
           !isNew ||
           fact === undefined ||
-          !(skippable(fact) || isContainedBy(requirement, id))
+          !(skippable(fact) || isContainedBy(requirement, fact, list))
         ) {
           refusal ??= `  - ${key} requires ${requirementKey}, ${why}`;
           continue;

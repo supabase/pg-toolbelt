@@ -2163,6 +2163,13 @@ Deferred (not blocking):
   silent and a re-sync can report "No schema changes found". Needs a summary
   line in `reportPgDeltaNextDiagnostics` (supabase/cli) and a declarative-e2e
   scenario for one of CLI-2300 / CLI-2342 / CLI-2178.
+- **Publication column list naming a skipped column.** A `publicationRel`
+  keeps its column list in the payload with only a `depends` edge to the
+  table, and pg_depend files the column dependencies under the reference-only
+  publication root, so `ALTER PUBLICATION … ADD TABLE t (key_id)` is still
+  planned when `key_id` is skipped and fails at apply (PG15+ column lists).
+  Fix: add the column-list columns as requirements, or carry column edges on
+  the membership fact at extract time.
 - **Nullable new column loses its default.** A nullable new column whose
   default is skipped is still added, so existing rows get NULL instead of the
   default value. Applies cleanly; the default arrives once the prerequisite does,
