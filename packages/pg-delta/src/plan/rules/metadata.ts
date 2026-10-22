@@ -94,6 +94,8 @@ export const metadataRules: Record<string, KindRules> = {
   securityLabel: {
     weight: 20,
     metadata: true,
+    // pgsodium TCE labels need the provider loaded to apply at all.
+    skipWhenWithheld: true,
     create: (fact, view, _params, sourceView) => {
       const id = fact.id as { target: StableId; provider: string };
       const opts = {

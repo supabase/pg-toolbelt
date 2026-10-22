@@ -14,6 +14,8 @@ export const viewRules: Record<string, KindRules> = {
   view: {
     weight: 12,
     cascadesToChildren: true,
+    // A view not created exposes nothing; its dependents follow it.
+    skipWhenWithheld: true,
     rebuildable: true,
     defaclObjtype: "r",
     rename: renameRule((fact) => {

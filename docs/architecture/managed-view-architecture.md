@@ -421,27 +421,32 @@ at plan time (`plan/phases/withheld-requirements.ts`, inside `buildChangeSet`
 after `filterDeltas`):
 
 - Requirements of a kept `add`/`set`/`link` subject: its parent, its `depends`
-  targets in the **raw** desired catalog, and a security label's provider
-  extension (`pg_seclabel` has no `pg_depend`).
+  targets in the **raw** desired catalog, a security label's provider
+  extension (`pg_seclabel` has no `pg_depend`), a table's partition key
+  columns and replica identity index, and the default of a new NOT NULL or
+  domain-typed column on a table the target already has (`ADD COLUMN` cannot
+  fill existing rows without it).
 - Satisfied: produced by a kept delta, present on the target (source view or
   raw source), or ambient per the requirement guard (shared predicate).
 - Withheld: the desired-side projection attributes it to `policyScopeRule`,
   `capability` or `referenceOnly` (an extension member only when its extension
   is withheld), or this phase already reverted it. `managedBy`,
   `managementScope` and `baseline` do not withhold.
-- Unsatisfied and withheld, on a new fact → the fact's deltas and its
+- Unsatisfied and withheld, on a new fact whose kind opts in
+  (`KindRules.skipWhenWithheld`: tables, columns, defaults, views, triggers,
+  security labels, PERMISSIVE policies), or whose missing requirement is an
+  ancestor or a column of its own table → the fact's deltas and its
   subtree's move to `filteredDeltas` (fixpoint), with one
   `excluded-by-cascade` warning per root in `plan.diagnostics`
   (`--strict-coverage` blocks on it). The absent withheld requirement is
   reverted too, from its highest absent withheld/reference-only ancestor, so
   the plan target equals the applied state.
 - Unsatisfied and withheld, on an existing fact (`set`/`link`), or on a new
-  enforcement fact (a constraint or a RESTRICTIVE RLS policy) whose missing
-  requirement is not its own ancestor → `plan()` throws, naming the
-  requirement and its stage. Skipping would leave the old definition, missing
-  enforcement, or access the policy would deny, live. Every other kind
-  (defaults, labels, triggers, views, functions, permissive policies) is
-  skipped under new and live parents alike, so re-planning the applied result
+  fact of any other kind (a constraint, a RESTRICTIVE RLS policy, an index, a
+  function, …) → `plan()` throws, naming the requirement and its stage.
+  Skipping would leave the old definition, missing enforcement, or access the
+  policy would deny, live. A kind is skippable only by opting in, and the
+  choice does not depend on the target, so re-planning the applied result
   skips the same facts again instead of throwing.
 - Unsatisfied but not withheld → untouched; the missing-requirement guard
   still throws.

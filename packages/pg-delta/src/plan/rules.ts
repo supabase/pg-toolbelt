@@ -219,6 +219,13 @@ export interface KindRules {
    *  (table/view/matview/foreignTable → 'r', sequence → 'S',
    *  procedure/aggregate → 'f'); absent for kinds with no default ACLs */
   defaclObjtype?: string;
+  /** Whether a NEW fact of this kind may be left out of the plan, with an
+   *  `excluded-by-cascade` warning, when a prerequisite the policy withholds is
+   *  absent from the target (./phases/withheld-requirements.ts). Absent means
+   *  the plan refuses instead, so a kind opts in only when its absence leaves
+   *  no looser state live. A fact whose ancestor or own column is left out
+   *  goes with it whatever this says. */
+  skipWhenWithheld?: boolean | ((fact: Fact) => boolean);
 }
 
 /**

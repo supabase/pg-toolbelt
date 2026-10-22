@@ -268,6 +268,7 @@ export function buildChangeSet(
     projectionSuppressions,
     roleRenameMap,
     ...ambient,
+    rulesForId,
   });
   const filteredDeltas =
     cascaded.length === 0 ? policyFiltered : [...policyFiltered, ...cascaded];

@@ -4,17 +4,18 @@
  * A kept CREATE whose requirement (parent, raw-desired `depends` target, or
  * security-label provider extension) the policy withholds and the target lacks
  * cannot apply, so it is reverted with its subtree into `filteredDeltas` and
- * reported. Reverting anything else would leave looser state live, so a
- * stranded change to an existing object, or a new constraint or restrictive
- * RLS policy (unless an ancestor is what is missing), throws instead. The
- * decision depends only on the desired state and the prerequisite, so
- * re-planning the applied result is stable. Unwithheld requirements are left
- * to the requirement guard.
+ * reported, when its kind opts in (`KindRules.skipWhenWithheld`) or what is
+ * missing is an ancestor or a column of its own table. Anything else throws:
+ * a stranded change to an existing object, or a new fact of a kind whose
+ * absence would leave looser state live (a constraint, a restrictive RLS
+ * policy). The decision depends only on the desired state and the
+ * prerequisite, so re-planning the applied result is stable. Unwithheld
+ * requirements are left to the requirement guard.
  */
 import type { Diagnostic } from "../../core/diagnostic.ts";
 import { EXCLUDED_BY_CASCADE } from "../../core/diagnostic.ts";
 import { subjectOf, type Delta } from "../../core/diff.ts";
-import type { FactBase } from "../../core/fact.ts";
+import type { Fact, FactBase } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import type { TracedSuppression } from "../../policy/reconstruct.ts";
 import {
@@ -27,9 +28,13 @@ import {
 } from "../identity-normalize.ts";
 import { ambientRequirements } from "../internal.ts";
 import { subtreeIds } from "../renames.ts";
+import type { RulesForId } from "../rules.ts";
 import { securityLabelProviderExtension } from "../rules/metadata.ts";
-import { isEnforcementFact } from "../rules/constraints.ts";
-import { inlinedDefaultRequirement } from "../rules/tables.ts";
+import {
+  inlinedDefaultRequirement,
+  isSiblingColumn,
+  tableShapeRequirements,
+} from "../rules/tables.ts";
 
 /** Projection stages that take a fact out of the user's hands. `managedBy`
  * (intent replay provisions it), `managementScope` (assumed roles cover it) and
@@ -59,6 +64,7 @@ interface WithheldRequirementInputs {
   assumedRoleNames: ReadonlySet<string>;
   assumedSchemaNames: ReadonlySet<string>;
   assumedPresentIds: ReadonlySet<string>;
+  rulesForId: RulesForId;
 }
 
 export function cascadeWithheldRequirements(
@@ -120,11 +126,17 @@ export function cascadeWithheldRequirements(
     }
     const provider = securityLabelProviderExtension(id);
     if (provider !== undefined && rawDesired.has(provider)) out.push(provider);
+    out.push(...tableShapeRequirements(desired, id));
     // A new column that has to inline its default needs that default kept:
-    // reverting it alone would leave an `ADD COLUMN … NOT NULL` the existing
-    // rows reject. Only on a table the target already has — one this plan
-    // creates arrives empty, so the bare column applies.
-    if (parent !== undefined && onTarget(parent)) {
+    // reverting it alone would leave an `ADD COLUMN` the existing rows reject.
+    // Only on a table the target already has — one this plan creates arrives
+    // empty, so the bare column applies. An existing column is not re-added,
+    // so its default goes alone.
+    if (
+      parent !== undefined &&
+      onTarget(parent) &&
+      keptAdds.has(encodeId(id))
+    ) {
       const inlined = inlinedDefaultRequirement(desired, id);
       if (inlined !== undefined) out.push(inlined);
     }
@@ -143,12 +155,20 @@ export function cascadeWithheldRequirements(
   });
   const onTarget = (id: StableId): boolean =>
     source.has(id) || rawSourceHas(id);
-  const isAncestor = (key: string, id: StableId): boolean => {
+  // A fact cannot exist without its ancestors or the columns of its own table
+  // (a constraint, index or trigger on a new column), so leaving it out with
+  // them loosens nothing.
+  const isContainedBy = (requirement: StableId, id: StableId): boolean => {
+    const key = encodeId(requirement);
     for (let cursor = desired.get(id)?.parent; cursor !== undefined; ) {
       if (encodeId(cursor) === key) return true;
       cursor = desired.get(cursor)?.parent;
     }
-    return false;
+    return isSiblingColumn(desired, id, requirement);
+  };
+  const skippable = (fact: Fact): boolean => {
+    const choice = inputs.rulesForId(fact.id).skipWhenWithheld;
+    return typeof choice === "boolean" ? choice : (choice?.(fact) ?? false);
   };
   const satisfied = (id: StableId, key: string): boolean =>
     keptAdds.has(key) ||
@@ -190,6 +210,9 @@ export function cascadeWithheldRequirements(
         list = requirementsOf(id);
         requirements.set(key, list);
       }
+      const fact = desired.get(id);
+      const isNew = keptAdds.has(key);
+      let refusal: string | undefined;
       for (const requirement of list) {
         const requirementKey = encodeId(requirement);
         const upstream = reverted.get(requirementKey);
@@ -203,16 +226,17 @@ export function cascadeWithheldRequirements(
           upstream === undefined
             ? `which the policy withholds (${cause.stage}: ${cause.reasonCode}) and the target lacks`
             : `which this plan does not apply (${cause.stage}: ${cause.reasonCode})`;
-        const fact = desired.get(id);
+        // A later requirement may still be one the fact cannot exist without,
+        // so keep looking before refusing.
         if (
-          !keptAdds.has(key) ||
-          (fact !== undefined &&
-            isEnforcementFact(fact) &&
-            !isAncestor(requirementKey, id))
+          !isNew ||
+          fact === undefined ||
+          !(skippable(fact) || isContainedBy(requirement, id))
         ) {
-          refusals.set(key, `  - ${key} requires ${requirementKey}, ${why}`);
-          break;
+          refusal ??= `  - ${key} requires ${requirementKey}, ${why}`;
+          continue;
         }
+        refusal = undefined;
         for (const member of subtreeIds(desired, id)) {
           const memberKey = encodeId(member);
           if (!reverted.has(memberKey)) reverted.set(memberKey, cause);
@@ -250,6 +274,7 @@ export function cascadeWithheldRequirements(
         changed = true;
         break;
       }
+      if (refusal !== undefined) refusals.set(key, refusal);
     }
   }
   for (const key of refusals.keys()) {

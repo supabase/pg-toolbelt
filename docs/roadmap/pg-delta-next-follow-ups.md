@@ -2136,9 +2136,10 @@ cycle; both reproduce on `main` before #534 too.
 ## CLI-2300 / CLI-2342 / CLI-2178 — withheld-requirement cascade
 
 A kept `add` whose prerequisite the policy withholds and the target lacks is
-reverted into `filteredDeltas` with an `excluded-by-cascade` warning; stranded
-`set` / `link` on existing facts and new constraints / RESTRICTIVE policies
-throw instead (see `managed-view-architecture.md` Follow-up 4).
+reverted into `filteredDeltas` with an `excluded-by-cascade` warning when its
+kind opts in (`KindRules.skipWhenWithheld`); stranded `set` / `link` on
+existing facts and new facts of other kinds (constraints, RESTRICTIVE policies,
+…) throw instead (see `managed-view-architecture.md` Follow-up 4).
 
 Deferred (not blocking):
 
@@ -2157,9 +2158,9 @@ Deferred (not blocking):
   facts, so it does not report it.
 - **Export of TCE artefacts.** `schema export` still emits pgsodium-dependent
   defaults / views / labels that a pgsodium-less shadow cannot load.
-- **`CREATE UNIQUE INDEX` is not treated as enforcement.** Its only uniqueness
-  signal is the `def` text; a structured `unique` field on the index fact would
-  let the refusal cover it.
+- **Kinds not yet opted in to skipping.** A new materialized view, foreign
+  table or function whose `depends` target is withheld is refused, not
+  skipped. Opt a kind in when a reported case needs it.
 
 ## PR #550 — export round-trip gate known gaps
 
