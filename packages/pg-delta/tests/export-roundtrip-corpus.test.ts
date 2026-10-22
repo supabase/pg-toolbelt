@@ -23,6 +23,11 @@ import {
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { settleDesired } from "../src/frontends/settle-desired.ts";
 import { type Cluster, startStockCluster } from "./containers.ts";
+import {
+  ensureCreateroleApplier,
+  grantDatabaseToCreateroleApplier,
+  poolAsCreateroleApplier,
+} from "./createrole-applier.ts";
 import { loadCorpus, type Scenario } from "./corpus.ts";
 
 const LAYOUTS: NonNullable<ExportOptions["layout"]>[] = [
@@ -34,7 +39,8 @@ const LAYOUTS: NonNullable<ExportOptions["layout"]>[] = [
 /** `<scenario>/<a|b>` → tracking reference. A listed case must still fail, so a
  *  fix that makes it pass forces the entry's removal. */
 const HASH_MISMATCH = "rootHash differs after reload";
-const FOLLOW_UPS = "docs/roadmap/pg-delta-next-follow-ups.md#pr-550";
+const FOLLOW_UPS =
+  "docs/roadmap/pg-delta-next-follow-ups.md#pr-550--export-round-trip-gate-known-gaps";
 const KNOWN_GAPS = new Map<string, string>([
   [
     "partitioned-table-operations--subpartition-index-own-options/a",
@@ -62,11 +68,16 @@ const CONCURRENCY = Math.max(
   Math.floor(Number(process.env["PGDELTA_NEXT_CONCURRENCY"] ?? "1")) || 1,
 );
 
-// The container superuser exists on every fresh shadow already.
-function dropBootstrapRole(sql: string): string {
+// The container superuser, and the CREATEROLE applier login the harness
+// provisions on both clusters, exist on every shadow already.
+function dropHarnessRoles(sql: string): string {
   return sql
     .split("\n")
-    .filter((line) => !/^CREATE ROLE "?test"?[\s;]/.test(line))
+    .filter(
+      (line) =>
+        !/^CREATE ROLE "?(test|crl_applier)"?[\s;]/.test(line) &&
+        !/^GRANT "crl_applier" TO "test";/.test(line),
+    )
     .join("\n");
 }
 
@@ -78,7 +89,21 @@ async function roundTrip(
   const failures: string[] = [];
   const src = await source.createDb("src");
   try {
-    await src.pool.query(c.scenario[c.side]);
+    // Match engine.test.ts: a non-superuser CREATEROLE applier produces the
+    // implicit bootstrap ADMIN memberships the scenario exists to cover.
+    if (c.scenario.meta.createroleApplier === true) {
+      await ensureCreateroleApplier(source);
+      await ensureCreateroleApplier(shadow);
+      await grantDatabaseToCreateroleApplier(src);
+      const applier = poolAsCreateroleApplier(src);
+      try {
+        await applier.query(c.scenario[c.side]);
+      } finally {
+        await applier.end();
+      }
+    } else {
+      await src.pool.query(c.scenario[c.side]);
+    }
     const sourceFb = (await extract(src.pool)).factBase;
     for (const layout of LAYOUTS) {
       const baseRoles = await shadow.listRoles();
@@ -86,7 +111,7 @@ async function roundTrip(
       try {
         const files = exportSqlFiles(sourceFb, { layout }).map((f) =>
           /cluster[_/]roles/.test(f.name)
-            ? { ...f, sql: dropBootstrapRole(f.sql) }
+            ? { ...f, sql: dropHarnessRoles(f.sql) }
             : f,
         );
         const loaded = await loadSqlFiles(files, dst.pool, {
@@ -109,6 +134,7 @@ async function roundTrip(
     }
   } finally {
     await src.drop();
+    await shadow.adminPool.query('DROP ROLE IF EXISTS "crl_applier"');
   }
   return failures;
 }
