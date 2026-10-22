@@ -5,6 +5,7 @@ import {
   buildAfterCommitRead,
   buildCheckBlock,
   buildCheckStatements,
+  buildInTransactionWarnRead,
   quoteLiteral,
 } from "./check.ts";
 import { RULES, type Rule, resolvePolicy } from "./policy.ts";
@@ -161,5 +162,54 @@ describe("payload size", () => {
     const nine = buildAfterCommitRead(allWarn, {}).sql;
     expect(rulesSent(nine)).toEqual([...RULES]);
     expect(nine.length).toBeLessThan(released / 2);
+  });
+});
+
+describe("buildInTransactionWarnRead", () => {
+  test("is empty when every rule is off", () => {
+    const off = resolvePolicy(Object.fromEntries(RULES.map((r) => [r, "off"])));
+    expect(buildInTransactionWarnRead(off, {})).toBe("");
+  });
+
+  test("reads warn and error rules without raising and ends with the sentinel select", () => {
+    const sql = buildInTransactionWarnRead(blocking, {
+      exposedSchemas: ["public", "app"],
+    });
+    expect(sql).toContain(lintUnion(allButSearchPath));
+    expect(rulesSent(sql)).toEqual(allButSearchPath);
+    const outside = sql.replace(lintUnion(allButSearchPath), "<splinter>");
+    expect(
+      outside.startsWith(
+        "select pg_catalog.set_config('sbc.statement_timeout', pg_catalog.current_setting('statement_timeout'), true);\nset local statement_timeout = '2000ms';\ndo $sbc$",
+      ),
+    ).toBe(true);
+    expect(outside).toContain(
+      "pg_catalog.set_config('pgrst.db_schemas', 'public,app', true)",
+    );
+    expect(outside).toContain("exception when query_canceled or others then");
+    expect(outside).toContain("pg_catalog.set_config('sbc.findings',");
+    expect(outside).not.toContain("raise");
+    expect(outside).toContain(
+      "array['rls_disabled_in_public']::pg_catalog.text[], array['public.o''brien']::pg_catalog.text[]) as x(rule, object)",
+    );
+    expect(
+      outside.endsWith(
+        "\nselect pg_catalog.current_setting('sbc.findings', true) as sbc_findings;\n",
+      ),
+    ).toBe(true);
+  });
+
+  test("restores statement_timeout inside the DO, on success and in the handler", () => {
+    const sql = buildInTransactionWarnRead(allWarn, { timeoutMs: 1 });
+    expect(sql).toContain("set local statement_timeout = '1ms';");
+    const body = sql.slice(sql.indexOf("\nbegin\n"), sql.indexOf("$sbc$;"));
+    expect(
+      body.lastIndexOf(
+        "pg_catalog.set_config('statement_timeout', pg_catalog.current_setting('sbc.statement_timeout'), true)",
+      ),
+    ).toBeGreaterThan(body.lastIndexOf("exception when query_canceled"));
+    expect(() => buildInTransactionWarnRead(allWarn, { timeoutMs: 0 })).toThrow(
+      /timeoutMs/,
+    );
   });
 });
