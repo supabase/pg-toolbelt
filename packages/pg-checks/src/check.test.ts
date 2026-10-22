@@ -58,7 +58,7 @@ describe("buildCheckBlock", () => {
       "array['rls_disabled_in_public', 'rls_enabled_no_policy', 'policy_exists_rls_disabled', 'security_definer_view', 'rls_policy_always_true', 'sensitive_columns_exposed', 'auth_users_exposed', 'rls_references_user_metadata']::pg_catalog.text[]",
     );
     expect(outside).toContain(
-      "= any(array['public.o''brien']::pg_catalog.text[]), false)",
+      "array['rls_disabled_in_public']::pg_catalog.text[], array['public.o''brien']::pg_catalog.text[]) as x(rule, object)",
     );
     expect(outside).toContain("errcode = 'SB001'");
     expect(outside).toContain("errcode = 'SB002'");
@@ -112,7 +112,9 @@ describe("exclusions", () => {
   test("no exclusions adds no filter", () => {
     expect(buildCheckStatements(allWarn, {})).toEqual([]);
     const read = buildAfterCommitRead(allWarn, {});
-    expect(read.statements[read.resultIndex]?.includes("unnest")).toBe(false);
+    expect(
+      read.statements[read.resultIndex]?.includes("as x(rule, object)"),
+    ).toBe(false);
   });
 });
 
