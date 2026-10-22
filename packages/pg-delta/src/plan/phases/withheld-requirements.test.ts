@@ -4,9 +4,9 @@
  * A kept CREATE whose prerequisite the policy withholds, on a target that
  * lacks that prerequisite, is reverted at plan time (moved to `filteredDeltas`)
  * with an `excluded-by-cascade` warning instead of throwing or emitting DDL
- * that fails at apply. A stranded change to an existing object, or a stranded
- * constraint or restrictive RLS policy, is refused instead: skipping it would
- * leave looser state live. Prerequisites present on the target, produced by the plan, or
+ * that fails at apply. A stranded change to an existing object, or a new fact
+ * of a kind that does not opt in to skipping (a constraint, a restrictive RLS
+ * policy), is refused instead: skipping it would leave looser state live. Prerequisites present on the target, produced by the plan, or
  * ambient keep planning exactly as before. No DB.
  */
 import { describe, expect, test } from "bun:test";
@@ -971,5 +971,87 @@ describe("a new NOT NULL column whose default is withheld", () => {
     const p = run(true, false);
     expect(sqlOf(p).some((s) => /"key_id" uuid NOT NULL/.test(s))).toBe(true);
     expect(cascadeSubjects(p)).toEqual([encodeId(defKey)]);
+  });
+
+  test("its foreign key to pgsodium.key is skipped with it, not refused", () => {
+    const pgsodiumSchema: StableId = { kind: "schema", name: "pgsodium" };
+    const keyTable: StableId = {
+      kind: "table",
+      schema: "pgsodium",
+      name: "key",
+    };
+    const keyCol: StableId = {
+      kind: "column",
+      schema: "pgsodium",
+      table: "key",
+      name: "id",
+    };
+    const fk: StableId = {
+      kind: "constraint",
+      schema: "public",
+      table: "t",
+      name: "t_key_id_fkey",
+    };
+    const live = [
+      f(publicSchema),
+      f(t, publicSchema, tablePayload()),
+      f(colId, t, colPayload("integer", 1)),
+    ];
+    const source = buildFactBase(live, []);
+    const desired = buildFactBase(
+      [
+        ...live,
+        pgsodiumFact(),
+        f(pgsodiumSchema),
+        f(keyTable, pgsodiumSchema, tablePayload()),
+        f(keyCol, keyTable, colPayload("uuid", 1)),
+        f(colKey, t, { ...colPayload("uuid", 2), notNull: true }),
+        f(defKey, colKey, { expr: "(pgsodium.create_key()).id" }),
+        f(fk, t, {
+          def: "FOREIGN KEY (key_id) REFERENCES pgsodium.key(id)",
+          type: "f",
+          validated: true,
+        }),
+      ],
+      [
+        { from: keyTable, to: pgsodium, kind: "memberOfExtension" },
+        { from: defKey, to: pgsodium, kind: "depends" },
+        // the withheld referenced column comes first, so it is met before the
+        // constraint's own column is reverted
+        { from: fk, to: keyCol, kind: "depends" },
+        { from: fk, to: colKey, kind: "depends" },
+      ],
+    );
+    const p = plan(source, desired, { policy: supabasePolicy });
+    expect(sqlOf(p)).toEqual([]);
+    expect(cascadeSubjects(p)).toEqual(
+      [colKey, fk, defKey].map(encodeId).sort(),
+    );
+  });
+});
+
+describe("skipping is opt-in per kind", () => {
+  test("a new function that needs pgsodium is refused: functions do not opt in", () => {
+    const fn: StableId = {
+      kind: "function",
+      schema: "public",
+      name: "new_key",
+      args: [],
+    };
+    const source = buildFactBase([f(publicSchema)], []);
+    const desired = buildFactBase(
+      [
+        f(publicSchema),
+        pgsodiumFact(),
+        f(fn, publicSchema, {
+          def: "CREATE FUNCTION public.new_key() RETURNS uuid LANGUAGE sql BEGIN ATOMIC SELECT (pgsodium.create_key()).id; END",
+          kind: "f",
+        }),
+      ],
+      [{ from: fn, to: pgsodium, kind: "depends" }],
+    );
+    expect(() => plan(source, desired, { policy: supabasePolicy })).toThrow(
+      /function:public\.new_key\(\) requires extension:pgsodium/,
+    );
   });
 });

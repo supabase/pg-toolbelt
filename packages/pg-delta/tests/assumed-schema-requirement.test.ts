@@ -33,6 +33,44 @@ afterAll(async () => {
   await Promise.all(dbs.map((d) => d.drop().catch(() => {})));
 });
 
+/** Plans the target towards the desired state under the Supabase policy,
+ *  applies the plan to the target, then re-plans the applied target. */
+async function planApplyReplan(
+  name: string,
+  targetSql: string,
+  desiredSql: string,
+) {
+  const cluster = await sharedCluster();
+  const source = await cluster.createDb(`${name}_src`);
+  const desired = await cluster.createDb(`${name}_dst`);
+  dbs.push(source, desired);
+  await source.pool.query(targetSql);
+  await desired.pool.query(desiredSql);
+  const [sourceState, desiredState] = await Promise.all([
+    extract(source.pool),
+    extract(desired.pool),
+  ]);
+  const thePlan = plan(sourceState.factBase, desiredState.factBase, {
+    policy: supabasePolicy,
+  });
+  const report = await apply(thePlan, source.pool, { fingerprintGate: false });
+  const applied = await extract(source.pool);
+  const replan = plan(applied.factBase, desiredState.factBase, {
+    policy: supabasePolicy,
+  });
+  const skipped = (thePlan.diagnostics ?? [])
+    .filter((d) => d.code === "excluded-by-cascade")
+    .map((d) => (d.subject === undefined ? "" : encodeId(d.subject)))
+    .sort();
+  return {
+    sql: thePlan.actions.map((a) => a.sql),
+    skipped,
+    status: report.status,
+    replanSql: replan.actions.map((a) => a.sql),
+    target: source,
+  };
+}
+
 describe("assumed-schema requirement guard", () => {
   test("a managed dependent on a non-existent assumed-schema object is skipped at plan time", async () => {
     const cluster = await sharedCluster();
@@ -176,5 +214,143 @@ describe("assumed-schema requirement guard", () => {
       `SELECT count(*)::int AS c FROM public.t`,
     );
     expect(rows.rows[0].c).toBe(2);
+  }, 120_000);
+
+  test("an existing NOT NULL column keeps its other changes when only its default is withheld", async () => {
+    // CLI-2342 flow: the column already exists without its default, and the
+    // desired state also retypes it.
+    const r = await planApplyReplan(
+      "existing_col_default",
+      `
+        CREATE SCHEMA auth;
+        CREATE TABLE public.t (id integer, n integer NOT NULL);
+        INSERT INTO public.t VALUES (1, 1);
+      `,
+      `
+        CREATE SCHEMA auth;
+        CREATE FUNCTION auth.make_id() RETURNS integer LANGUAGE sql AS $$ SELECT 7 $$;
+        CREATE TABLE public.t (id integer, n bigint NOT NULL DEFAULT auth.make_id());
+      `,
+    );
+    expect(r.sql.some((s) => /ALTER COLUMN "n" TYPE bigint/.test(s))).toBe(
+      true,
+    );
+    expect(r.sql.some((s) => /make_id/.test(s))).toBe(false);
+    expect(r.skipped).toEqual(["default:public.t.n"]);
+    expect(r.status).toBe("applied");
+    expect(r.replanSql).toEqual([]);
+  }, 120_000);
+
+  test("a new domain-typed column is skipped with its withheld default", async () => {
+    // Both domains reject NULL, so `ADD COLUMN` without the default fails on
+    // the existing row.
+    const domains = `
+      CREATE DOMAIN public.nn AS integer NOT NULL;
+      CREATE DOMAIN public.checked AS integer CHECK (VALUE IS NOT NULL);
+    `;
+    const r = await planApplyReplan(
+      "domain_col_default",
+      `
+        CREATE SCHEMA auth;
+        ${domains}
+        CREATE TABLE public.t (id integer);
+        INSERT INTO public.t VALUES (1);
+      `,
+      `
+        CREATE SCHEMA auth;
+        ${domains}
+        CREATE FUNCTION auth.make_id() RETURNS integer LANGUAGE sql AS $$ SELECT 7 $$;
+        CREATE TABLE public.t (
+          id integer,
+          k public.nn DEFAULT auth.make_id(),
+          c public.checked DEFAULT auth.make_id()
+        );
+      `,
+    );
+    expect(r.sql).toEqual([]);
+    expect(r.skipped).toEqual([
+      "column:public.t.c",
+      "column:public.t.k",
+      "default:public.t.c",
+      "default:public.t.k",
+    ]);
+    expect(r.status).toBe("applied");
+    expect(r.replanSql).toEqual([]);
+  }, 120_000);
+
+  test("a partitioned table is skipped when its partition key column is", async () => {
+    const r = await planApplyReplan(
+      "partition_key_col",
+      `CREATE SCHEMA auth;`,
+      `
+        CREATE SCHEMA auth;
+        CREATE TYPE auth.k AS ENUM ('a');
+        CREATE TABLE public.pt (id integer, k auth.k) PARTITION BY LIST (k);
+        CREATE TABLE public.plain (id integer);
+      `,
+    );
+    expect(r.sql).toContain(`CREATE TABLE "public"."plain" ("id" integer)`);
+    expect(r.sql.filter((s) => /"pt"/.test(s))).toEqual([]);
+    expect(r.skipped).toEqual(["column:public.pt.k", "table:public.pt"]);
+    expect(r.status).toBe("applied");
+    expect(r.replanSql).toEqual([]);
+  }, 120_000);
+
+  test("a new table is skipped when its replica identity index is", async () => {
+    const r = await planApplyReplan(
+      "replident_index",
+      `CREATE SCHEMA auth;`,
+      `
+        CREATE SCHEMA auth;
+        CREATE TYPE auth.k AS ENUM ('a');
+        CREATE TABLE public.ri (id integer, k auth.k NOT NULL);
+        CREATE UNIQUE INDEX ri_k ON public.ri (k);
+        ALTER TABLE public.ri REPLICA IDENTITY USING INDEX ri_k;
+        CREATE TABLE public.rc (id integer, k auth.k NOT NULL);
+        ALTER TABLE public.rc ADD CONSTRAINT rc_k UNIQUE (k);
+        ALTER TABLE public.rc REPLICA IDENTITY USING INDEX rc_k;
+      `,
+    );
+    expect(r.sql).toEqual([]);
+    expect(r.skipped).toEqual([
+      "column:public.rc.k",
+      "column:public.ri.k",
+      "constraint:public.rc.rc_k",
+      "index:public.ri_k",
+      "table:public.rc",
+      "table:public.ri",
+    ]);
+    expect(r.status).toBe("applied");
+    expect(r.replanSql).toEqual([]);
+  }, 120_000);
+
+  test("a new NOT NULL column with a withheld default and a foreign key to a withheld table is skipped with its constraint", async () => {
+    // The pgsodium shape: key_id uuid NOT NULL DEFAULT … REFERENCES pgsodium.key.
+    const r = await planApplyReplan(
+      "notnull_fk_col",
+      `
+        CREATE SCHEMA auth;
+        CREATE TABLE public.t (id integer);
+        INSERT INTO public.t VALUES (1);
+      `,
+      `
+        CREATE SCHEMA auth;
+        CREATE TABLE auth.keys (id uuid PRIMARY KEY);
+        CREATE FUNCTION auth.make_key() RETURNS uuid LANGUAGE sql
+          AS $$ SELECT gen_random_uuid() $$;
+        CREATE TABLE public.t (
+          id integer,
+          key_id uuid NOT NULL DEFAULT auth.make_key() REFERENCES auth.keys (id)
+        );
+      `,
+    );
+    expect(r.sql).toEqual([]);
+    expect(r.skipped).toEqual([
+      "column:public.t.key_id",
+      "constraint:public.t.t_key_id_fkey",
+      "default:public.t.key_id",
+    ]);
+    expect(r.status).toBe("applied");
+    expect(r.replanSql).toEqual([]);
   }, 120_000);
 });
