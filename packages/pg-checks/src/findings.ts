@@ -13,12 +13,18 @@ export interface Finding {
   readonly schema: string | null;
   readonly name: string | null;
   readonly type: string | null;
+  /** Splinter's own `level` for the rule, independent of the policy severity. */
+  readonly splinterLevel: SplinterLevel | null;
   readonly detail: string;
   /** What to change, naming the object (pg-checks' own text, O13). */
   readonly fix: string;
   /** Splinter's `remediation`: the rule's docs URL. */
   readonly docs: string | null;
 }
+
+export type SplinterLevel = "ERROR" | "WARN" | "INFO";
+
+const SPLINTER_LEVELS: readonly unknown[] = ["ERROR", "WARN", "INFO"];
 
 export type CheckError =
   | {
@@ -49,6 +55,9 @@ function toFinding(row: unknown, severity: "error" | "warn"): Finding | null {
     schema: stringOrNull(metadata["schema"]),
     name: stringOrNull(metadata["name"]),
     type: stringOrNull(metadata["type"]),
+    splinterLevel: SPLINTER_LEVELS.includes(record["level"])
+      ? (record["level"] as SplinterLevel)
+      : null,
     detail: stringOrNull(record["detail"]) ?? "",
     fix: fixText(record["name"], metadata),
     docs: stringOrNull(record["remediation"]),

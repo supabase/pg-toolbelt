@@ -47,9 +47,12 @@ const findings = parseFindings(rowsOf(read.statements[read.resultIndex]), policy
   splinter) and `pgrst.db_schemas` (the exposed schemas) itself. A finding at
   `error` raises `SB001` with `DETAIL = {"errors": [...], "warnings": [...]}`
   (full splinter rows); a check over its timeout raises `SB002`.
-- Findings: `{rule, severity, schema, name, type, detail, fix, docs}` (RFC §8).
-  `fix` and `docs` are both splinter's `remediation`, which for every checked
-  rule is only the docs URL (O13: fix text needs another source).
+- Findings: `{rule, severity, splinterLevel, schema, name, type, detail, fix, docs}`
+  (RFC §8). `severity` is the policy's (`error | warn`); `splinterLevel` is
+  splinter's own `level` for the rule (`ERROR | WARN | INFO`, `null` if absent),
+  e.g. `rls_enabled_no_policy` is `INFO` in splinter. `fix` is pg-checks' own
+  per-rule text naming the object (O13, `src/fix.ts`); `docs` is splinter's
+  `remediation` URL.
 
 ## Vendored splinter
 
