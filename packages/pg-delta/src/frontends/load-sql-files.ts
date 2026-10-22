@@ -1168,7 +1168,9 @@ export async function loadSqlFiles(
     clientOpen = false;
     await client.query(`RESET ROLE`).catch(() => {});
     await client.query(`RESET SESSION AUTHORIZATION`).catch(() => {});
-    await client.query(`RESET check_function_bodies`).catch(() => {});
+    await client
+      .query(`RESET check_function_bodies; RESET synchronous_commit`)
+      .catch(() => {});
     if (discard) {
       client.release(new Error("discard poisoned shadow-load session"));
     } else {
@@ -1176,7 +1178,11 @@ export async function loadSqlFiles(
     }
   };
   const applyPreamble = async (c: PoolClient): Promise<void> => {
-    await c.query(`SET check_function_bodies = off`);
+    // The shadow is throwaway, so skip the per-COMMIT WAL flush: each file
+    // commits on its own and the fsync wait dominates the load otherwise.
+    await c.query(
+      `SET check_function_bodies = off; SET synchronous_commit = off`,
+    );
     try {
       await c.query(
         `SELECT set_config('createrole_self_grant', 'set, inherit', false)`,
