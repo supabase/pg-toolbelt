@@ -1,11 +1,11 @@
 /** Rule definitions for views, materialized views, and rewrite rules. */
+import type { Fact } from "../../core/fact.ts";
 import { qid, rel } from "../render.ts";
 import type { ActionSpec, KindRules } from "../rules.ts";
 import {
   enabledPhrase,
   p,
   reloptionsAlterSpecs,
-  reloptionsWithClause,
   renameRule,
   str,
 } from "./helpers.ts";
@@ -131,3 +131,11 @@ export const viewRules: Record<string, KindRules> = {
     },
   },
 };
+
+/** ` WITH (k=v, …)` clause from a fact's `reloptions` payload (the canonical
+ *  sorted `key=value` array captured from pg_class.reloptions), or "" when the
+ *  relation carries no storage/view options. */
+function reloptionsWithClause(fact: Fact): string {
+  const opts = p(fact, "reloptions") as string[] | null;
+  return opts != null && opts.length > 0 ? ` WITH (${opts.join(", ")})` : "";
+}
