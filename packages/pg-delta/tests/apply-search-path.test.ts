@@ -1,79 +1,92 @@
 /**
- * apply() runs under `pg_catalog` followed by the applier's own search_path.
- * Expressions the DDL evaluates (an ADD COLUMN default rewrite) run routine
- * bodies whose UNqualified names must resolve like they did for the user
- * (basejump's generate_token → pgcrypto in `extensions`), while built-ins, in
- * the DDL and in apply's own preamble, must never be shadowed by a user schema
- * the role lists before pg_catalog.
+ * apply() runs under `search_path = pg_catalog`, the path extraction deparsed
+ * under, so unqualified built-ins in the DDL bind to the same functions they
+ * did in the desired state. A wider path would let an exact-type overload in a
+ * user schema beat a polymorphic built-in. The cost is that a routine body
+ * relying on the caller's path (basejump's generate_token → pgcrypto in
+ * `extensions`) fails during apply, so that failure says how to fix it.
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import pg from "pg";
-import { apply } from "../src/apply/apply.ts";
+import { apply, type ApplyReport } from "../src/apply/apply.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
-import { createTestDb, type TestDb } from "./containers.ts";
+import { createTestDb } from "./containers.ts";
 
-const BASE = /* sql */ `
-  SET check_function_bodies = off;
-  CREATE SCHEMA ext;
-  CREATE FUNCTION ext.token_bytes() RETURNS text LANGUAGE sql
-    AS $$ SELECT 'tok' $$;
-  CREATE FUNCTION public.gen_token() RETURNS text LANGUAGE sql
-    AS $$ SELECT token_bytes() $$;
-  CREATE SCHEMA app;
-  CREATE FUNCTION app.upper(text) RETURNS text LANGUAGE sql
-    AS $$ SELECT 'SHADOWED' $$;
-  CREATE FUNCTION app.text_eq(text, text) RETURNS boolean LANGUAGE plpgsql
-    AS $$ BEGIN RAISE EXCEPTION 'shadowed operator ran'; END $$;
-  CREATE OPERATOR app.= (LEFTARG = text, RIGHTARG = text, FUNCTION = app.text_eq);
-  CREATE TABLE public.invitations (id integer);
-`;
-const DESIRED = /* sql */ `
-  SET search_path = public, ext;
-  ALTER TABLE public.invitations
-    ADD COLUMN token text NOT NULL DEFAULT public.gen_token(),
-    ADD COLUMN label text NOT NULL DEFAULT upper('x');
-`;
-
-describe("apply search_path", () => {
-  let target: TestDb;
-  let desired: TestDb;
-
-  beforeAll(async () => {
-    target = await createTestDb("apply_sp_target");
-    desired = await createTestDb("apply_sp_desired");
-    await target.pool.query(BASE);
-    await target.pool.query("INSERT INTO public.invitations VALUES (1)");
-    await desired.pool.query(BASE);
-    await desired.pool.query(DESIRED);
-  }, 120_000);
-
-  afterAll(async () => {
-    await target.drop();
-    await desired.drop();
+async function applyUnderPath(
+  base: string,
+  desiredSql: string,
+  searchPath: string,
+  read: string,
+): Promise<{ report: ApplyReport; rows: unknown[] }> {
+  const target = await createTestDb("apply_sp_target");
+  const desired = await createTestDb("apply_sp_desired");
+  const pool = new pg.Pool({
+    connectionString: target.uri,
+    options: `-c search_path=${searchPath}`,
+    max: 2,
   });
-
-  test("keeps the applier path reachable behind pg_catalog", async () => {
+  pool.on("error", () => {});
+  try {
+    await target.pool.query(base);
+    await target.pool.query("INSERT INTO public.t VALUES (1)");
+    await desired.pool.query(base);
+    await desired.pool.query(desiredSql);
     const p = plan(
       (await extract(target.pool)).factBase,
       (await extract(desired.pool)).factBase,
     );
-    // The applier's role path lists a shadowing schema BEFORE pg_catalog.
-    const pool = new pg.Pool({
-      connectionString: target.uri,
-      options: "-c search_path=app,pg_catalog,public,ext",
-      max: 2,
-    });
-    pool.on("error", () => {});
-    try {
-      const report = await apply(p, pool);
-      expect(report).toMatchObject({ status: "applied" });
-    } finally {
-      await pool.end().catch(() => {});
-    }
-    const { rows } = await target.pool.query(
-      "SELECT token, label FROM public.invitations",
+    const report = await apply(p, pool);
+    const { rows } = await target.pool.query(read);
+    return { report, rows };
+  } finally {
+    await pool.end().catch(() => {});
+    await target.drop();
+    await desired.drop();
+  }
+}
+
+describe("apply search_path", () => {
+  test("an exact-type overload in the applier path does not capture a polymorphic built-in", async () => {
+    const { report, rows } = await applyUnderPath(
+      /* sql */ `
+        CREATE SCHEMA app;
+        CREATE FUNCTION app.array_append(integer[], integer) RETURNS integer[]
+          LANGUAGE sql AS $$ SELECT ARRAY[99] $$;
+        CREATE TABLE public.t (id integer);
+      `,
+      /* sql */ `
+        ALTER TABLE public.t ADD COLUMN b integer[] NOT NULL
+          DEFAULT pg_catalog.array_append(ARRAY[1], 2);
+      `,
+      "public,app",
+      "SELECT b FROM public.t",
     );
-    expect(rows).toEqual([{ token: "tok", label: "X" }]);
-  });
+    expect(report).toMatchObject({ status: "applied" });
+    expect(rows).toEqual([{ b: [1, 2] }]);
+  }, 120_000);
+
+  test("a routine body relying on the caller's path fails with a search_path hint", async () => {
+    const { report } = await applyUnderPath(
+      /* sql */ `
+        SET check_function_bodies = off;
+        CREATE SCHEMA ext;
+        CREATE FUNCTION ext.token_bytes() RETURNS text LANGUAGE sql
+          AS $$ SELECT 'tok' $$;
+        CREATE FUNCTION public.gen_token() RETURNS text LANGUAGE sql
+          AS $$ SELECT token_bytes() $$;
+        CREATE TABLE public.t (id integer);
+      `,
+      /* sql */ `
+        SET search_path = public, ext;
+        ALTER TABLE public.t ADD COLUMN token text NOT NULL
+          DEFAULT public.gen_token();
+      `,
+      "public,ext",
+      "SELECT 1",
+    );
+    expect(report.status).toBe("failed");
+    expect(report.error?.message).toContain("token_bytes() does not exist");
+    expect(report.error?.message).toContain("SET search_path");
+  }, 120_000);
 });
