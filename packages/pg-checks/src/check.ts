@@ -3,8 +3,8 @@
  * Every function call is `pg_catalog`-qualified: these statements run under the
  * migration's own `search_path`, which may put a user schema before pg_catalog.
  */
-import { type ResolvedPolicy, type Rule, rulesAt } from "./policy.ts";
-import { SPLINTER_QUERY } from "./vendor/splinter.ts";
+import { RULES, type ResolvedPolicy, type Rule, rulesAt } from "./policy.ts";
+import { RULE_SQL } from "./vendor/splinter.ts";
 
 export interface CheckOptions {
   /** Timeout of the check statement alone. Default 2000 (D23). */
@@ -39,7 +39,14 @@ function dbSchemas(options: CheckOptions): string {
   return schemas.join(",");
 }
 
-/** The splinter query restricted to `rules`, minus per-rule excluded objects. */
+function ruleSql(rule: Rule): string {
+  const sql = RULE_SQL[rule];
+  if (sql === undefined)
+    throw new Error(`no vendored splinter SQL for ${rule}`);
+  return sql;
+}
+
+/** Only `rules`' splinter SQL (D27), minus per-rule excluded objects. */
 function lintSelect(
   columns: string,
   rules: readonly Rule[],
@@ -48,12 +55,14 @@ function lintSelect(
   const excluded =
     exclude.length === 0
       ? ""
-      : `\n  and not exists (select 1 from unnest(${textArray(exclude.map((e) => e.rule))}, ${textArray(exclude.map((e) => e.object))}) as x(rule, object) where x.rule = l.name and x.object = (l.metadata->>'schema') || '.' || (l.metadata->>'name'))`;
+      : `\nwhere not exists (select 1 from unnest(${textArray(exclude.map((e) => e.rule))}, ${textArray(exclude.map((e) => e.object))}) as x(rule, object) where x.rule = l.name and x.object = (l.metadata->>'schema') || '.' || (l.metadata->>'name'))`;
+  const union = RULES.filter((rule) => rules.includes(rule))
+    .map(ruleSql)
+    .join("\nunion all\n");
   return `select ${columns}
 from (
-${SPLINTER_QUERY}
-) l
-where l.name = any(${textArray(rules)})${excluded}`;
+${union}
+) l${excluded}`;
 }
 
 /**

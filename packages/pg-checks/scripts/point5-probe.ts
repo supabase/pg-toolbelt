@@ -22,7 +22,7 @@ import {
   parseFindings,
   resolvePolicy,
 } from "../src/index.ts";
-import { SPLINTER_QUERY } from "../src/vendor/splinter.ts";
+import { RULE_SQL } from "../src/vendor/splinter.ts";
 
 const PG_IMAGE =
   process.env["POINT5_PG"] ?? "public.ecr.aws/supabase/postgres:17.11.0.005";
@@ -206,7 +206,10 @@ async function api(
 }
 
 const elide = (sql: string) =>
-  sql.replaceAll(SPLINTER_QUERY, "/* splinter query, 75 KB */");
+  Object.entries(RULE_SQL).reduce(
+    (text, [rule, ruleSql]) => text.replaceAll(ruleSql, `(/* ${rule} */)`),
+    sql,
+  );
 const clip = (text: string, max = 900) =>
   text.length > max ? `${text.slice(0, max)} ...(${text.length} chars)` : text;
 const rowsOf = (body: string): Record<string, unknown>[] | null => {
