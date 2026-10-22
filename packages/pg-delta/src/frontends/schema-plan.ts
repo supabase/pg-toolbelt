@@ -399,11 +399,12 @@ function withoutManagedRoleSettings(policy: Policy): Policy {
     : { ...rest, extends: rest.extends.map(withoutManagedRoleSettings) };
 }
 
-/** The attributes, comment, and settings (in any database) of the cluster's
- *  roles, or of `roles` only, as subject → state, except the role-wide
- *  settings in `settings`, returned as `managed`. A subject never carries a
- *  setting value. `pg_roles.rolpassword` is always masked, so a password
- *  change does not show. */
+/** The attributes, comment, settings (in any database), and memberships of the
+ *  cluster's roles, or of `roles` only (a membership only between two of them),
+ *  as subject → state, except the role-wide settings in `settings`, returned
+ *  as `managed`. A subject never carries a setting value. `pg_roles.rolpassword`
+ *  is always masked, so a password change shows only when the session can read
+ *  `pg_authid` (a superuser); otherwise it stays a blind spot. */
 async function roleState(
   pool: Pool,
   settings: readonly ManagedRoleSettings[],
@@ -413,33 +414,64 @@ async function roleState(
   state: Map<string, string>;
   managed: { role: string; name: string }[];
 }> {
+  const readsAuthid = (
+    await pool.query<{ ok: boolean }>(
+      `SELECT pg_catalog.has_table_privilege('pg_catalog.pg_authid', 'SELECT') AS ok`,
+    )
+  ).rows[0]?.ok;
+  const password = readsAuthid
+    ? `|| (SELECT pg_catalog.jsonb_build_object('password', pg_catalog.md5(coalesce(a.rolpassword, '')))
+              FROM pg_catalog.pg_authid a WHERE a.oid = r.oid)`
+    : "";
   const { rows } = await pool.query<{
+    kind: "role" | "setting" | "membership";
     role: string;
     db: string | null;
     name: string | null;
     state: string;
   }>(`
-    SELECT r.rolname::text AS role, NULL::text AS db, NULL::text AS name,
+    SELECT 'role' AS kind, r.rolname::text AS role, NULL::text AS db, NULL::text AS name,
            (pg_catalog.to_jsonb(r) - 'oid' - 'rolconfig'
-             || pg_catalog.jsonb_build_object('comment', pg_catalog.shobj_description(r.oid, 'pg_authid')))::text AS state
+             || pg_catalog.jsonb_build_object('comment', pg_catalog.shobj_description(r.oid, 'pg_authid'))
+             ${password})::text AS state
     FROM pg_catalog.pg_roles r
     UNION ALL
-    SELECT r.rolname, d.datname, pg_catalog.split_part(cfg, '=', 1), cfg
+    SELECT 'setting', r.rolname, d.datname, pg_catalog.split_part(cfg, '=', 1), cfg
     FROM pg_catalog.pg_db_role_setting s
     JOIN pg_catalog.pg_roles r ON r.oid = s.setrole
     LEFT JOIN pg_catalog.pg_database d ON d.oid = s.setdatabase,
-    LATERAL pg_catalog.unnest(s.setconfig) AS cfg`);
+    LATERAL pg_catalog.unnest(s.setconfig) AS cfg
+    UNION ALL
+    SELECT 'membership', g.rolname, m.rolname, gr.rolname,
+           (pg_catalog.to_jsonb(am) - 'oid' - 'roleid' - 'member' - 'grantor')::text
+    FROM pg_catalog.pg_auth_members am
+    JOIN pg_catalog.pg_roles g ON g.oid = am.roleid
+    JOIN pg_catalog.pg_roles m ON m.oid = am.member
+    JOIN pg_catalog.pg_roles gr ON gr.oid = am.grantor`);
   const q = JSON.stringify;
   const seen = new Set<string>();
   const state = new Map<string, string>();
   const managed: { role: string; name: string }[] = [];
-  for (const { role, db, name, state: value } of rows) {
+  for (const { kind, role, db, name, state: value } of rows) {
+    if (kind === "membership") {
+      // db = member, name = grantor
+      if (roles !== undefined && !(roles.has(role) && roles.has(db as string)))
+        continue;
+      state.set(
+        `membership of ${q(db)} in role ${q(role)} granted by ${q(name)}`,
+        value,
+      );
+      continue;
+    }
     if (roles !== undefined && !roles.has(role)) continue;
     seen.add(role);
-    if (name === null) {
+    if (kind === "role") {
       state.set(`role ${q(role)}`, value);
-    } else if (db === null && isManagedRoleSetting(settings, role, name)) {
-      managed.push({ role, name });
+    } else if (
+      db === null &&
+      isManagedRoleSetting(settings, role, name ?? "")
+    ) {
+      managed.push({ role, name: name ?? "" });
     } else {
       const where = db === null ? "" : ` in database ${q(db)}`;
       state.set(`role ${q(role)} setting ${q(name)}${where}`, value);

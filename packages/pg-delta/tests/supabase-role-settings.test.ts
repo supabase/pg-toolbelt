@@ -191,6 +191,13 @@ describe.skipIf(!runSupabaseBareTests)(
         /: role "authenticator" setting "pgrst.db_schemas" in database "postgres"\./,
       );
 
+      // a membership between roles that existed before the load is role state
+      // too; ALTER GROUP … ADD USER is labelled ALTER ROLE and must not vanish
+      await shadowAdmin.query(`CREATE ROLE i476_grp; CREATE ROLE i476_member`);
+      expect(
+        await failureOf(sync(`ALTER GROUP i476_grp ADD USER i476_member;\n`)),
+      ).toMatch(/: membership of "i476_member" in role "i476_grp"/);
+
       // a co-located shadow shares the target's roles, so a hand-written line
       // is refused
       const coLocated = await provisionCoLocatedShadow(
