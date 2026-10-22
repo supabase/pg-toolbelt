@@ -2,7 +2,8 @@
 import type { StableId } from "../../core/stable-id.ts";
 import { qid, rel } from "../render.ts";
 import type { KindRules } from "../rules.ts";
-import { p, policySql } from "./helpers.ts";
+import type { Fact } from "../../core/fact.ts";
+import { p, str } from "./helpers.ts";
 
 export const policyRules: Record<string, KindRules> = {
   policy: {
@@ -75,3 +76,27 @@ export const policyRules: Record<string, KindRules> = {
     },
   },
 };
+
+const POLICY_CMD: Record<string, string> = {
+  r: "SELECT",
+  a: "INSERT",
+  w: "UPDATE",
+  d: "DELETE",
+  "*": "ALL",
+};
+
+function policySql(fact: Fact): string {
+  const id = fact.id as { schema: string; table: string; name: string };
+  const roles = (p(fact, "roles") as string[]).map((r) =>
+    r === "PUBLIC" ? "PUBLIC" : qid(r),
+  );
+  let sql = `CREATE POLICY ${qid(id.name)} ON ${rel(id.schema, id.table)}`;
+  if (!p(fact, "permissive")) sql += ` AS RESTRICTIVE`;
+  sql += ` FOR ${POLICY_CMD[str(p(fact, "cmd"))] ?? "ALL"}`;
+  sql += ` TO ${roles.join(", ")}`;
+  const using = p(fact, "usingExpr");
+  if (using != null) sql += ` USING (${str(using)})`;
+  const check = p(fact, "checkExpr");
+  if (check != null) sql += ` WITH CHECK (${str(check)})`;
+  return sql;
+}

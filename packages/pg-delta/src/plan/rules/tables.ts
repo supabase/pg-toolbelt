@@ -1,22 +1,20 @@
 /** Rule definitions for tables and their column / default sub-objects. */
+import type { Fact } from "../../core/fact.ts";
+import type { PayloadValue } from "../../core/hash.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { qid, rel } from "../render.ts";
 import type { ActionSpec, FactView, KindRules } from "../rules.ts";
 import {
-  columnClause,
-  columnRef,
   dependencyConsumes,
+  type IdentityOptions,
+  type IdentityPayload,
   identityGeneration,
-  identityOptionAlterSpecs,
   identityOptions,
-  identityOptionsClause,
   identitySequenceId,
-  identitySequenceNameClause,
-  isNarrowingIdentityTypeChange,
   p,
+  rangesDisjoint,
   reloptionsAlterSpecs,
   renameRule,
-  replicaIdentitySpec,
   str,
 } from "./helpers.ts";
 
@@ -553,3 +551,207 @@ export const tableRules: Record<string, KindRules> = {
     },
   },
 };
+
+/** Type-derived max for the implicit identity sequence; null for a type we
+ *  don't recognise (then any captured options are treated as non-default and
+ *  rendered explicitly, which is always safe). */
+const IDENTITY_TYPE_MAX: Record<string, string> = {
+  smallint: "32767",
+  integer: "2147483647",
+  bigint: "9223372036854775807",
+};
+
+/** true when an identity column's type change NARROWS its value range (the new
+ *  type's max is strictly below the old one's). Used to position the identity
+ *  bounds relative to the `ALTER COLUMN … TYPE`: narrowing must set the bounds
+ *  FIRST (an explicit bound that overflows the new type makes the retype itself
+ *  fail — "MAXVALUE … is out of range for sequence data type integer"), while
+ *  widening must set them AFTER (the desired values need not fit the old type).
+ *  Returns false when either type is unmapped, keeping the widening/after
+ *  behavior as the conservative default. Maxima reach
+ *  9223372036854775807, past Number's safe-integer range, so compare with
+ *  BigInt. */
+function isNarrowingIdentityTypeChange(
+  fromType: string,
+  toType: string,
+): boolean {
+  const fromMax = IDENTITY_TYPE_MAX[fromType];
+  const toMax = IDENTITY_TYPE_MAX[toType];
+  if (fromMax === undefined || toMax === undefined) return false;
+  return BigInt(toMax) < BigInt(fromMax);
+}
+
+/** true when the identity sequence carries exactly the parameters PostgreSQL
+ *  picks for a bare `GENERATED … AS IDENTITY` of the given column type, so the
+ *  clause can stay bare (no churn for ordinary identity columns). */
+function isDefaultIdentityOptions(
+  options: IdentityOptions,
+  columnType: string,
+): boolean {
+  return (
+    options.increment === "1" &&
+    options.start === "1" &&
+    options.minValue === "1" &&
+    options.cache === "1" &&
+    options.cycle === false &&
+    options.maxValue === IDENTITY_TYPE_MAX[columnType]
+  );
+}
+
+/** The name PostgreSQL auto-derives for an identity column's implicit backing
+ *  sequence: `<table>_<column>_seq` (in the table's own schema). */
+function defaultIdentitySequenceName(table: string, column: string): string {
+  return `${table}_${column}_seq`;
+}
+
+/** ` SEQUENCE NAME "<schema>"."<name>"` when the backing sequence's name (or
+ *  schema) differs from PostgreSQL's `<table>_<column>_seq` default — the
+ *  sequence was renamed or created via `SEQUENCE NAME`. Returns "" for the
+ *  ordinary default-named case so exports stay minimal. Truncation/collision
+ *  edge cases produce a name that never equals the naive default, so they
+ *  always emit the clause — verbose but always valid, never a wrong-name
+ *  round-trip. */
+function identitySequenceNameClause(
+  value: PayloadValue,
+  ref: { schema: string; table: string; column: string },
+): string {
+  if (value == null) return "";
+  const sequence = (value as unknown as IdentityPayload).sequence;
+  if (sequence == null) return "";
+  const isDefault =
+    sequence.schema === ref.schema &&
+    sequence.name === defaultIdentitySequenceName(ref.table, ref.column);
+  return isDefault
+    ? ""
+    : `SEQUENCE NAME ${rel(sequence.schema, sequence.name)}`;
+}
+
+/** ` (SEQUENCE NAME … INCREMENT BY … MINVALUE … …)` for an identity sequence
+ *  with a non-default name and/or parameters, or "" when the name is the
+ *  `<table>_<column>_seq` default and the parameters are the type defaults.
+ *  `SEQUENCE NAME` is a valid identity option and PostgreSQL accepts it first
+ *  in the list (pg_dump renders it the same way). */
+function identityOptionsClause(
+  options: IdentityOptions | null,
+  columnType: string,
+  sequenceNameClause = "",
+): string {
+  const parts: string[] = [];
+  if (sequenceNameClause) parts.push(sequenceNameClause);
+  if (options != null && !isDefaultIdentityOptions(options, columnType)) {
+    parts.push(
+      `INCREMENT BY ${options.increment}`,
+      `MINVALUE ${options.minValue}`,
+      `MAXVALUE ${options.maxValue}`,
+      `START WITH ${options.start}`,
+      `CACHE ${options.cache}`,
+      options.cycle ? "CYCLE" : "NO CYCLE",
+    );
+  }
+  return parts.length === 0 ? "" : ` (${parts.join(" ")})`;
+}
+
+/** in-place identity-sequence parameter transition (no rebuild), emitted as ONE
+ *  `ALTER COLUMN … SET <opt> SET <opt> …` statement.
+ *
+ *  A single ALTER COLUMN with CHAINED `SET` clauses validates the FINAL state:
+ *  splitting the change into one statement per option (in diff-field order) ran
+ *  `SET MAXVALUE 50` while MIN was still 100 when moving both bounds down —
+ *  Postgres rejects the transient `min > max`. Chaining defers the range check to
+ *  the end of the statement (verified on PG15/17).
+ *
+ *  `RESTART` is appended only when the old and new ranges are provably DISJOINT
+ *  (see {@link rangesDisjoint}). An overlapping change — even one that moves a
+ *  bound AND the START — leaves the live counter alone, because it is probably
+ *  still valid and resetting it risks duplicate keys. */
+function identityOptionAlterSpecs(
+  target: string,
+  from: IdentityOptions | null,
+  to: IdentityOptions | null,
+): ActionSpec[] {
+  if (to == null) return [];
+  const clauses: string[] = [];
+  if (from == null || from.increment !== to.increment)
+    clauses.push(`SET INCREMENT BY ${to.increment}`);
+  if (from == null || from.minValue !== to.minValue)
+    clauses.push(`SET MINVALUE ${to.minValue}`);
+  if (from == null || from.maxValue !== to.maxValue)
+    clauses.push(`SET MAXVALUE ${to.maxValue}`);
+  if (from == null || from.start !== to.start)
+    clauses.push(`SET START WITH ${to.start}`);
+  if (from == null || from.cache !== to.cache)
+    clauses.push(`SET CACHE ${to.cache}`);
+  if (from == null || from.cycle !== to.cycle)
+    clauses.push(`SET ${to.cycle ? "CYCLE" : "NO CYCLE"}`);
+  if (clauses.length === 0) return [];
+  if (
+    from != null &&
+    rangesDisjoint(from.minValue, from.maxValue, to.minValue, to.maxValue)
+  )
+    clauses.push("RESTART");
+  return [{ sql: `${target} ${clauses.join(" ")}` }];
+}
+
+function columnRef(fact: Fact): {
+  table: string;
+  schema: string;
+  column: string;
+} {
+  const id = fact.id as { schema: string; table: string; name: string };
+  return { schema: id.schema, table: id.table, column: id.name };
+}
+
+function columnClause(fact: Fact): string {
+  const { column } = columnRef(fact);
+  const type = str(p(fact, "type"));
+  let sql = `${qid(column)} ${type}`;
+  const collation = p(fact, "collation");
+  if (collation != null) sql += ` COLLATE ${str(collation)}`;
+  const generated = p(fact, "generatedExpr");
+  if (generated != null)
+    sql += ` GENERATED ALWAYS AS (${str(generated)}) STORED`;
+  const identity = p(fact, "identity");
+  const generation = identityGeneration(identity);
+  if (generation === "a" || generation === "d") {
+    sql += ` GENERATED ${generation === "a" ? "ALWAYS" : "BY DEFAULT"} AS IDENTITY`;
+    sql += identityOptionsClause(
+      identityOptions(identity),
+      type,
+      identitySequenceNameClause(identity, columnRef(fact)),
+    );
+  }
+  if (p(fact, "notNull")) sql += ` NOT NULL`;
+  return sql;
+}
+
+/**
+ * REPLICA IDENTITY rendered from the desired payload (both attributes render
+ * the identical full clause, so order between them never matters). USING
+ * INDEX consumes whichever fact owns that index name (a real index fact, or
+ * the constraint backing it).
+ */
+function replicaIdentitySpec(fact: Fact, view: FactView): ActionSpec {
+  const id = fact.id as { schema: string; name: string };
+  const mode = str(p(fact, "replicaIdentity") ?? "d");
+  const relName = rel(id.schema, id.name);
+  if (mode === "n") {
+    return { sql: `ALTER TABLE ${relName} REPLICA IDENTITY NOTHING` };
+  }
+  if (mode === "f") {
+    return { sql: `ALTER TABLE ${relName} REPLICA IDENTITY FULL` };
+  }
+  if (mode === "i") {
+    const indexName = str(p(fact, "replicaIdentityIndex"));
+    const consumes: StableId[] = [];
+    const ownedConstraint = view
+      .childrenOf(fact.id)
+      .find((c) => c.id.kind === "constraint" && c.id.name === indexName);
+    if (ownedConstraint) consumes.push(ownedConstraint.id);
+    else consumes.push({ kind: "index", schema: id.schema, name: indexName });
+    return {
+      sql: `ALTER TABLE ${relName} REPLICA IDENTITY USING INDEX ${qid(indexName)}`,
+      consumes,
+    };
+  }
+  return { sql: `ALTER TABLE ${relName} REPLICA IDENTITY DEFAULT` };
+}
