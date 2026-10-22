@@ -112,14 +112,8 @@ describe.each(["database", "cluster"] as const)(
       ).toEqual([]);
       // GUC names are case-insensitive
       expect(sqlOf(fb([]), fb([], ["PgRST.db_max_rows=100"]))).toEqual([
-        `ALTER ROLE "anon" SET "pgrst.db_max_rows" TO '100'`,
+        `ALTER ROLE "anon" SET "PgRST.db_max_rows" TO '100'`,
       ]);
-      expect(
-        sqlOf(
-          fb([], ["PgRST.db_max_rows=100"]),
-          fb([], ["pgrst.db_max_rows=100"]),
-        ),
-      ).toEqual([]);
       // only the exposure and limit keys: secrets and role wiring stay platform
       expect(
         sqlOf(fb(["pgrst.jwt_secret=a"]), fb(["pgrst.jwt_secret=b"])),

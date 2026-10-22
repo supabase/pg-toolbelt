@@ -463,8 +463,7 @@ export function liftManagedRoleSettings(
       const [name, value] = splitOption(entry);
       if (isManagedRoleSetting(settings, role, name)) {
         settingFacts.push({
-          // GUC names are case-insensitive: one id for either spelling
-          id: { kind: "roleSetting", role, name: name.toLowerCase() },
+          id: { kind: "roleSetting", role, name },
           payload: { value },
         });
       } else {

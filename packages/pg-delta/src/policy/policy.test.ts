@@ -11,7 +11,6 @@ import {
   factMatches,
   filterDeltas,
   flattenPolicy,
-  liftManagedRoleSettings,
   validatePolicy,
   type AssumedDefaultGrant,
   type Policy,
@@ -1615,26 +1614,5 @@ describe("factMatches — glob translation is cache-invariant", () => {
         expect(factMatches({ name: pattern }, fact, fb)).toBe(first);
       }
     }
-  });
-});
-
-describe("liftManagedRoleSettings — GUC name case", () => {
-  test("a catalog name in another case lifts to the same id as the declared one", () => {
-    const roleWith = (config: string[]): Fact => ({
-      id: { kind: "role", name: "authenticator" },
-      payload: { config },
-    });
-    const settings = [{ roles: ["authenticator"], names: ["pgrst.*"] }];
-    const ids = (config: string[]) =>
-      liftManagedRoleSettings(buildFactBase([roleWith(config)], []), settings)
-        .facts()
-        .map((f) => f.id)
-        .filter((id) => id.kind === "roleSetting");
-    expect(ids(["PgRST.db_max_rows=100"])).toEqual(
-      ids(["pgrst.db_max_rows=100"]),
-    );
-    expect(ids(["PgRST.db_max_rows=100"])).toEqual([
-      { kind: "roleSetting", role: "authenticator", name: "pgrst.db_max_rows" },
-    ]);
   });
 });

@@ -442,12 +442,12 @@ async function roleState(
     LEFT JOIN pg_catalog.pg_database d ON d.oid = s.setdatabase,
     LATERAL pg_catalog.unnest(s.setconfig) AS cfg
     UNION ALL
-    SELECT 'membership', g.rolname, m.rolname, gr.rolname,
+    SELECT 'membership', g.rolname, m.rolname, COALESCE(gr.rolname, am.grantor::text),
            (pg_catalog.to_jsonb(am) - 'oid' - 'roleid' - 'member' - 'grantor')::text
     FROM pg_catalog.pg_auth_members am
     JOIN pg_catalog.pg_roles g ON g.oid = am.roleid
     JOIN pg_catalog.pg_roles m ON m.oid = am.member
-    JOIN pg_catalog.pg_roles gr ON gr.oid = am.grantor`);
+    LEFT JOIN pg_catalog.pg_roles gr ON gr.oid = am.grantor`);
   const q = JSON.stringify;
   const seen = new Set<string>();
   const state = new Map<string, string>();
