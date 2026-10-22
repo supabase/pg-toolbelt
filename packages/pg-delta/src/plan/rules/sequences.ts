@@ -152,7 +152,7 @@ function sequenceOptionClause(fact: Fact, option: string): string {
  *  when moving both bounds down, and Postgres rejects the transient `min > max`.
  *
  *  `RESTART` is appended only when the old and new ranges are provably DISJOINT —
- *  see {@link rangesDisjoint} and {@link identityOptionAlterSpecs} for the
+ *  see {@link rangesDisjoint} and `identityOptionAlterSpecs` in tables.ts for the
  *  identity seam's identical reasoning: the sequence's live counter (unmanaged
  *  runtime state, not part of the diff) is left in place for an overlapping
  *  change, because it is probably still valid and resetting it risks duplicate
