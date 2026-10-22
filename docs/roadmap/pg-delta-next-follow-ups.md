@@ -2133,24 +2133,6 @@ cycle; both reproduce on `main` before #534 too.
   it. It needs extension members mapped to their extension's drop root. No
   shipped extension defines such a function; it takes a custom extension.
 
-## apply search_path prepend — review triage (Codex)
-
-The fix that runs apply under `pg_catalog, <applier path>` (instead of
-`pg_catalog` alone) got one deferred finding:
-
-- **Session-level `SET search_path` lost after a non-transactional segment.**
-  apply() ends each non-transactional segment with `RESET ALL`
-  (`src/apply/apply.ts`), which restores the role/database/startup default
-  path, not a path the caller `SET` on that connection before calling apply.
-  A later segment's preamble then prepends `pg_catalog` to the default path.
-  Deferred: the CLI connects fresh, so the path comes from role/database
-  defaults (where Supabase puts `extensions`) and `RESET ALL` restores it; the
-  gap needs a library caller that `SET`s the path on a pooled connection, plus
-  a non-transactional action, plus a later action that evaluates an
-  unqualified routine body. `RESET ALL` already clobbered every other caller
-  session setting before this change. Fix if it shows up: read the path once
-  at apply start and pass it as a literal to every segment's preamble.
-
 ## PR #550 — export round-trip gate known gaps
 
 - **Sub-partitioned partition with its own partitioned-index options**

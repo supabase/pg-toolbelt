@@ -2158,12 +2158,12 @@ describe("CLI: schema apply debugging", () => {
       expect(res.stdout).toContain("CREATE TABLE");
       expect(res.stdout).toContain('"app"."t"');
       const beginIndex = res.stdout.indexOf("BEGIN;");
+      const searchPathIndex = res.stdout.indexOf(
+        "SET LOCAL search_path = pg_catalog;",
+      );
       const actionIndex = res.stdout.indexOf("CREATE TABLE");
       const commitIndex = res.stdout.indexOf("COMMIT;", actionIndex);
       expect(beginIndex).toBeGreaterThan(-1);
-      const searchPathIndex = res.stdout.indexOf(
-        "SELECT pg_catalog.set_config('search_path'",
-      );
       expect(searchPathIndex).toBeGreaterThan(beginIndex);
       expect(actionIndex).toBeGreaterThan(searchPathIndex);
       expect(commitIndex).toBeGreaterThan(actionIndex);

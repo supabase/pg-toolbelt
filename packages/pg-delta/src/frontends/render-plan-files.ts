@@ -92,12 +92,11 @@ export function renderPlanFiles(
     // `INSERT INTO schema_migrations ...` (UNqualified), inside the SAME
     // transaction as this file; a pinned `search_path = pg_catalog` would
     // resolve that insert to pg_catalog.schema_migrations and fail the
-    // migration. apply() only prepends pg_catalog to its own connection's path
-    // (src/apply/apply-preamble.ts). check_function_bodies is retained —
-    // function bodies may legitimately need it and it does not affect name
-    // resolution of the runner's insert. (The planner only puts it in the
-    // preamble when the plan touches a routine-family object —
-    // src/plan/preamble.ts.)
+    // migration. apply() keeps the pin on its own connection (no third-party
+    // bookkeeping shares it). check_function_bodies is retained — function
+    // bodies may legitimately need it and it does not affect name resolution of
+    // the runner's insert. (The planner only puts it in the preamble when the
+    // plan touches a routine-family object — src/plan/preamble.ts.)
     //
     // Scope the remaining settings so a reused runner session (sequential
     // migration runners share a connection) does not silently inherit them —

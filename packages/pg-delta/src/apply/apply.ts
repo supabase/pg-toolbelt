@@ -207,12 +207,16 @@ function errorEntry(
   sql: string,
   error: unknown,
 ): ProducedApplyError {
-  return {
-    actionIndex,
-    statementKind,
-    sql,
-    message: error instanceof Error ? error.message : String(error),
-  };
+  const message = error instanceof Error ? error.message : String(error);
+  // apply pins search_path to pg_catalog (apply-preamble.ts), so a routine
+  // body that resolved an unqualified name through the caller's path fails
+  // here (42883 undefined_function) though it worked for the user.
+  const hint =
+    statementKind === "action" &&
+    (error as { code?: unknown } | null)?.code === "42883"
+      ? " (apply runs with search_path = pg_catalog: a function or operator the DDL calls must be schema-qualified, or the routine that calls it must declare its own SET search_path)"
+      : "";
+  return { actionIndex, statementKind, sql, message: message + hint };
 }
 
 /** Fire an observer event, swallowing anything it throws. `onEvent` is a
