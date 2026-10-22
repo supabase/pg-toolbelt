@@ -14,12 +14,28 @@ describe("resolvePolicy", () => {
     const policy = resolvePolicy({
       rls_disabled_in_public: "error",
       function_search_path_mutable: "off",
-      exclude: ["public.legacy", "app.audit_log"],
+      exclude: {
+        rls_disabled_in_public: ["public.legacy", "app.audit_log"],
+        security_definer_view: ["public.v"],
+      },
     });
     expect(policy.severities.rls_disabled_in_public).toBe("error");
     expect(policy.severities.function_search_path_mutable).toBe("off");
     expect(policy.severities.security_definer_view).toBe("warn");
-    expect(policy.exclude).toEqual(["public.legacy", "app.audit_log"]);
+    expect(policy.exclude).toEqual([
+      { rule: "rls_disabled_in_public", object: "public.legacy" },
+      { rule: "rls_disabled_in_public", object: "app.audit_log" },
+      { rule: "security_definer_view", object: "public.v" },
+    ]);
+  });
+
+  test("removes duplicate exclusions", () => {
+    const policy = resolvePolicy({
+      exclude: { rls_disabled_in_public: ["public.a", "public.a"] },
+    });
+    expect(policy.exclude).toEqual([
+      { rule: "rls_disabled_in_public", object: "public.a" },
+    ]);
   });
 
   test("rejects unknown rules, unknown severities and malformed exclusions together", () => {
@@ -28,7 +44,11 @@ describe("resolvePolicy", () => {
       resolvePolicy({
         rls_disabled_in_publik: "error",
         rls_enabled_no_policy: "level",
-        exclude: ["foo", "a.b.c", " .x", "public.ok"],
+        exclude: {
+          rls_disabled_in_public: ["foo", "a.b.c", " .x", "public.ok", 3],
+          rls_disabled_in_publik: ["public.x"],
+          security_definer_view: "public.v",
+        },
       });
     } catch (error) {
       caught = error;
@@ -37,16 +57,22 @@ describe("resolvePolicy", () => {
     expect((caught as PolicyError).issues).toEqual([
       'unknown rule "rls_disabled_in_publik"',
       'rule "rls_enabled_no_policy": severity must be "error", "warn" or "off", got "level"',
-      'exclude[0]: expected "schema.relation", got "foo"',
-      'exclude[1]: expected "schema.relation", got "a.b.c"',
-      'exclude[2]: expected "schema.relation", got " .x"',
+      'exclude.rls_disabled_in_public[0]: expected "schema.name", got "foo"',
+      'exclude.rls_disabled_in_public[1]: expected "schema.name", got "a.b.c"',
+      'exclude.rls_disabled_in_public[2]: expected "schema.name", got " .x"',
+      'exclude.rls_disabled_in_public[4]: expected "schema.name", got 3',
+      'exclude: unknown rule "rls_disabled_in_publik"',
+      "values under [db.migrations.checks.exclude] must be lists; severities go above it",
     ]);
   });
 
-  test("rejects a non-object policy and a non-array exclude", () => {
+  test("rejects a non-object policy and a non-table exclude", () => {
     expect(() => resolvePolicy("error")).toThrow(/policy must be an object/);
+    expect(() => resolvePolicy({ exclude: ["public.foo"] })).toThrow(
+      /exclude must be a table of rule names to lists/,
+    );
     expect(() => resolvePolicy({ exclude: "public.foo" })).toThrow(
-      /exclude must be an array of strings/,
+      /exclude must be a table of rule names to lists/,
     );
   });
 });
