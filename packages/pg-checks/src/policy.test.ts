@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { splitSplinter } from "../scripts/splinter-shape.ts";
 import { PolicyError, RULES, resolvePolicy } from "./policy.ts";
-import { SPLINTER_PREAMBLE, SPLINTER_QUERY } from "./vendor/splinter.ts";
+import { RULE_SQL } from "./vendor/splinter.ts";
 
 describe("resolvePolicy", () => {
   test("absent configuration resolves every rule to warn with no exclusions", () => {
@@ -87,13 +89,14 @@ describe("resolvePolicy", () => {
 describe("RULES", () => {
   test("every rule exists in the vendored splinter as a SECURITY rule that needs no preamble", () => {
     const shape = splitSplinter(
-      `set local search_path = '';\n${SPLINTER_PREAMBLE}\n${SPLINTER_QUERY}`,
+      readFileSync(join(import.meta.dir, "vendor", "splinter.sql"), "utf8"),
     );
     for (const rule of RULES) {
       const found = shape.rules.find((r) => r.name === rule);
       expect(found, rule).toBeDefined();
       expect(found?.categories).toContain("SECURITY");
       expect(found?.readsSplinterSettings).toBe(false);
+      expect(RULE_SQL[rule], rule).toBe(found?.sql);
     }
   });
 });
