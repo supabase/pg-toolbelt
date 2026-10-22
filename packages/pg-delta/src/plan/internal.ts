@@ -763,8 +763,8 @@ export function compactColumnFolds(
     // relation) may be created by a LATER file and the loader reorders files to
     // satisfy it. The one crossing an export constraint fold must NOT tolerate
     // is a SAME-TABLE column of its own fold target that was deferred to a
-    // later `ADD COLUMN` (its column fold crossed a domain-type edge, or it is
-    // a generated column that never hints) — folding the constraint inline
+    // later `ADD COLUMN` (its column fold crossed a domain-type edge, or a
+    // dependency edge of a generated column) — folding the constraint inline
     // would reference a column the CREATE TABLE does not yet declare, and no
     // file reordering can repair that. An inlined column shares the target's
     // effective position, so it never counts as "after" and passes naturally.
