@@ -4,6 +4,7 @@ import {
   CHECK_TIMED_OUT_SQLSTATE,
   WARN_READ_COLUMN,
 } from "./check.ts";
+import { fixText } from "./fix.ts";
 import { RULES, type ResolvedPolicy, type Rule } from "./policy.ts";
 
 export interface Finding {
@@ -13,11 +14,9 @@ export interface Finding {
   readonly name: string | null;
   readonly type: string | null;
   readonly detail: string;
-  /**
-   * Splinter's `remediation`. For every checked rule in splinter 2026.09.1 this
-   * is the docs URL, so it equals {@link docs}; fix text needs its own source (O13).
-   */
-  readonly fix: string | null;
+  /** What to change, naming the object (pg-checks' own text, O13). */
+  readonly fix: string;
+  /** Splinter's `remediation`: the rule's docs URL. */
   readonly docs: string | null;
 }
 
@@ -44,7 +43,6 @@ function toFinding(row: unknown, severity: "error" | "warn"): Finding | null {
       ? record["metadata"]
       : {}
   ) as Record<string, unknown>;
-  const remediation = stringOrNull(record["remediation"]);
   return {
     rule: record["name"],
     severity,
@@ -52,8 +50,8 @@ function toFinding(row: unknown, severity: "error" | "warn"): Finding | null {
     name: stringOrNull(metadata["name"]),
     type: stringOrNull(metadata["type"]),
     detail: stringOrNull(record["detail"]) ?? "",
-    fix: remediation,
-    docs: remediation,
+    fix: fixText(record["name"], metadata),
+    docs: stringOrNull(record["remediation"]),
   };
 }
 
