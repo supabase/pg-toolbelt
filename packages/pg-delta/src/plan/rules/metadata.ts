@@ -33,6 +33,17 @@ function aggregateTargetSignature(
   return undefined;
 }
 
+/** The extension a security label's provider needs loaded, when the label's
+ *  provider is an extension (pgsodium). `pg_seclabel` records no pg_depend
+ *  row, so the requirement is derived from the id. */
+export function securityLabelProviderExtension(
+  id: StableId,
+): StableId | undefined {
+  return id.kind === "securityLabel"
+    ? { kind: "extension", name: id.provider }
+    : undefined;
+}
+
 export const metadataRules: Record<string, KindRules> = {
   comment: {
     weight: 20,
@@ -83,6 +94,8 @@ export const metadataRules: Record<string, KindRules> = {
   securityLabel: {
     weight: 20,
     metadata: true,
+    // pgsodium TCE labels need the provider loaded to apply at all.
+    skipWhenWithheld: true,
     create: (fact, view, _params, sourceView) => {
       const id = fact.id as { target: StableId; provider: string };
       const opts = {

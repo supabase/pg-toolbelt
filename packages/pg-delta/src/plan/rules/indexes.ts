@@ -8,6 +8,7 @@ export const indexRules: Record<string, KindRules> = {
     weight: 14,
     cascadesToChildren: true,
     rebuildable: true,
+    scopedToOwnColumns: true,
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER INDEX ${rel(id.schema, id.name)}`;

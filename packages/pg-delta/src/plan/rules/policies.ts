@@ -9,6 +9,9 @@ export const policyRules: Record<string, KindRules> = {
   policy: {
     weight: 16,
     cascadesToChildren: true,
+    // A PERMISSIVE policy only grants access, so leaving it out narrows access;
+    // leaving out a RESTRICTIVE one would widen it.
+    skipWhenWithheld: (fact) => p(fact, "permissive") !== false,
     rebuildable: true,
     // Never fold a policy's drop into its table's DROP (mirrors the FK-constraint
     // exception). A policy's USING / WITH CHECK can reference another object (a

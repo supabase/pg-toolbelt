@@ -18,10 +18,78 @@ import {
   str,
 } from "./helpers.ts";
 
+/**
+ * The default a new column must inline to be addable, or `undefined` when it
+ * can arrive without one.
+ *
+ * `column.create` below inlines a new column's default because
+ * `ALTER TABLE … ADD COLUMN … NOT NULL` is rejected on a table that already
+ * has rows. A caller that drops the default fact therefore has to drop the
+ * column with it. A domain may reject NULL through NOT NULL or a CHECK, so a
+ * domain-typed column is treated the same without reading its constraints. An
+ * identity or generated column materializes its own value per row, so it
+ * needs no default.
+ */
+export function inlinedDefaultRequirement(
+  view: FactView,
+  id: StableId,
+): StableId | undefined {
+  if (id.kind !== "column") return undefined;
+  const fact = view.get(id);
+  if (fact === undefined) return undefined;
+  if (fact.payload["identity"] != null) return undefined;
+  if (fact.payload["generatedExpr"] != null) return undefined;
+  const rejectsNull =
+    fact.payload["notNull"] === true ||
+    dependencyConsumes(view, id).some((to) => to.kind === "domain");
+  if (!rejectsNull) return undefined;
+  return view.childrenOf(id).find((c) => c.id.kind === "default")?.id;
+}
+
+/** Whether `requirement` is a column of the table `id` belongs to. */
+export function isSiblingColumn(
+  view: FactView,
+  id: StableId,
+  requirement: StableId,
+): boolean {
+  if (requirement.kind !== "column") return false;
+  const table = view.get(id)?.parent;
+  const columnTable = view.get(requirement)?.parent;
+  return (
+    table !== undefined &&
+    columnTable !== undefined &&
+    encodeId(table) === encodeId(columnTable)
+  );
+}
+
+/**
+ * The facts a table's own statements name and so cannot run without: its
+ * partition key columns (`PARTITION BY`) and its replica identity index
+ * (`REPLICA IDENTITY USING INDEX`). Empty for any other kind.
+ */
+export function tableShapeRequirements(
+  view: FactView,
+  id: StableId,
+): StableId[] {
+  if (id.kind !== "table") return [];
+  const fact = view.get(id);
+  if (fact === undefined) return [];
+  const out = view
+    .childrenOf(id)
+    .filter((c) => c.id.kind === "column" && p(c, "_partitionKey") === true)
+    .map((c) => c.id);
+  if (p(fact, "replicaIdentity") === "i") {
+    out.push(...(replicaIdentitySpec(fact, view).consumes ?? []));
+  }
+  return out;
+}
+
 export const tableRules: Record<string, KindRules> = {
   table: {
     weight: 4,
     cascadesToChildren: true,
+    // A table not created leaves nothing looser live; its dependents follow it.
+    skipWhenWithheld: true,
     // Partitions / INHERITS children are parented at the schema, not the
     // parent table. Incoming inherit `depends` must force-rebuild them when
     // the parent is replaced (DROP TABLE cascades them away).
@@ -252,6 +320,8 @@ export const tableRules: Record<string, KindRules> = {
   column: {
     weight: 5,
     cascadesToChildren: true,
+    // A column not added leaves the table as it was; constraints on it follow.
+    skipWhenWithheld: true,
     // Postgres rejects ALTER COLUMN ... TYPE (which also carries a collation
     // change) and DROP COLUMN on a partition key column ("... is part of the
     // partition key of relation ..."), including a sub-partition's key. Those
@@ -524,6 +594,9 @@ export const tableRules: Record<string, KindRules> = {
   default: {
     weight: 6,
     cascadesToChildren: true,
+    // Inserts that omit the column fail or store NULL instead; a new column
+    // that cannot be added without it goes with it (inlinedDefaultRequirement).
+    skipWhenWithheld: true,
     rebuildable: true,
     create: (fact) => {
       const { schema, table, column } = columnRef(fact);

@@ -9,6 +9,7 @@ export const constraintRules: Record<string, KindRules> = {
     cascadesToChildren: true,
     rebuildable: true,
     suppressible: (fact) => fact.payload["type"] !== "f",
+    scopedToOwnColumns: true,
     rename: (fact, to) => {
       const id = fact.id as { name: string };
       return {

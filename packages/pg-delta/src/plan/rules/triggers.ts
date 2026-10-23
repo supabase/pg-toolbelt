@@ -8,6 +8,10 @@ export const triggerRules: Record<string, KindRules> = {
   trigger: {
     weight: 15,
     cascadesToChildren: true,
+    // pgsodium TCE creates an encrypting trigger next to its view and label,
+    // all of which go when pgsodium is absent. A trigger enforcing a rule is
+    // left out too: the warning reports it.
+    skipWhenWithheld: true,
     rebuildable: true,
     rename: (fact, to) => {
       const id = fact.id as { schema: string; table: string; name: string };

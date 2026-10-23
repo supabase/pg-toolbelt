@@ -2133,6 +2133,53 @@ cycle; both reproduce on `main` before #534 too.
   it. It needs extension members mapped to their extension's drop root. No
   shipped extension defines such a function; it takes a custom extension.
 
+## CLI-2300 / CLI-2342 / CLI-2178 — withheld-requirement cascade
+
+A kept `add` whose prerequisite the policy withholds and the target lacks is
+reverted into `filteredDeltas` with an `excluded-by-cascade` warning when its
+kind opts in (`KindRules.skipWhenWithheld`); stranded `set` / `link` on
+existing facts and new facts of other kinds (constraints, RESTRICTIVE policies,
+…) throw instead (see `managed-view-architecture.md` Follow-up 4).
+
+Deferred (not blocking):
+
+- **Drop side (CLI-2342 second half).** Live has pgsodium TCE artefacts, files
+  cannot express them (the shadow lacks pgsodium), so the plan DROPs them.
+  Planned as a stacked PR: retain a `remove` only when a withheld prerequisite
+  is absent from raw desired and survives the plan, nothing in the fact's
+  transitive source dependency closure has a kept delta, every ancestor is in
+  the projected target, and the whole subtree plus its link/unlink deltas are
+  reverted together.
+- **Reference-only desired facts absent on the target.** Outside the cascade
+  (e.g. a webhook's `supabase_functions.http_request` satisfied through
+  `assumedPresentIds`, or an absent assumed schema), the fact stays in the
+  projected target, so `plan.target.fingerprint` differs from the applied
+  state. Predates this change; `provePlan`'s drift diff skips reference-only
+  facts, so it does not report it. The cascade's own synthesized `add` deltas
+  for reference-only facts (never emitted by `diff()`) share this fix: tag them
+  distinctly so `deltas` + `filteredDeltas` stays a partition of the diff.
+- **CLI surfacing of `excluded-by-cascade`.** The Supabase CLI prints coverage
+  diagnostics only under `--strict-coverage`, so a skipped trigger or view is
+  silent and a re-sync can report "No schema changes found". Needs a summary
+  line in `reportPgDeltaNextDiagnostics` (supabase/cli) and a declarative-e2e
+  scenario for one of CLI-2300 / CLI-2342 / CLI-2178.
+- **Publication column list naming a skipped column.** A `publicationRel`
+  keeps its column list in the payload with only a `depends` edge to the
+  table, and pg_depend files the column dependencies under the reference-only
+  publication root, so `ALTER PUBLICATION … ADD TABLE t (key_id)` is still
+  planned when `key_id` is skipped and fails at apply (PG15+ column lists).
+  Fix: add the column-list columns as requirements, or carry column edges on
+  the membership fact at extract time.
+- **Nullable new column loses its default.** A nullable new column whose
+  default is skipped is still added, so existing rows get NULL instead of the
+  default value. Applies cleanly; the default arrives once the prerequisite does,
+  but backfill does not.
+- **Export of TCE artefacts.** `schema export` still emits pgsodium-dependent
+  defaults / views / labels that a pgsodium-less shadow cannot load.
+- **Kinds not yet opted in to skipping.** A new materialized view, foreign
+  table or function whose `depends` target is withheld is refused, not
+  skipped. Opt a kind in when a reported case needs it.
+
 ## PR #550 — export round-trip gate known gaps
 
 - **Sub-partitioned partition with its own partitioned-index options**
