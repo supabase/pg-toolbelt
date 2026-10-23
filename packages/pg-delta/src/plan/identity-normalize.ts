@@ -16,6 +16,7 @@ import {
 export const ROLE_NAME_BEARING_KINDS: ReadonlySet<FactKind> = new Set([
   "role",
   "membership",
+  "roleSetting",
   "userMapping",
   "defaultPrivilege",
   "acl",
@@ -49,6 +50,8 @@ export function relabelRoleNames(
       return { ...id, name: remap(id.name) };
     case "membership":
       return { ...id, role: remap(id.role), member: remap(id.member) };
+    case "roleSetting":
+      return { ...id, role: remap(id.role) };
     case "userMapping":
       return { ...id, role: remap(id.role) };
     case "defaultPrivilege":

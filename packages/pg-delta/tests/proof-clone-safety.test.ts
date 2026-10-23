@@ -9,25 +9,32 @@ import {
 } from "../src/cli/connection-safety.ts";
 import { cmdProve } from "../src/cli/commands/prove.ts";
 import { UsageError } from "../src/cli/flags.ts";
+import { buildFactBase, type FactBase } from "../src/core/fact.ts";
 import { serializeSnapshot } from "../src/core/snapshot.ts";
 import { extract } from "../src/extract/extract.ts";
 import { serializePlan } from "../src/plan/artifact.ts";
 import { plan } from "../src/plan/plan.ts";
+import type { Policy } from "../src/policy/policy.ts";
 import type { ManagementScope } from "../src/policy/view.ts";
 import { sharedCluster, type TestDb } from "./containers.ts";
 
 async function proofArtifacts(
   source: TestDb,
-  desired: TestDb,
+  desired: TestDb | ((source: FactBase) => FactBase),
   scope?: ManagementScope,
+  policy?: Policy,
 ): Promise<{ planPath: string; snapshotPath: string }> {
-  const [sourceState, desiredState, observed] = await Promise.all([
+  const [sourceState, observed] = await Promise.all([
     extract(source.pool),
-    extract(desired.pool),
     observeDatabaseIdentity(source.pool),
   ]);
-  const thePlan = plan(sourceState.factBase, desiredState.factBase, {
+  const desiredFb =
+    typeof desired === "function"
+      ? desired(sourceState.factBase)
+      : (await extract(desired.pool)).factBase;
+  const thePlan = plan(sourceState.factBase, desiredFb, {
     ...(scope !== undefined ? { scope } : {}),
+    ...(policy !== undefined ? { policy } : {}),
     profile: { id: "raw" },
     redactSecrets: true,
   });
@@ -40,7 +47,7 @@ async function proofArtifacts(
   writeFileSync(planPath, serializePlan(thePlan), "utf8");
   writeFileSync(
     snapshotPath,
-    serializeSnapshot(desiredState.factBase, {
+    serializeSnapshot(desiredFb, {
       pgVersion: "17",
       profile: "raw",
       redactSecrets: true,
@@ -134,5 +141,66 @@ test("prove rejects same-lineage siblings at cluster scope but allows explicit d
     ).toMatchObject({ rows: [{ present: true }] });
   } finally {
     await Promise.all([source.drop(), desired.drop(), clone.drop()]);
+  }
+}, 120_000);
+
+test("prove refuses a same-lineage clone for a database-scope plan that changes role settings", async () => {
+  const cluster = await sharedCluster();
+  const source = await cluster.createDb("proof_guard_rs_source");
+  const clone = await cluster.createDb("proof_guard_rs_clone");
+  const roleName = `proof_guard_rs_${process.pid}`;
+  await cluster.adminPool.query(`CREATE ROLE "${roleName}"`);
+  try {
+    // Role settings are cluster-global, so the desired state is the source with
+    // one managed setting added rather than a second database.
+    const artifacts = await proofArtifacts(
+      source,
+      (fb) =>
+        buildFactBase(
+          fb.facts().map((fact) =>
+            fact.id.kind === "role" && fact.id.name === roleName
+              ? {
+                  ...fact,
+                  payload: {
+                    ...fact.payload,
+                    config: ["pgrst.db_schemas=must_not_reach_cluster"],
+                  },
+                }
+              : fact,
+          ),
+          [...fb.edges],
+        ),
+      "database",
+      {
+        id: "proof-guard-role-settings",
+        assumedRoles: [roleName],
+        managedRoleSettings: [{ roles: [roleName], names: ["pgrst.*"] }],
+      },
+    );
+    const error = await captureError(
+      cmdProve([
+        "--plan",
+        artifacts.planPath,
+        "--clone",
+        clone.uri,
+        "--desired-snapshot",
+        artifacts.snapshotPath,
+      ]),
+    );
+    expect(error).toBeInstanceOf(UsageError);
+    expect((error as Error).message).toMatch(
+      /same PostgreSQL lineage[^]*role settings/i,
+    );
+    expect(
+      await cluster.adminPool.query(
+        `SELECT count(*)::int AS n FROM pg_catalog.pg_db_role_setting s
+         JOIN pg_catalog.pg_roles r ON r.oid = s.setrole
+         WHERE r.rolname = $1`,
+        [roleName],
+      ),
+    ).toMatchObject({ rows: [{ n: 0 }] });
+  } finally {
+    await Promise.all([source.drop(), clone.drop()]);
+    await cluster.adminPool.query(`DROP ROLE IF EXISTS "${roleName}"`);
   }
 }, 120_000);

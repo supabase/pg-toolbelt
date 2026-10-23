@@ -667,6 +667,11 @@ export function detectViolations(
 /**
  * Prove a plan against a sacrificial clone of the source. The clone is
  * mutated; never pass a real target.
+ *
+ * The clone's lineage is not checked here. A plan that touches role settings
+ * (or cluster scope) changes cluster-global roles, so the clone must live on a
+ * different cluster than the source, not a sibling database. See
+ * `proofCloneScope` in `src/cli/commands/prove.ts`.
  */
 export async function provePlan(
   thePlan: Plan,

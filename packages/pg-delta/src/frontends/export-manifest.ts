@@ -50,6 +50,12 @@ export interface ExportManifest {
    *  authored) and refused rather than silently deleted. FIELD ABSENT → a
    *  pre-feature or hand-authored dir: every existing `.sql` is unmanaged. */
   files?: string[];
+  /** the POSIX paths of the files holding the role settings the profile
+   *  manages (`Policy.managedRoleSettings`), possibly none. FIELD ABSENT → an
+   *  export from before pg-delta managed them, or a profile that manages none:
+   *  `schema apply` then manages them only when a file declares one with
+   *  `ALTER ROLE`, so an older export never plans their RESET. */
+  roleSettingsFiles?: string[];
   /** Emission order from `exportSqlFiles` (plan `firstAt`), POSIX paths.
    *  Shadow load uses this as the default file order. Absent on older
    *  manifests — callers fall back to lexicographic collect order. Distinct
@@ -67,6 +73,7 @@ export function writeExportManifest(
     defaultOwner?: string | null;
     files?: string[];
     loadOrder?: string[];
+    roleSettingsFiles?: string[];
   },
 ): void {
   const path = join(dir, EXPORT_MANIFEST_FILE);
@@ -138,6 +145,13 @@ export function readExportManifest(dir: string): ExportManifest | undefined {
   const files = doc["files"];
   if (Array.isArray(files) && files.every((f) => typeof f === "string")) {
     manifest.files = files as string[];
+  }
+  const roleSettingsFiles = doc["roleSettingsFiles"];
+  if (
+    Array.isArray(roleSettingsFiles) &&
+    roleSettingsFiles.every((f) => typeof f === "string")
+  ) {
+    manifest.roleSettingsFiles = roleSettingsFiles as string[];
   }
   const loadOrder = doc["loadOrder"];
   if (

@@ -170,6 +170,10 @@ import {
   rewriteReorderedShadowError,
 } from "../reorder-display.ts";
 import { serializePlan } from "../../plan/artifact.ts";
+import {
+  flattenPolicy,
+  type ManagedRoleSettings,
+} from "../../policy/policy.ts";
 import type { ManagementScope } from "../../policy/view.ts";
 import {
   apply,
@@ -289,6 +293,7 @@ export function writeExportFiles(
     scope?: "database" | "cluster";
     baselineDigest?: string;
     defaultOwner?: string | null;
+    roleSettingsFiles?: string[];
   },
   pruneUnmanaged: boolean,
 ): {
@@ -614,6 +619,9 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
         "defaultOwner" in result.manifest
           ? { defaultOwner: result.manifest.defaultOwner }
           : {}),
+        ...(result.manifest.roleSettingsFiles !== undefined
+          ? { roleSettingsFiles: result.manifest.roleSettingsFiles }
+          : {}),
       },
       flags["prune-unmanaged"] === true,
     );
@@ -644,7 +652,12 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
 
 /** Discriminated result of {@link prepareApplyFiles}. */
 type PreparedApplyFiles =
-  | { ok: true; files: SqlFile[]; skipped: { file: string; stmt: string }[] }
+  | {
+      ok: true;
+      files: SqlFile[];
+      skipped: { file: string; stmt: string }[];
+      warnings: string[];
+    }
   | { ok: false; message: string };
 
 /**
@@ -655,11 +668,17 @@ export function prepareApplyFiles(
   dir: string,
   scope: "database" | "cluster",
   skipClusterDdl: boolean,
+  managedRoleSettings: readonly ManagedRoleSettings[] = [],
+  isolatedShadow = false,
+  roleSettingsFiles: readonly string[] = [],
 ): PreparedApplyFiles {
   const files = collectSqlFiles(dir);
   const prepared = prepareSchemaFiles(files, {
     scope,
     skipClusterDdl,
+    managedRoleSettings,
+    isolatedShadow,
+    roleSettingsFiles,
     label: dir,
   });
   if (!prepared.ok) {
@@ -857,27 +876,6 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
   }
 
-  // Collect + validate the declarative SQL files: refuse an empty/comment-only
-  // dir (would build an empty shadow and drop every managed object), and enforce
-  // the database-scope cluster-DDL policy (refuse, or --skip-cluster-ddl and log
-  // each skip). Extracted to prepareApplyFiles so the guards — including the
-  // re-check that a --skip-cluster-ddl strip did not empty the input — are unit
-  // tested.
-  const prepared = prepareApplyFiles(
-    dir,
-    scope,
-    flags["skip-cluster-ddl"] === true,
-  );
-  if (!prepared.ok) {
-    throw new UsageError(`schema apply: ${prepared.message}`);
-  }
-  for (const s of prepared.skipped) {
-    process.stderr.write(
-      `  SKIP cluster DDL (--skip-cluster-ddl) in ${s.file}: ${s.stmt}\n`,
-    );
-  }
-  let files = prepared.files;
-
   // The profile MUST match the one the directory was exported with: `schema
   // export --profile supabase` projects out platform schemas/roles, so applying
   // that directory under the default (raw) profile would extract the target's
@@ -892,6 +890,36 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     flags["profile"],
     manifestProfile,
   );
+  const profile = profileById(profileId);
+
+  // Collect + validate the declarative SQL files: refuse an empty/comment-only
+  // dir (would build an empty shadow and drop every managed object), and enforce
+  // the database-scope cluster-DDL policy (refuse, or --skip-cluster-ddl and log
+  // each skip). Extracted to prepareApplyFiles so the guards — including the
+  // re-check that a --skip-cluster-ddl strip did not empty the input — are unit
+  // tested.
+  const prepared = prepareApplyFiles(
+    dir,
+    scope,
+    flags["skip-cluster-ddl"] === true,
+    profile.policy !== undefined
+      ? flattenPolicy(profile.policy).managedRoleSettings
+      : [],
+    flags["isolated-shadow"] === true,
+    manifest?.roleSettingsFiles,
+  );
+  if (!prepared.ok) {
+    throw new UsageError(`schema apply: ${prepared.message}`);
+  }
+  for (const s of prepared.skipped) {
+    process.stderr.write(
+      `  SKIP cluster DDL (--skip-cluster-ddl) in ${s.file}: ${s.stmt}\n`,
+    );
+  }
+  for (const warning of prepared.warnings) {
+    process.stderr.write(`  WARNING: ${warning}\n`);
+  }
+  let files = prepared.files;
 
   // Resolve the shadow: an explicit --shadow, else a co-located throwaway
   // database created on the TARGET's own cluster (quick mode). Co-located is
@@ -1013,7 +1041,6 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     }
     const redactSecrets =
       manifest?.redactSecrets ?? !flags["unsafe-show-secrets"];
-    const profile = profileById(profileId);
 
     // Hand-authored / pre-feature dirs: surface the same NOTE the old path did.
     if (

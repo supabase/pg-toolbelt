@@ -18,7 +18,12 @@ import type { DependencyEdge, FactBase } from "../core/fact.ts";
 import type { PayloadValue } from "../core/hash.ts";
 import { encodeId, parseId, type StableId } from "../core/stable-id.ts";
 import type { ApplierCapability } from "./capability.ts";
-import { resolveView, type Policy } from "./policy.ts";
+import {
+  flattenPolicy,
+  liftManagedRoleSettings,
+  resolveView,
+  type Policy,
+} from "./policy.ts";
 import {
   projectManagementScope,
   type ManagementScope,
@@ -414,7 +419,7 @@ export function auditManagedViewProjection(
     collectSuppression: (suppression) =>
       suppressions.push({ side: "desired", suppression }),
   });
-  return projectionAuditFrom(rawSource, rawDesired, suppressions);
+  return projectionAuditFrom(rawSource, rawDesired, suppressions, opts.policy);
 }
 
 /** A projection suppression tagged with the diff side that produced it. */
@@ -441,11 +446,17 @@ export function projectionAuditFrom(
   rawSource: FactBase,
   rawDesired: FactBase,
   suppressions: readonly TracedSuppression[],
+  policy?: Policy,
 ): ProjectionAudit {
   // Nothing was suppressed ⇒ every delta below would find zero traced
   // suppressions and `continue`, so the audit is empty by construction. Return
   // it without paying for a third full raw diff (the common no-policy path).
   if (suppressions.length === 0) return emptyAudit();
+  // The view diffs managed role settings as their own facts; diff the raw
+  // sides the same way so a planned setting is not also reported as a hidden
+  // change of its (excluded) role.
+  const settings =
+    policy === undefined ? [] : flattenPolicy(policy).managedRoleSettings;
 
   const bySubject = new Map<
     string,
@@ -460,7 +471,10 @@ export function projectionAuditFrom(
   }
 
   const entries: ProjectionAuditEntry[] = [];
-  for (const delta of diff(rawSource, rawDesired)) {
+  for (const delta of diff(
+    liftManagedRoleSettings(rawSource, settings),
+    liftManagedRoleSettings(rawDesired, settings),
+  )) {
     const subject = deltaSubject(delta);
     const entrySuppressions: ProjectionAuditSuppression[] = [];
     const seen = new Set<string>();

@@ -1,0 +1,7 @@
+{
+  "migration": "some",
+  "contains": [
+    "create table public.notes",
+    "alter role authenticator set pgrst.db_schemas to 'pgrst_no_exposed_schemas'"
+  ]
+}

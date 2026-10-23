@@ -19,6 +19,7 @@ import {
   exportSqlFiles,
   publicSchemaGrantees,
   revokedPublicSchemaGrantees,
+  roleSettingsFileNames,
   type ExportGrouping,
   type ExportPathStyle,
 } from "./export-sql-files.ts";
@@ -217,6 +218,15 @@ export async function buildSchemaExport(
       : {}),
     ...(exportScope === "database"
       ? { defaultOwner: resolvedDefaultOwner }
+      : {}),
+    ...((assumed?.managedRoleSettings.length ?? 0) > 0
+      ? {
+          roleSettingsFiles: roleSettingsFileNames(
+            files,
+            layout,
+            options.pathStyle,
+          ),
+        }
       : {}),
   };
 

@@ -358,9 +358,10 @@ export function defaultPrivConsumes(id: {
 /**
  * Role names a fact REFERENCES without owning: an ACL grantee, a
  * default-privilege FOR-role/grantee, the membership endpoints, a
- * user-mapping role, an RLS policy's TO-roles — exactly the references the
- * rules in this directory turn into `consumes: [{ kind: "role", … }]`
- * (grantActions / defaultPrivConsumes / membership / userMapping / policy).
+ * user-mapping role, a role setting's role, an RLS policy's TO-roles — exactly
+ * the references the rules in this directory turn into
+ * `consumes: [{ kind: "role", … }]` (grantActions / defaultPrivConsumes /
+ * membership / roleSetting / userMapping / policy).
  * plan() reads these off the SOURCE view to WITNESS that a role exists on the
  * apply target even when the role OBJECT is projected or filtered out of the
  * view: PostgreSQL cannot record any of these for a nonexistent role.
@@ -379,6 +380,9 @@ export function roleReferencesOf(fact: Fact): string[] {
       break;
     case "membership":
       names.push(id.role, id.member);
+      break;
+    case "roleSetting":
+      names.push(id.role);
       break;
     case "userMapping":
       names.push(id.role);

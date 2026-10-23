@@ -121,6 +121,11 @@ export type StableId =
   | { kind: SubEntityKind; schema: string; table: string; name: string }
   | { kind: RoutineKind; schema: string; name: string; args: string[] }
   | { kind: "membership"; role: string; member: string }
+  /** One role-wide setting (`ALTER ROLE <role> SET <name> …`,
+   *  `pg_db_role_setting.setdatabase = 0`) that a policy manages apart from its
+   *  role (`Policy.managedRoleSettings`). Every other setting stays in the
+   *  role fact's `config` payload. */
+  | { kind: "roleSetting"; role: string; name: string }
   | { kind: "userMapping"; server: string; role: string }
   | { kind: "typeAttribute"; schema: string; type: string; name: string }
   | {
@@ -172,6 +177,7 @@ export const ALL_FACT_KINDS = [
   ...SUBENTITY_KINDS,
   ...ROUTINE_KINDS,
   "membership",
+  "roleSetting",
   "userMapping",
   "typeAttribute",
   "publicationRel",
@@ -218,6 +224,8 @@ export function encodeId(id: StableId): string {
   switch (k) {
     case "membership":
       return `membership:${seg(id.role)}.${seg(id.member)}`;
+    case "roleSetting":
+      return `roleSetting:${seg(id.role)}.${seg(id.name)}`;
     case "userMapping":
       return `userMapping:${seg(id.server)}.${seg(id.role)}`;
     case "typeAttribute":
@@ -426,6 +434,12 @@ function parseAt(c: Cursor): StableId {
       c.expect(".");
       const member = c.readSegment();
       return { kind, role, member };
+    }
+    case "roleSetting": {
+      const role = c.readSegment();
+      c.expect(".");
+      const name = c.readSegment();
+      return { kind, role, name };
     }
     case "userMapping": {
       const server = c.readSegment();

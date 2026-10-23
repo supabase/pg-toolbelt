@@ -142,6 +142,10 @@ function assertStableId(
       exactKeys(value, ["kind", "role", "member"], [], path);
       strings("role", "member");
       return;
+    case "roleSetting":
+      exactKeys(value, ["kind", "role", "name"], [], path);
+      strings("role", "name");
+      return;
     case "userMapping":
       exactKeys(value, ["kind", "server", "role"], [], path);
       strings("server", "role");

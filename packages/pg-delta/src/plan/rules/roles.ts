@@ -146,6 +146,44 @@ export const roleRules: Record<string, KindRules> = {
     },
   },
 
+  // A setting managed apart from its role (Policy.managedRoleSettings). It
+  // survives when the role object is excluded or projected out, so its
+  // actions consume the role (assumed, or ordered after CREATE / before DROP).
+  roleSetting: {
+    weight: 1,
+    create: (fact) => {
+      const id = fact.id as { role: string; name: string };
+      return [
+        {
+          sql: roleConfigSetSql(
+            qid(id.role),
+            id.name,
+            p(fact, "value") as string,
+          ),
+          consumes: [{ kind: "role", name: id.role }],
+        },
+      ];
+    },
+    drop: (fact) => {
+      const id = fact.id as { role: string; name: string };
+      return {
+        sql: `ALTER ROLE ${qid(id.role)} RESET ${qid(id.name)}`,
+        consumes: [{ kind: "role", name: id.role }],
+      };
+    },
+    attributes: {
+      value: {
+        alter: (fact, _from, to) => {
+          const id = fact.id as { role: string; name: string };
+          return {
+            sql: roleConfigSetSql(qid(id.role), id.name, to as string),
+            consumes: [{ kind: "role", name: id.role }],
+          };
+        },
+      },
+    },
+  },
+
   membership: {
     weight: 1,
     create: (fact) => {

@@ -668,8 +668,12 @@ export function findClusterDdlStatements(sql: string): string[] {
 /** Partition `sql` into the statements that are NOT cluster-global DDL (`kept`,
  *  rejoined and ready to load) and the cluster-DDL statements removed
  *  (`skipped`, original text, for the skip ledger). Uses the block-aware
- *  `splitSqlStatements` so function bodies etc. are not mis-split. */
-export function stripClusterDdl(sql: string): {
+ *  `splitSqlStatements` so function bodies etc. are not mis-split. Statements
+ *  whose label is in `keepLabels` stay in `kept`. */
+export function stripClusterDdl(
+  sql: string,
+  keepLabels: readonly string[] = [],
+): {
   kept: string;
   skipped: string[];
 } {
@@ -677,7 +681,11 @@ export function stripClusterDdl(sql: string): {
   const skipped: string[] = [];
   for (const stmt of splitSqlStatements(sql)) {
     const masked = maskLiteralsAndComments(stmt).trim();
-    if (masked !== "" && CLUSTER_DDL_RULES.some(({ re }) => re.test(masked))) {
+    const rule =
+      masked === ""
+        ? undefined
+        : CLUSTER_DDL_RULES.find(({ re }) => re.test(masked));
+    if (rule !== undefined && !keepLabels.includes(rule.label)) {
       skipped.push(stmt.trim());
     } else {
       keptParts.push(masked === "" ? stmt : `${stmt};`);

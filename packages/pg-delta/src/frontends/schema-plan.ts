@@ -27,11 +27,15 @@ import {
   type ResolvedProfile,
 } from "../integrations/profile.ts";
 import { plan, type Plan, type PlanOptions } from "../plan/plan.ts";
+import { qid, splitOption } from "../plan/render.ts";
 import type { RenameMode } from "../plan/renames.ts";
 import {
   factMatches,
   type FilterRule,
   flattenPolicy,
+  isManagedRoleSetting,
+  type ManagedRoleSettings,
+  type Policy,
   resolveView,
 } from "../policy/policy.ts";
 import type { ManagementScope } from "../policy/view.ts";
@@ -102,6 +106,9 @@ export async function probeUnmodeledIdentitiesPinned(
   }
 }
 
+/** The {@link findClusterDdlStatements} label of `ALTER ROLE|USER|GROUP`. */
+const ALTER_ROLE_LABEL = "ALTER ROLE";
+
 export class SchemaFrontendError extends Error {
   constructor(message: string) {
     super(message);
@@ -111,12 +118,26 @@ export class SchemaFrontendError extends Error {
 
 /** Discriminated result of {@link prepareSchemaFiles}. */
 export type PreparedSchemaFiles =
-  | { ok: true; files: SqlFile[]; skipped: { file: string; stmt: string }[] }
+  | {
+      ok: true;
+      files: SqlFile[];
+      skipped: { file: string; stmt: string }[];
+      warnings: string[];
+    }
   | { ok: false; message: string };
 
 export interface PrepareSchemaFilesOptions {
   scope: ManagementScope;
   skipClusterDdl?: boolean;
+  /** The profile policy's flattened `managedRoleSettings`. With
+   *  `isolatedShadow`, `ALTER ROLE` statements are let into the shadow, where
+   *  {@link planSchemaFiles} checks in the catalog that they changed only these. */
+  managedRoleSettings?: readonly ManagedRoleSettings[];
+  isolatedShadow?: boolean;
+  /** The export manifest's `roleSettingsFiles`. In database scope they are
+   *  dropped whole without an isolated shadow, and keep their `ALTER ROLE`
+   *  statements under `skipClusterDdl`. */
+  roleSettingsFiles?: readonly string[];
   /** Label used in refusal messages (e.g. a directory path). */
   label?: string;
 }
@@ -132,7 +153,23 @@ export function prepareSchemaFiles(
 ): PreparedSchemaFiles {
   const label = options.label ?? "input";
   const skipClusterDdl = options.skipClusterDdl === true;
+  const isolatedShadow = options.isolatedShadow === true;
+  const managesRoleSettings = (options.managedRoleSettings ?? []).length > 0;
+  const settingsFiles = new Set(
+    managesRoleSettings ? (options.roleSettingsFiles ?? []) : [],
+  );
+  const isSettingsFile = (f: SqlFile): boolean =>
+    settingsFiles.has(f.name.split(/[\\/]/).join("/"));
   let files = input;
+  const warnings: string[] = [];
+  if (options.scope === "database" && !isolatedShadow) {
+    for (const f of files.filter(isSettingsFile)) {
+      warnings.push(
+        `skipped ${f.name}: it holds the export's role settings (ALTER ROLE … SET), which database scope manages only against an isolated shadow.`,
+      );
+    }
+    files = files.filter((f) => !isSettingsFile(f));
+  }
   const hasExecutableSql = (fs: SqlFile[]): boolean =>
     fs.some((f) => scanTokens(f.sql).length > 0);
 
@@ -145,23 +182,39 @@ export function prepareSchemaFiles(
 
   const skipped: { file: string; stmt: string }[] = [];
   if (options.scope === "database") {
+    const keepLabels = (f: SqlFile): string[] =>
+      managesRoleSettings &&
+      isolatedShadow &&
+      (!skipClusterDdl || isSettingsFile(f))
+        ? [ALTER_ROLE_LABEL]
+        : [];
     const offenders = files
-      .map((f) => ({ name: f.name, labels: findClusterDdlStatements(f.sql) }))
+      .map((f) => ({
+        name: f.name,
+        labels: findClusterDdlStatements(f.sql).filter(
+          (label) => !keepLabels(f).includes(label),
+        ),
+      }))
       .filter((x) => x.labels.length > 0);
     if (offenders.length > 0) {
       if (!skipClusterDdl) {
         const detail = offenders
           .map(({ name, labels }) => `  ${name}: ${labels.join(", ")}`)
           .join("\n");
+        const hint =
+          managesRoleSettings &&
+          offenders.some((o) => o.labels.includes(ALTER_ROLE_LABEL))
+            ? `\nThe profile manages role settings (ALTER ROLE … SET) in database scope only against an isolated shadow.`
+            : "";
         return {
           ok: false,
           message:
             `scope database does not manage cluster-global roles, but found cluster DDL:\n${detail}\n` +
-            `Use scope cluster (with an isolated shadow) to manage roles, or skipClusterDdl to skip these statements.`,
+            `Use scope cluster (with an isolated shadow) to manage roles, or skipClusterDdl to skip these statements.${hint}`,
         };
       }
       files = files.map((f) => {
-        const { kept, skipped: sk } = stripClusterDdl(f.sql);
+        const { kept, skipped: sk } = stripClusterDdl(f.sql, keepLabels(f));
         for (const s of sk) {
           skipped.push({ file: f.name, stmt: s.split("\n")[0] ?? "" });
         }
@@ -175,7 +228,7 @@ export function prepareSchemaFiles(
       }
     }
   }
-  return { ok: true, files, skipped };
+  return { ok: true, files, skipped, warnings };
 }
 
 export interface ReconcileSchemaManifestFlags {
@@ -338,6 +391,95 @@ export interface PlanSchemaFilesOptions {
   ) => Error;
 }
 
+/** `policy` and its `extends` chain without `managedRoleSettings`. */
+function withoutManagedRoleSettings(policy: Policy): Policy {
+  const { managedRoleSettings: _dropped, ...rest } = policy;
+  return rest.extends === undefined
+    ? rest
+    : { ...rest, extends: rest.extends.map(withoutManagedRoleSettings) };
+}
+
+/** The attributes, comment, settings (in any database), and memberships of the
+ *  cluster's roles, or of `roles` only (a membership only between two of them),
+ *  as subject → state, except the role-wide settings in `settings`, returned
+ *  as `managed`. A subject never carries a setting value. `pg_roles.rolpassword`
+ *  is always masked, so a password change shows only when the session can read
+ *  `pg_authid` (a superuser); otherwise it stays a blind spot. */
+async function roleState(
+  pool: Pool,
+  settings: readonly ManagedRoleSettings[],
+  roles?: ReadonlySet<string>,
+): Promise<{
+  roles: Set<string>;
+  state: Map<string, string>;
+  managed: { role: string; name: string }[];
+}> {
+  const readsAuthid = (
+    await pool.query<{ ok: boolean }>(
+      `SELECT pg_catalog.has_table_privilege('pg_catalog.pg_authid', 'SELECT') AS ok`,
+    )
+  ).rows[0]?.ok;
+  const password = readsAuthid
+    ? `|| (SELECT pg_catalog.jsonb_build_object('password', pg_catalog.md5(coalesce(a.rolpassword, '')))
+              FROM pg_catalog.pg_authid a WHERE a.oid = r.oid)`
+    : "";
+  const { rows } = await pool.query<{
+    kind: "role" | "setting" | "membership";
+    role: string;
+    db: string | null;
+    name: string | null;
+    state: string;
+  }>(`
+    SELECT 'role' AS kind, r.rolname::text AS role, NULL::text AS db, NULL::text AS name,
+           (pg_catalog.to_jsonb(r) - 'oid' - 'rolconfig'
+             || pg_catalog.jsonb_build_object('comment', pg_catalog.shobj_description(r.oid, 'pg_authid'))
+             ${password})::text AS state
+    FROM pg_catalog.pg_roles r
+    UNION ALL
+    SELECT 'setting', r.rolname, d.datname, pg_catalog.split_part(cfg, '=', 1), cfg
+    FROM pg_catalog.pg_db_role_setting s
+    JOIN pg_catalog.pg_roles r ON r.oid = s.setrole
+    LEFT JOIN pg_catalog.pg_database d ON d.oid = s.setdatabase,
+    LATERAL pg_catalog.unnest(s.setconfig) AS cfg
+    UNION ALL
+    SELECT 'membership', g.rolname, m.rolname, COALESCE(gr.rolname, am.grantor::text),
+           (pg_catalog.to_jsonb(am) - 'oid' - 'roleid' - 'member' - 'grantor')::text
+    FROM pg_catalog.pg_auth_members am
+    JOIN pg_catalog.pg_roles g ON g.oid = am.roleid
+    JOIN pg_catalog.pg_roles m ON m.oid = am.member
+    LEFT JOIN pg_catalog.pg_roles gr ON gr.oid = am.grantor`);
+  const q = JSON.stringify;
+  const seen = new Set<string>();
+  const state = new Map<string, string>();
+  const managed: { role: string; name: string }[] = [];
+  for (const { kind, role, db, name, state: value } of rows) {
+    if (kind === "membership") {
+      // db = member, name = grantor
+      if (roles !== undefined && !(roles.has(role) && roles.has(db as string)))
+        continue;
+      state.set(
+        `membership of ${q(db)} in role ${q(role)} granted by ${q(name)}`,
+        value,
+      );
+      continue;
+    }
+    if (roles !== undefined && !roles.has(role)) continue;
+    seen.add(role);
+    if (kind === "role") {
+      state.set(`role ${q(role)}`, value);
+    } else if (
+      db === null &&
+      isManagedRoleSetting(settings, role, name ?? "")
+    ) {
+      managed.push({ role, name: name ?? "" });
+    } else {
+      const where = db === null ? "" : ` in database ${q(db)}`;
+      state.set(`role ${q(role)} setting ${q(name)}${where}`, value);
+    }
+  }
+  return { roles: seen, state, managed };
+}
+
 /** `current_setting('server_version')` → major (`"17.5"` → 17, `"18beta1"` → 18).
  *  Both `ExtractResult.pgVersion` and `LoadResult.pgVersion` carry that string,
  *  so the drift probe reuses versions already round-tripped rather than asking
@@ -403,14 +545,29 @@ export async function planSchemaFiles(
     );
   }
 
+  const managedRoleSettings =
+    options.profile.policy !== undefined
+      ? flattenPolicy(options.profile.policy).managedRoleSettings
+      : [];
   const prepared = prepareSchemaFiles(inputFiles, {
     scope: pre.scope,
     skipClusterDdl: options.skipClusterDdl === true,
+    managedRoleSettings,
+    isolatedShadow: options.isolatedShadow === true,
+    ...(options.manifest?.roleSettingsFiles !== undefined
+      ? { roleSettingsFiles: options.manifest.roleSettingsFiles }
+      : {}),
   });
   if (!prepared.ok) {
     throw new SchemaFrontendError(prepared.message);
   }
+  for (const warning of prepared.warnings) options.onWarning?.(warning);
   const files = prepared.files;
+  // Any ALTER ROLE left was let through on purpose (cluster scope, or managed
+  // role settings against an isolated shadow).
+  const declaresRoleSettings = files.some((f) =>
+    findClusterDdlStatements(f.sql).includes(ALTER_ROLE_LABEL),
+  );
 
   // This public frontend owns mutation of the supplied shadow. Observe both
   // pools before profile resolution or SQL loading so a target alias cannot be
@@ -541,6 +698,48 @@ export async function planSchemaFiles(
 
   const targetResult = await ctx.extract(targetPool, { redactSecrets });
 
+  // Only an isolated shadow may load and reset managed role settings. Any other
+  // shadow holds its cluster's own values (the target's, for a co-located one),
+  // so the plan leaves them unmanaged instead of diffing against those. So do
+  // files that neither declare one nor come from an export that records them:
+  // an older export never wrote them, and must not plan their RESET.
+  const managesRoleSettings =
+    managedRoleSettings.length > 0 &&
+    options.isolatedShadow === true &&
+    (options.manifest?.roleSettingsFiles !== undefined || declaresRoleSettings);
+  const unmanagedRoleSettings =
+    managedRoleSettings.length > 0 && !managesRoleSettings;
+  if (unmanagedRoleSettings) {
+    const masked: string[] = [];
+    for (const fact of targetResult.factBase.facts()) {
+      const config = fact.payload["config"];
+      if (fact.id.kind !== "role" || !Array.isArray(config)) continue;
+      const role = fact.id.name;
+      const names = (config as string[])
+        .map((entry) => splitOption(entry)[0])
+        .filter((name) =>
+          isManagedRoleSetting(managedRoleSettings, role, name),
+        );
+      if (names.length > 0) masked.push(`${role}: ${names.join(", ")}`);
+    }
+    if (masked.length > 0) {
+      const [why, remedy] =
+        options.isolatedShadow === true
+          ? [
+              "the files declare none and the export manifest does not record them",
+              "Re-export with the current pg-delta to manage them.",
+            ]
+          : [
+              "the shadow is not isolated",
+              "Plan against an isolated shadow (isolatedShadow: true) to manage them.",
+            ];
+      options.onWarning?.(
+        `the target has role settings the profile manages (${masked.join("; ")}), but ${why}, ` +
+          `so they are left unmanaged: the plan neither sets nor resets them. ${remedy}`,
+      );
+    }
+  }
+
   const assumedTargetRoles =
     scope === "database"
       ? targetResult.factBase
@@ -653,6 +852,16 @@ export async function planSchemaFiles(
       (d) => d.code === "PARSE_ERROR" || d.code === "DISCOVERY_ERROR",
     );
 
+  // A reused shadow server still holds the managed role settings of an earlier
+  // load (they are cluster-global), so a line deleted from the files would never
+  // plan its RESET. Clear them first.
+  const roleStateBefore = managesRoleSettings
+    ? await roleState(shadowPool, managedRoleSettings)
+    : undefined;
+  for (const { role, name } of roleStateBefore?.managed ?? []) {
+    await shadowPool.query(`ALTER ROLE ${qid(role)} RESET ${qid(name)}`);
+  }
+
   let loadResult;
   try {
     loadResult = await loadSqlFiles(loadInput, shadowPool, {
@@ -707,6 +916,30 @@ export async function planSchemaFiles(
     throw error;
   }
 
+  // Database scope lets ALTER ROLE into the isolated shadow only for managed
+  // settings; the catalog says what the files actually changed. New roles are
+  // left out: CREATE ROLE is refused statically, and one created in a DO block
+  // loaded before this feature too.
+  if (
+    roleStateBefore !== undefined &&
+    scope === "database" &&
+    declaresRoleSettings
+  ) {
+    const before = roleStateBefore.state;
+    const after = (
+      await roleState(shadowPool, managedRoleSettings, roleStateBefore.roles)
+    ).state;
+    const changes = [...new Set([...before.keys(), ...after.keys()])]
+      .filter((subject) => before.get(subject) !== after.get(subject))
+      .sort();
+    if (changes.length > 0) {
+      throw new SchemaFrontendError(
+        `the declarative files changed cluster-level role state that database scope does not manage ` +
+          `(only the role settings the profile manages may change): ${changes.join("; ")}. Use scope cluster to manage roles.`,
+      );
+    }
+  }
+
   // Pre-flight guard for the delivery model (docs/architecture/custom-folder.md
   // §7). Raw SQL — `_custom/` included — runs only in the disposable shadow, so
   // the shadow can legitimately hold unmodeled objects the target has never
@@ -728,7 +961,10 @@ export async function planSchemaFiles(
 
   /* The seed never replays default privileges, which are per database, so a
    * co-located shadow cannot reproduce the ACLs they give extension members. */
-  let policy = ctx.planOptions.policy;
+  let policy =
+    unmanagedRoleSettings && ctx.planOptions.policy !== undefined
+      ? withoutManagedRoleSettings(ctx.planOptions.policy)
+      : ctx.planOptions.policy;
   if (options.seedAssumedSchemas === true && policy !== undefined) {
     const adpSchemas = new Set(
       targetResult.factBase

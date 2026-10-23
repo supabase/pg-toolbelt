@@ -429,6 +429,7 @@ export function plan(
     rawSource,
     rawDesired,
     projectionSuppressions,
+    options?.policy,
   );
 
   // A user-mapping row whose options were unreadable via pg_user_mappings on

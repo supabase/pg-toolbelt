@@ -198,6 +198,7 @@ export {
   filterDeltas,
   flattenPolicy,
   validatePolicy,
+  type ManagedRoleSettings,
   type Policy,
   type Predicate,
   type FilterRule,

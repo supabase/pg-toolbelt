@@ -93,6 +93,7 @@ const NO_RELATION_LOCK_KINDS = new Set([
   "schema",
   "role",
   "membership",
+  "roleSetting",
   "defaultPrivilege",
   "extension",
   "function",
