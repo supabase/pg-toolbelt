@@ -274,6 +274,10 @@ export function buildActionGraph(
   const alterersOf = new Map<string, number[]>();
   actions.forEach((action, index) => {
     if (action.verb !== "alter") return;
+    // a rename's consumes[0] is its PARENT container, not an in-place-altered
+    // subject: indexing it would make every same-schema rename an "alterer" of
+    // the schema, and two renames would each order before the other (cycle)
+    if (renameActionIndices.has(index)) return;
     const primary = action.consumes[0];
     if (primary === undefined) return;
     const key = encodeId(primary);

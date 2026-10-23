@@ -1,0 +1,1 @@
+INSERT INTO s.t2 VALUES (1, 5);

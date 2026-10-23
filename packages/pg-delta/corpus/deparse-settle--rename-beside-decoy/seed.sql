@@ -1,0 +1,2 @@
+INSERT INTO s.gone VALUES (2, 6);
+INSERT INTO s.t1 VALUES (1, 5);

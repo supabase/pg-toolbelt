@@ -1,0 +1,2 @@
+INSERT INTO s.renamed VALUES (1);
+INSERT INTO s.t2 VALUES ('a');

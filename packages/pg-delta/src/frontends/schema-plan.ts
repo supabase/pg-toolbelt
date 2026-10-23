@@ -26,7 +26,7 @@ import {
   type ResolveProfileOptions,
   type ResolvedProfile,
 } from "../integrations/profile.ts";
-import { plan, type Plan, type PlanOptions } from "../plan/plan.ts";
+import type { Plan, PlanOptions } from "../plan/plan.ts";
 import type { RenameMode } from "../plan/renames.ts";
 import {
   factMatches,
@@ -35,7 +35,7 @@ import {
   resolveView,
 } from "../policy/policy.ts";
 import type { ManagementScope } from "../policy/view.ts";
-import { planSubjects, settleDesired } from "./settle-desired.ts";
+import { planSettled } from "./settle-desired.ts";
 import { scanTokens } from "./sql-format/tokenizer.ts";
 import type { ExportManifest } from "./export-manifest.ts";
 import {
@@ -802,29 +802,16 @@ export async function planSchemaFiles(
     redactSecrets,
   };
 
-  let thePlan = plan(targetResult.factBase, loadResult.factBase, planOptions);
-  // Only definitions this plan would emit can carry first-deparse text the
-  // target will not reproduce; a converged plan is empty and skips this.
-  const touched = planSubjects(thePlan);
-  const settle =
-    touched.size === 0
-      ? undefined
-      : await settleDesired(
-          shadowPool,
-          targetResult.factBase,
-          loadResult.factBase,
-          { only: touched },
-        );
-  if (settle?.changed === true) {
-    thePlan = plan(targetResult.factBase, settle.factBase, planOptions);
-  }
+  const settled = await planSettled(
+    shadowPool,
+    targetResult.factBase,
+    loadResult.factBase,
+    planOptions,
+  );
 
   return {
-    plan: thePlan,
-    loadDiagnostics: [
-      ...loadResult.diagnostics,
-      ...(settle?.diagnostics ?? []),
-    ],
+    plan: settled.plan,
+    loadDiagnostics: [...loadResult.diagnostics, ...settled.diagnostics],
     targetDiagnostics: targetResult.diagnostics,
     driftDiagnostics,
     skipped: prepared.skipped,

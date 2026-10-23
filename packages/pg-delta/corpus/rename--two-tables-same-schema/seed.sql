@@ -1,0 +1,2 @@
+INSERT INTO s.kept VALUES (1);
+INSERT INTO s.t1 VALUES ('a');
