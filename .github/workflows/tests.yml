@@ -505,4 +505,4 @@ jobs:
       - name: Build all packages
         run: bun run build
       - name: Release preview
-        run: bunx pkg-pr-new publish ./packages/pg-delta ./packages/pg-topo
+        run: bunx pkg-pr-new publish ./packages/pg-delta ./packages/pg-topo ./packages/pg-checks
