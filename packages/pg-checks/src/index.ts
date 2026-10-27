@@ -7,8 +7,6 @@ export {
   buildCheckBlock,
   buildCheckStatements,
   buildInTransactionWarnRead,
-  quoteLiteral,
-  WARN_READ_COLUMN,
 } from "./check.ts";
 export {
   type CheckError,
