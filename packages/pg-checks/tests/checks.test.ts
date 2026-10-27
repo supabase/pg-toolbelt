@@ -87,6 +87,31 @@ describe.each(majors)("supabase/postgres %s", (major) => {
     expect(await historyRows(version)).toBe(0);
   });
 
+  test("a blocked file caps the warnings in DETAIL and counts them all", async () => {
+    const { schema, version, exposedSchemas } = await fixture();
+    const result = await applyMigrationLikeCli(
+      client,
+      {
+        version,
+        name: "many_warnings",
+        statements: [
+          `create table ${schema}.t (id int primary key)`,
+          ...Array.from({ length: 60 }, (_, i) => [
+            `create table ${schema}.w${i} (id int primary key)`,
+            `alter table ${schema}.w${i} enable row level security`,
+          ]).flat(),
+        ],
+      },
+      errorOn("rls_disabled_in_public"),
+      { exposedSchemas },
+    );
+    expect(result.outcome).toBe("blocked");
+    if (result.outcome !== "blocked" || result.check.kind !== "blocked") return;
+    expect(result.check.warnings).toHaveLength(50);
+    // rls_enabled_no_policy checks every schema, so earlier tests add to the count.
+    expect(result.check.warningCount).toBeGreaterThanOrEqual(60);
+  });
+
   test("the same block through pg-meta's role and a one-string begin/commit batch", async () => {
     const admin = await db.connect("supabase_admin");
     try {
