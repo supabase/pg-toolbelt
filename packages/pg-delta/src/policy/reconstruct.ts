@@ -543,12 +543,13 @@ export function projectionAuditFrom(
 }
 
 /**
- * Warn about desired objects hidden only because a policy rule excluded their
+ * Warn about objects (on either side) hidden only because a policy rule excluded their
  * parent. Restricted to owned objects (tables, functions, types...): a column
  * or constraint follows its table, so only the top-level object is reported.
  */
 export function hiddenByExcludedParentDiagnostics(
   audit: ProjectionAudit,
+  rawSource: FactBase,
   rawDesired: FactBase,
   policy: Policy | undefined,
 ): Diagnostic[] {
@@ -556,20 +557,19 @@ export function hiddenByExcludedParentDiagnostics(
   const diagnostics: Diagnostic[] = [];
   for (const entry of audit.entries) {
     if (entry.subject.kind !== "fact") continue;
-    const parent = entry.suppressions.find(
-      (s) =>
-        s.side === "desired" &&
-        s.stage === "policyScopeRule" &&
-        s.viaDescendantOf !== undefined,
-    )?.viaDescendantOf;
-    if (parent === undefined) continue;
-    const fact = rawDesired.get(entry.subject.id);
+    const hidden = entry.suppressions.find(
+      (s) => s.stage === "policyScopeRule" && s.viaDescendantOf !== undefined,
+    );
+    if (hidden?.viaDescendantOf === undefined) continue;
+    const parent = hidden.viaDescendantOf;
+    const base = hidden.side === "desired" ? rawDesired : rawSource;
+    const fact = base.get(entry.subject.id);
     if (fact === undefined) continue;
-    const owner = rawDesired
+    const owner = base
       .outgoingEdges(fact.id)
       .find((edge) => edge.kind === "owner");
     if (owner === undefined) continue;
-    if (policyExcludesFact(policy, fact, rawDesired)) continue;
+    if (policyExcludesFact(policy, fact, base)) continue;
     diagnostics.push({
       code: HIDDEN_BY_EXCLUDED_PARENT,
       severity: "warning",

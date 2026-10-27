@@ -809,6 +809,7 @@ export function plan(
     ...vaultPresenceDiagnostics(desired, finalized.actions),
     ...hiddenByExcludedParentDiagnostics(
       projectionAudit,
+      rawSource,
       rawDesired,
       options?.policy,
     ),
