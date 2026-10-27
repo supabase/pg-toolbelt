@@ -11,6 +11,8 @@
  * Self-gated via runSupabaseBareTests.
  */
 import { afterAll, describe, expect, test } from "bun:test";
+import pg from "pg";
+import { apply } from "../src/apply/apply.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { supabasePolicy } from "../src/policy/supabase.ts";
@@ -21,9 +23,24 @@ import {
 } from "./containers.ts";
 
 const dbs: TestDb[] = [];
+const pools: pg.Pool[] = [];
 afterAll(async () => {
-  await Promise.all(dbs.map((d) => d.drop().catch(() => {})));
+  await Promise.all([
+    ...pools.map((p) => p.end().catch(() => {})),
+    ...dbs.map((d) => d.drop().catch(() => {})),
+  ]);
 });
+
+/** Non-superuser `postgres` pool: the role the platform applies plans as. */
+function asPostgres(db: TestDb): pg.Pool {
+  if (db.postgresUri === undefined) {
+    throw new Error("supabase cluster TestDb is missing postgresUri");
+  }
+  const pool = new pg.Pool({ connectionString: db.postgresUri, max: 3 });
+  pool.on("error", () => {});
+  pools.push(pool);
+  return pool;
+}
 
 async function makeDb(prefix: string, sql?: string): Promise<TestDb> {
   const cluster = await supabaseCluster();
@@ -72,6 +89,16 @@ const USER_TABLE_IN_PRODUCT_ETL = `
   RESET ROLE;
 `;
 
+/** Apply `source → desired` as `postgres`, then re-plan: nothing may remain. */
+async function applyAndConverge(source: TestDb, desired: TestDb) {
+  const thePlan = await planBetween(source, desired);
+  const report = await apply(thePlan, asPostgres(source), {
+    fingerprintGate: false,
+  });
+  expect(report.status).toBe("applied");
+  expect((await planBetween(source, desired)).actions).toEqual([]);
+}
+
 async function planBetween(source: TestDb, desired: TestDb) {
   const [s, d] = await Promise.all([
     extract(source.pool),
@@ -106,6 +133,10 @@ describe.skipIf(!runSupabaseBareTests)("supabase profile: etl schema", () => {
         "DROP SCHEMA "raw"",
       ]
     `);
+
+    const target = await makeDb("etl_target", grantCreate("postgres"));
+    await applyAndConverge(target, user);
+    await applyAndConverge(target, empty);
   });
 
   test("Supabase ETL's own objects stay hidden", async () => {
