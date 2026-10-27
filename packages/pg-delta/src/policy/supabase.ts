@@ -94,7 +94,10 @@ export const SUPABASE_SYSTEM_SCHEMAS = [
   "_supavisor",
   "auth",
   "cron",
-  "etl",
+  // `etl` is deliberately absent: the image ships no such schema, and Supabase
+  // ETL creates it (`create schema if not exists etl`) as
+  // `supabase_etl_admin`, which the owner rule already hides. Users commonly
+  // name their own schema `etl` (SUPABASE-API-BBR).
   "extensions",
   "graphql",
   "graphql_public",

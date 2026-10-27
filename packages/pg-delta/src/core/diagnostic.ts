@@ -82,6 +82,12 @@ export const USER_MAPPING_UNREADABLE = "user-mapping-unreadable";
  *  without a cross-layer import. */
 export const VAULT_PRESENCE = "vault_presence";
 
+/** Diagnostic code for a desired object that the policy does not exclude on
+ *  its own but that is hidden because its parent is (a user table inside a
+ *  schema owned by a system role). The plan cannot create it, so it warns
+ *  instead of dropping it silently. */
+export const HIDDEN_BY_EXCLUDED_PARENT = "hidden-by-excluded-parent";
+
 /** Thrown by public API stubs for not-yet-implemented stages (stage 0). */
 export class NotImplementedError extends Error {
   constructor(feature: string) {

@@ -13,12 +13,16 @@
  * public subpath. `ResolvedProfile` remains the public safe-composition surface.
  * Bare `resolveView` (without scope) stays legitimate for diff/seed paths.
  */
+import {
+  HIDDEN_BY_EXCLUDED_PARENT,
+  type Diagnostic,
+} from "../core/diagnostic.ts";
 import { diff, subjectOf, type Delta } from "../core/diff.ts";
 import type { DependencyEdge, FactBase } from "../core/fact.ts";
 import type { PayloadValue } from "../core/hash.ts";
 import { encodeId, parseId, type StableId } from "../core/stable-id.ts";
 import type { ApplierCapability } from "./capability.ts";
-import { resolveView, type Policy } from "./policy.ts";
+import { policyExcludesFact, resolveView, type Policy } from "./policy.ts";
 import {
   projectManagementScope,
   type ManagementScope,
@@ -536,4 +540,45 @@ export function projectionAuditFrom(
       ).length,
     },
   };
+}
+
+/**
+ * Warn about desired objects hidden only because a policy rule excluded their
+ * parent. Restricted to owned objects (tables, functions, types...): a column
+ * or constraint follows its table, so only the top-level object is reported.
+ */
+export function hiddenByExcludedParentDiagnostics(
+  audit: ProjectionAudit,
+  rawDesired: FactBase,
+  policy: Policy | undefined,
+): Diagnostic[] {
+  if (policy === undefined) return [];
+  const diagnostics: Diagnostic[] = [];
+  for (const entry of audit.entries) {
+    if (entry.subject.kind !== "fact") continue;
+    const parent = entry.suppressions.find(
+      (s) =>
+        s.side === "desired" &&
+        s.stage === "policyScopeRule" &&
+        s.viaDescendantOf !== undefined,
+    )?.viaDescendantOf;
+    if (parent === undefined) continue;
+    const fact = rawDesired.get(entry.subject.id);
+    if (fact === undefined) continue;
+    const owner = rawDesired
+      .outgoingEdges(fact.id)
+      .find((edge) => edge.kind === "owner");
+    if (owner === undefined) continue;
+    if (policyExcludesFact(policy, fact, rawDesired)) continue;
+    diagnostics.push({
+      code: HIDDEN_BY_EXCLUDED_PARENT,
+      severity: "warning",
+      subject: fact.id,
+      message:
+        `${encodeId(fact.id)} is not managed: its parent ${encodeId(parent)} ` +
+        `is excluded by the policy, so the plan neither creates nor drops it`,
+      context: { parent: encodeId(parent) },
+    });
+  }
+  return diagnostics;
 }

@@ -19,6 +19,7 @@ import {
 } from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 import {
+  hiddenByExcludedParentDiagnostics,
   projectionAuditFrom,
   type ProjectionAudit,
 } from "../policy/reconstruct.ts";
@@ -804,7 +805,14 @@ export function plan(
   });
   const { safetyReport } = finalized;
 
-  const vaultDiags = vaultPresenceDiagnostics(desired, finalized.actions);
+  const planDiags = [
+    ...vaultPresenceDiagnostics(desired, finalized.actions),
+    ...hiddenByExcludedParentDiagnostics(
+      projectionAudit,
+      rawDesired,
+      options?.policy,
+    ),
+  ];
 
   return stampPlanId({
     formatVersion: 1,
@@ -865,9 +873,9 @@ export function plan(
       : {}),
     actions: finalized.actions,
     safetyReport,
-    // CREATE/DROP EXTENSION supabase_vault is generic; the warning is that
-    // secret values/keys are not schema state. Omitted when empty so corpus
-    // artifacts stay byte-identical. Not hashed into planId.
-    ...(vaultDiags.length > 0 ? { diagnostics: vaultDiags } : {}),
+    // Plan-time warnings (vault secrets, objects hidden by an excluded
+    // parent). Omitted when empty so corpus artifacts stay byte-identical.
+    // Not hashed into planId.
+    ...(planDiags.length > 0 ? { diagnostics: planDiags } : {}),
   });
 }

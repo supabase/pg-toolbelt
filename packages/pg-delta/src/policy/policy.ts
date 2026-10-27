@@ -1140,6 +1140,18 @@ function containsWildcardMatcher(predicate: Predicate): boolean {
   return false;
 }
 
+/** Whether a scope rule of `policy` excludes `fact` by itself, as opposed to
+ *  only through an excluded parent. */
+export function policyExcludesFact(
+  policy: Policy,
+  fact: Fact,
+  view: FactBase,
+): boolean {
+  return (
+    factScopeExclusion(fact, flattenPolicy(policy).filter, view) !== undefined
+  );
+}
+
 function policyRuleAttribution(
   policyId: string,
   rule: FilterRule,
