@@ -10,9 +10,16 @@
  */
 import type { Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
-import { encodeId, type StableId } from "../../core/stable-id.ts";
 import {
+  encodeId,
+  isSatelliteId,
+  type StableId,
+} from "../../core/stable-id.ts";
+import {
+  CapabilityError,
+  canSelfGrantOwner,
   canSetOwner,
+  createRoleGrantsSet,
   type ApplierCapability,
 } from "../../policy/capability.ts";
 import {
@@ -91,6 +98,11 @@ export interface ActionEmitterOutput {
    *  (rule-declared `implicitlyDestroys`), for the graph: reproduce edge only,
    *  no teardown edges. Transient, never persisted. */
   implicitDestroys: Map<number, Set<string>>;
+  /** [before, after] pairs: actions that must run before a membership REVOKE
+   *  closing an owner bracket. Not expressible as a destroys/releases pair —
+   *  the GRANT re-produces the same membership id, which the graph reads as a
+   *  replacement and orders the REVOKE first. */
+  extraEdges: Array<[number, number]>;
 }
 
 /**
@@ -714,6 +726,36 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     }
   }
 
+  // Owner changes the applier cannot run directly but can bridge (#563):
+  // `GRANT r TO <applier>` before, `REVOKE` after the last action on an
+  // object r owns. The GRANT produces a membership id that those actions and
+  // the REVOKE consume; extra edges pin the REVOKE last. Without the REVOKE the applier
+  // keeps the membership: a visible drift on PG <= 15, and on PG16+ an extra
+  // SET/INHERIT grant the membership fact (deduped per role/member) hides.
+  const bracketRoles = new Set<string>();
+  const ownerChanges: Array<{
+    index: number;
+    objId: StableId;
+    roleName: string;
+  }> = [];
+  const ownerBracket = (objKey: string, roleName: string): StableId[] => {
+    if (capability === undefined || canSetOwner(capability, roleName))
+      return [];
+    const roleKey = encodeId(roleId(roleName));
+    const createdByPlan = added.has(roleKey);
+    if (createdByPlan && createRoleGrantsSet(capability)) return [];
+    const superuser = desired.getByEncoded(roleKey)?.payload["superuser"];
+    if (
+      !canSelfGrantOwner(capability, roleName, {
+        createdByPlan,
+        superuser: superuser === true,
+      })
+    )
+      throw new CapabilityError(objKey, roleName, capability.role);
+    bracketRoles.add(roleName);
+    return [membershipId(roleName, capability.role)];
+  };
+
   // owner-edge changes: emit ALTER … OWNER TO from link/unlink deltas (move 2:
   // owner is now an edge, not a payload attribute)
   {
@@ -783,26 +825,23 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       // "leave it applier-owned" (the owner is acldefault-relative). Unset only
       // for owner CHANGES/creates (this is an owner link delta), not pre-existing
       // unchanged ownership.
-      if (capability !== undefined && !canSetOwner(capability, roleName)) {
-        throw new Error(
-          `capability: cannot set owner of ${encodeId(objId)} to role "${roleName}" — applier "${capability.role}" is not a superuser or a member of that role; grant membership or apply as a member/superuser`,
-        );
-      }
+      const bracket = ownerBracket(objKey, roleName);
       // for an accepted rename the source-side owner unlink is keyed by the OLD
       // id, so `oldOwnerByFact` (keyed by the link's `from`, i.e. the NEW id) has
       // no entry — fall back to the owner the renamed subtree carried in source
       // (review P1 #1), so the release edge orders this before the old role drop.
       const oldRoleId =
         oldOwnerByFact.get(objKey) ?? renamedOwnerId.get(objKey);
-      pushAction(
+      const ownerIndex = pushAction(
         "alter",
         {
           sql: `${prefix} OWNER TO ${qid(roleName)}`,
-          consumes: [newRoleId],
+          consumes: [newRoleId, ...bracket],
           ...(oldRoleId !== undefined ? { releases: [oldRoleId] } : {}),
         },
         { consumes: [objId] },
       );
+      ownerChanges.push({ index: ownerIndex, objId, roleName });
       ownerEmitted.add(objKey);
     }
 
@@ -825,23 +864,31 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         .find((e) => e.kind === "owner");
       if (ownerEdge?.to.kind !== "role") continue;
       const roleName = (ownerEdge.to as { kind: "role"; name: string }).name;
-      if (capability !== undefined && !canSetOwner(capability, roleName)) {
-        throw new Error(
-          `capability: cannot set owner of ${key} to role "${roleName}" — ` +
-            `applier "${capability.role}" is not a superuser or a member of that role; ` +
-            `grant membership or apply as a member/superuser`,
-        );
-      }
-      pushAction(
+      const bracket = ownerBracket(key, roleName);
+      const ownerIndex = pushAction(
         "alter",
         {
           sql: `${ownerAlterPrefix(fact)} OWNER TO ${qid(roleName)}`,
-          consumes: [ownerEdge.to],
+          consumes: [ownerEdge.to, ...bracket],
         },
         { consumes: [fact.id] },
       );
+      ownerChanges.push({ index: ownerIndex, objId: fact.id, roleName });
     }
   }
+
+  const extraEdges: Array<[number, number]> = [];
+  if (capability !== undefined && !capability.isSuperuser)
+    orderOwnerChanges(
+      actions,
+      ownerChanges,
+      bracketRoles,
+      capability.role,
+      capability.pgMajor,
+      pushAction,
+      [projectedDesired, source],
+      extraEdges,
+    );
 
   return {
     actions,
@@ -851,5 +898,132 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     acceptsFolds,
     renameActionIndices,
     implicitDestroys,
+    extraEdges,
   };
+}
+
+const roleId = (name: string): StableId => ({ kind: "role", name });
+const membershipId = (role: string, member: string): StableId => ({
+  kind: "membership",
+  role,
+  member,
+});
+
+type PushAction = (
+  verb: Action["verb"],
+  spec: ActionSpec,
+  opts: { produces?: StableId[]; consumes?: StableId[]; destroys?: StableId[] },
+) => number;
+
+/**
+ * Ordering a non-superuser applier needs around `ALTER … OWNER TO r`:
+ *   - the new owner must hold CREATE on the containing schema, so this plan's
+ *     changes to r's grant on that schema run first;
+ *   - for each bracketed role, `GRANT r TO <applier>` runs before, and
+ *     `REVOKE` after, every action on an object r ends up owning (run as a
+ *     non-owner, its ACL changes are silent no-ops and COMMENT fails).
+ */
+function orderOwnerChanges(
+  actions: Action[],
+  ownerChanges: ReadonlyArray<{
+    index: number;
+    objId: StableId;
+    roleName: string;
+  }>,
+  bracketRoles: ReadonlySet<string>,
+  applier: string,
+  pgMajor: number | undefined,
+  pushAction: PushAction,
+  bases: readonly FactBase[],
+  extraEdges: Array<[number, number]>,
+): void {
+  // an acl create spans several actions (REVOKE ALL leader, then GRANTs), and
+  // an existing grant may be altered instead: order after every one of them
+  const actionsOn = new Map<string, number[]>();
+  actions.forEach((action, index) => {
+    for (const id of [...action.produces, ...action.consumes]) {
+      const key = encodeId(id);
+      const list = actionsOn.get(key);
+      if (list === undefined) actionsOn.set(key, [index]);
+      else if (list.at(-1) !== index) list.push(index);
+    }
+  });
+  for (const { index, objId, roleName } of ownerChanges) {
+    const schema = (objId as { schema?: unknown }).schema;
+    if (typeof schema !== "string") continue;
+    const schemaAcl = encodeId({
+      kind: "acl",
+      target: { kind: "schema", name: schema },
+      grantee: roleName,
+    });
+    for (const before of actionsOn.get(schemaAcl) ?? [])
+      if (before !== index) extraEdges.push([before, index]);
+  }
+  if (bracketRoles.size === 0) return;
+
+  const ownedBy = new Map<string, string>();
+  for (const { objId, roleName } of ownerChanges)
+    if (bracketRoles.has(roleName)) ownedBy.set(encodeId(objId), roleName);
+  const bracketedOwner = (id: StableId): string | undefined => {
+    let current: StableId | undefined = id;
+    // satellites hang off `target`, sub-entities off their fact's parent
+    for (let depth = 0; current !== undefined && depth < 8; depth++) {
+      if (isSatelliteId(current)) {
+        current = (current as { target: StableId }).target;
+        continue;
+      }
+      const role = ownedBy.get(encodeId(current));
+      if (role !== undefined) return role;
+      const at: StableId = current;
+      current = bases.map((base) => base.get(at)).find(Boolean)?.parent;
+    }
+    return undefined;
+  };
+
+  const emitted = actions.length;
+  const memberships = new Map<string, StableId>();
+  const revokeOf = new Map<string, number>();
+  for (const roleName of bracketRoles) {
+    const membership = membershipId(roleName, applier);
+    const role = roleId(roleName);
+    memberships.set(roleName, membership);
+    pushAction(
+      "alter",
+      // explicit INHERIT: a NOINHERIT applier would otherwise get SET only and
+      // fail the later COMMENT/ACL actions that need r's owner privileges
+      {
+        sql: `GRANT ${qid(roleName)} TO ${qid(applier)}${pgMajor !== undefined && pgMajor >= 16 ? " WITH INHERIT TRUE, SET TRUE" : ""}`,
+      },
+      { produces: [membership], consumes: [role] },
+    );
+    revokeOf.set(
+      roleName,
+      pushAction(
+        "alter",
+        { sql: `REVOKE ${qid(roleName)} FROM ${qid(applier)}` },
+        // membership first: a role-primary alter would pin every action on an
+        // object owned by r (owner edge → r) after this REVOKE
+        { consumes: [membership, role] },
+      ),
+    );
+  }
+  for (let index = 0; index < emitted; index++) {
+    const action = actions[index] as Action;
+    const roles = new Set<string>();
+    for (const id of [
+      ...action.produces,
+      ...action.consumes,
+      ...action.destroys,
+    ]) {
+      const role = bracketedOwner(id);
+      if (role !== undefined) roles.add(role);
+    }
+    for (const role of roles) {
+      const membership = memberships.get(role) as StableId;
+      const key = encodeId(membership);
+      if (!action.consumes.some((id) => encodeId(id) === key))
+        action.consumes.push(membership);
+      extraEdges.push([index, revokeOf.get(role) as number]);
+    }
+  }
 }

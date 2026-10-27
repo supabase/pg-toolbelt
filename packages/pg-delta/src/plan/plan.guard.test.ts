@@ -63,7 +63,10 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // sequence keys off the column fact and narrows the sequence id.
   // 16 → 18: the same hygiene for an in-place ADD IDENTITY.
   // 18 → 19: ADD IDENTITY replays the column's surviving sequence acl children.
-  "phases/action-emitter.ts": 19,
+  // 19 → 23: owner changes a non-superuser applier bridges with a temporary
+  // self-grant (#563) build the role / membership ids for the GRANT/REVOKE
+  // pair and the schema acl id the new owner needs CREATE on.
+  "phases/action-emitter.ts": 23,
   "phases/action-graph.ts": 1,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,
