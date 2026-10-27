@@ -30,7 +30,10 @@ export type CheckError =
   | {
       readonly kind: "blocked";
       readonly errors: Finding[];
+      /** At most `DETAIL_WARNING_LIMIT` rows; see {@link warningCount}. */
       readonly warnings: Finding[];
+      /** Every warning finding, including those cut from {@link warnings}. */
+      readonly warningCount: number;
     }
   | { readonly kind: "timed_out"; readonly message: string };
 
@@ -143,7 +146,7 @@ export function parseCheckError(
     };
   }
   if (code !== CHECK_FAILED_SQLSTATE) return null;
-  let parsed: { errors?: unknown; warnings?: unknown };
+  let parsed: { errors?: unknown; warnings?: unknown; warning_count?: unknown };
   try {
     parsed = JSON.parse(String(detail)) as typeof parsed;
   } catch (cause) {
@@ -157,9 +160,14 @@ export function parseCheckError(
       const finding = toFinding(row, severity);
       return finding === null ? [] : [finding];
     });
+  const warnings = collect(parsed.warnings, "warn");
   return {
     kind: "blocked",
     errors: collect(parsed.errors, "error"),
-    warnings: collect(parsed.warnings, "warn"),
+    warnings,
+    warningCount:
+      typeof parsed.warning_count === "number"
+        ? parsed.warning_count
+        : warnings.length,
   };
 }

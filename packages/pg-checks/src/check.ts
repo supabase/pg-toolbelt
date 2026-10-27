@@ -9,7 +9,11 @@ import { RULE_SQL } from "./vendor/splinter.ts";
 export interface CheckOptions {
   /** Timeout of the check statement alone. Default 2000 (D23). */
   readonly timeoutMs?: number;
-  /** Schemas exposed through the Data API (`[api].schemas`). Default `["public"]`. */
+  /**
+   * Schemas exposed through the Data API (`[api].schemas`). Default `["public"]`.
+   * Scopes only the rules that read `pgrst.db_schemas`; the other five check
+   * every user schema, as splinter does.
+   */
   readonly exposedSchemas?: readonly string[];
 }
 
@@ -17,6 +21,9 @@ export interface CheckOptions {
 export const CHECK_FAILED_SQLSTATE = "SB001";
 /** SQLSTATE raised when the check itself exceeds its timeout. */
 export const CHECK_TIMED_OUT_SQLSTATE = "SB002";
+
+/** Warning rows kept in `SB001`'s `DETAIL`; `warning_count` still counts them all. */
+export const DETAIL_WARNING_LIMIT = 50;
 
 /** A Postgres string literal, safe under either `standard_conforming_strings`. */
 export function quoteLiteral(value: string): string {
@@ -129,6 +136,9 @@ begin
 ${select}
 $sbcq$ into findings;
     if pg_catalog.jsonb_array_length(findings->'errors') > 0 then
+      findings := findings || pg_catalog.jsonb_build_object(
+        'warning_count', pg_catalog.jsonb_array_length(findings->'warnings'),
+        'warnings', pg_catalog.jsonb_path_query_array(findings->'warnings', '$[0 to ${DETAIL_WARNING_LIMIT - 1}]'));
       raise exception using errcode = '${CHECK_FAILED_SQLSTATE}', message = 'security check failed',
         detail = findings::pg_catalog.text;
     end if;

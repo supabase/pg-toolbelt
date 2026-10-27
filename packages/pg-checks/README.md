@@ -29,7 +29,7 @@ const script = buildCheckBlock(policy, { exposedSchemas });                     
 
 try { /* run file + statements + history insert */ } catch (error) {
   // fromCheck: the failing statement was one of `statements` (a cancel while the DO compiles is a raw 57014).
-  const check = parseCheckError(error, { fromCheck }); // { kind: "blocked", errors, warnings } | { kind: "timed_out" } | null
+  const check = parseCheckError(error, { fromCheck }); // { kind: "blocked", errors, warnings, warningCount } | { kind: "timed_out" } | null
 }
 
 // After commit, outside any transaction: begin; set_config...; select; rollback.
@@ -54,8 +54,11 @@ const result = parseInTransactionWarnRead(responseRows, policy); // { findings }
 - Check block: `set_config('sbc.statement_timeout', …)`, `SET LOCAL statement_timeout`,
   one `DO` block, restore. The `DO` saves and restores `search_path` (`''` for
   splinter) and `pgrst.db_schemas` (the exposed schemas) itself. A finding at
-  `error` raises `SB001` with `DETAIL = {"errors": [...], "warnings": [...]}`
-  (full splinter rows); a check over its timeout raises `SB002`.
+  `error` raises `SB001` with
+  `DETAIL = {"errors": [...], "warnings": [...], "warning_count": n}` (full
+  splinter rows). `warnings` keeps at most `DETAIL_WARNING_LIMIT` (50) rows so a
+  project with hundreds of warnings does not send a DETAIL of hundreds of KB;
+  `warning_count` counts them all. A check over its timeout raises `SB002`.
 - In-transaction warn read: the same save/`SET LOCAL`/`DO` shape, but the `DO`
   never raises from the lint: it catches `query_canceled` and `others` and stores
   `{"findings": [...]}` or `{"read_error": "<sqlstate>: <message>"}` in
@@ -66,6 +69,10 @@ const result = parseInTransactionWarnRead(responseRows, policy); // { findings }
   `coalesce(current_setting('pgrst.db_schemas', true), 'public')` would not
   already give the exposed schemas (CLI-2826). A public-only project never creates
   the placeholder; `exposedSchemas: []` (Data API off) sets `''`.
+- `exposedSchemas` only scopes the rules that read `pgrst.db_schemas`.
+  `rls_enabled_no_policy`, `policy_exists_rls_disabled`, `rls_policy_always_true`,
+  `function_search_path_mutable` and `rls_references_user_metadata` check every
+  user schema, as splinter does; pg-checks does not filter them.
 - Findings: `{rule, severity, splinterLevel, schema, name, type, detail, fix, docs}`
   (RFC §8). `severity` is the policy's (`error | warn`); `splinterLevel` is
   splinter's own `level` for the rule (`ERROR | WARN | INFO`, `null` if absent),

@@ -2,6 +2,7 @@ export {
   type AfterCommitRead,
   CHECK_FAILED_SQLSTATE,
   CHECK_TIMED_OUT_SQLSTATE,
+  DETAIL_WARNING_LIMIT,
   type CheckOptions,
   buildAfterCommitRead,
   buildCheckBlock,
