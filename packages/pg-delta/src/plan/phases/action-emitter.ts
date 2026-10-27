@@ -741,6 +741,15 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const ownerBracket = (objKey: string, roleName: string): StableId[] => {
     if (capability === undefined || canSetOwner(capability, roleName))
       return [];
+    // a membership the plan grants for good already lets the applier SET ROLE
+    // (PG16+: unless it is ADMIN-only); revoking it would undo the desired state
+    const membership = membershipId(roleName, capability.role);
+    const kept = added.get(encodeId(membership));
+    if (
+      kept !== undefined &&
+      ((capability.pgMajor ?? 0) < 16 || kept.payload["admin"] !== true)
+    )
+      return [membership];
     const roleKey = encodeId(roleId(roleName));
     const createdByPlan = added.has(roleKey);
     if (createdByPlan && createRoleGrantsSet(capability)) return [];
@@ -956,8 +965,15 @@ function orderOwnerChanges(
       target: { kind: "schema", name: schema },
       grantee: roleName,
     });
-    for (const before of actionsOn.get(schemaAcl) ?? [])
-      if (before !== index) extraEdges.push([before, index]);
+    // the new owner needs CREATE on the schema at the moment of the transfer:
+    // a grant that keeps it runs first, one that takes it away runs after
+    const keepsCreate =
+      bases[0]?.getByEncoded(schemaAcl)?.payload["privileges"];
+    const grantFirst =
+      Array.isArray(keepsCreate) && keepsCreate.includes("CREATE");
+    for (const other of actionsOn.get(schemaAcl) ?? [])
+      if (other !== index)
+        extraEdges.push(grantFirst ? [other, index] : [index, other]);
   }
   if (bracketRoles.size === 0) return;
 

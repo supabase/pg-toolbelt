@@ -189,6 +189,51 @@ describe("ApplierCapability — owner residue fail-fast (follow-up 1)", () => {
   test("no capability → no owner restriction (corpus path)", () => {
     expect(() => plan(source(r2), desiredOwnedBy(r2))).not.toThrow();
   });
+  // #563 review: a membership the desired state keeps must not be revoked by
+  // the bracket, and a schema CREATE the new owner loses must be revoked only
+  // after the owner change that needs it.
+  test("a desired applier membership is reused, not bracketed", () => {
+    const keep: StableId = { kind: "membership", role: "r2", member: "app" };
+    const app: StableId = { kind: "role", name: "app" };
+    const desired = buildFactBase(
+      [f(schemaApp), f(r2), f(app), { id: keep, payload: { admin: false } }],
+      [ownerEdge(r2)],
+    );
+    const sql = plan(buildFactBase([f(r2), f(app)], []), desired, {
+      capability: { ...memberOfR1, pgMajor: 15, createRole: true },
+    }).actions.map((a) => a.sql);
+    expect(sql.filter((s) => /"r2"/.test(s))).toEqual([
+      'GRANT "r2" TO "app"',
+      'ALTER SCHEMA "app" OWNER TO "r2"',
+    ]);
+  });
+
+  test("schema CREATE revoked from the new owner after the owner change", () => {
+    const pub: StableId = { kind: "schema", name: "public" };
+    const t: StableId = { kind: "table", schema: "public", name: "t" };
+    const acl: StableId = { kind: "acl", target: pub, grantee: "r1" };
+    const base = (privileges: string[], owner: StableId) =>
+      buildFactBase(
+        [
+          f(pub),
+          f(r1),
+          f({ kind: "role", name: "app" }),
+          { id: t, payload: {} },
+          { id: acl, payload: { privileges, grantable: [] } },
+        ],
+        [{ from: t, to: owner, kind: "owner" }],
+      );
+    const sql = plan(
+      base(["CREATE", "USAGE"], { kind: "role", name: "app" }),
+      base(["USAGE"], r1),
+      { capability: memberOfR1 },
+    ).actions.map((a) => a.sql);
+    const owner = sql.findIndex((s) => s.includes("OWNER TO"));
+    const revoke = sql.findIndex((s) => /REVOKE .*ON SCHEMA/.test(s));
+    expect(owner).toBeGreaterThanOrEqual(0);
+    expect(revoke).toBeGreaterThan(owner);
+  });
+
   // #563: an owner the applier cannot SET ROLE to is bridged with a temporary
   // self-grant when Postgres lets the applier grant it; otherwise it is a
   // typed error callers can report as a privilege problem.
