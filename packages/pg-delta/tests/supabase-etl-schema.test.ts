@@ -139,4 +139,55 @@ describe.skipIf(!runSupabaseBareTests)("supabase profile: etl schema", () => {
       ]
     `);
   });
+
+  test("removing a user table from the ETL-owned schema warns", async () => {
+    const product = await makeDb("etl_product2", PRODUCT_ETL);
+    const mixed = await makeDb("etl_mixed2", USER_TABLE_IN_PRODUCT_ETL);
+    const p = await planBetween(mixed, product);
+    expect(p.actions).toEqual([]);
+    expect(p.diagnostics).toMatchInlineSnapshot(`
+      [
+        {
+          "code": "hidden-by-excluded-parent",
+          "context": {
+            "parent": "schema:etl",
+          },
+          "message": "table:etl.user_batches is not managed: its parent schema:etl is excluded by the policy, so the plan neither creates nor drops it",
+          "severity": "warning",
+          "subject": {
+            "kind": "table",
+            "name": "user_batches",
+            "schema": "etl",
+          },
+        },
+      ]
+    `);
+  });
+
+  test("a user FK into an ETL-owned table", async () => {
+    const product = await makeDb(
+      "etl_product3",
+      `${PRODUCT_ETL} GRANT CREATE ON SCHEMA public TO postgres;`,
+    );
+    const withFk = await makeDb(
+      "etl_fk",
+      `${PRODUCT_ETL}
+       GRANT USAGE ON SCHEMA etl TO postgres;
+       GRANT CREATE ON SCHEMA public TO postgres;
+       GRANT REFERENCES ON etl.replication_state TO postgres;
+       SET ROLE postgres;
+       CREATE TABLE public.pipeline_notes (
+         state_id bigint REFERENCES etl.replication_state (id)
+       );
+       RESET ROLE;`,
+    );
+    const p = await planBetween(product, withFk);
+    expect(p.actions.map((a) => a.sql)).toMatchInlineSnapshot(`
+      [
+        "CREATE TABLE "public"."pipeline_notes" ("state_id" bigint)",
+        "REVOKE ALL ON TABLE "public"."pipeline_notes" FROM "anon", "authenticated", "service_role"",
+        "ALTER TABLE "public"."pipeline_notes" ADD CONSTRAINT "pipeline_notes_state_id_fkey" FOREIGN KEY (state_id) REFERENCES etl.replication_state(id)",
+      ]
+    `);
+  });
 });
