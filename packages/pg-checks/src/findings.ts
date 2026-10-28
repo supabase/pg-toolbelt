@@ -4,7 +4,7 @@ import {
   CHECK_TIMED_OUT_SQLSTATE,
   WARN_READ_COLUMN,
 } from "./check.ts";
-import { fixText } from "./fix.ts";
+import { type Fix, fixesFor } from "./fix.ts";
 import { RULES, type ResolvedPolicy, type Rule } from "./policy.ts";
 
 export interface Finding {
@@ -16,8 +16,8 @@ export interface Finding {
   /** Splinter's own `level` for the rule, independent of the policy severity. */
   readonly splinterLevel: SplinterLevel | null;
   readonly detail: string;
-  /** What to change, naming the object (pg-checks' own text, O13). */
-  readonly fix: string;
+  /** Ways to fix it, one per intent, naming the object (pg-checks' own, O13). */
+  readonly fixes: readonly Fix[];
   /** Splinter's `remediation`: the rule's docs URL. */
   readonly docs: string | null;
 }
@@ -62,7 +62,7 @@ function toFinding(row: unknown, severity: "error" | "warn"): Finding | null {
       ? (record["level"] as SplinterLevel)
       : null,
     detail: stringOrNull(record["detail"]) ?? "",
-    fix: fixText(record["name"], metadata),
+    fixes: fixesFor(record["name"], metadata),
     docs: stringOrNull(record["remediation"]),
   };
 }
