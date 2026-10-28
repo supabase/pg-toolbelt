@@ -73,12 +73,15 @@ const result = parseInTransactionWarnRead(responseRows, policy); // { findings }
   `rls_enabled_no_policy`, `policy_exists_rls_disabled`, `rls_policy_always_true`,
   `function_search_path_mutable` and `rls_references_user_metadata` check every
   user schema, as splinter does; pg-checks does not filter them.
-- Findings: `{rule, severity, splinterLevel, schema, name, type, detail, fix, docs}`
+- Findings: `{rule, severity, splinterLevel, schema, name, type, detail, fixes, docs}`
   (RFC §8). `severity` is the policy's (`error | warn`); `splinterLevel` is
   splinter's own `level` for the rule (`ERROR | WARN | INFO`, `null` if absent),
-  e.g. `rls_enabled_no_policy` is `INFO` in splinter. `fix` is pg-checks' own
-  per-rule text naming the object (O13, `src/fix.ts`); `docs` is splinter's
-  `remediation` URL.
+  e.g. `rls_enabled_no_policy` is `INFO` in splinter. `fixes` is pg-checks' own
+  list per rule, one entry per intent (O13, `src/fix.ts`): `{kind, label, sql,
+  why}`, where `kind` is `statement` (complete SQL), `template` (SQL with
+  `<placeholders>`) or `guidance` (`sql: null`). Fixes point at the change and
+  name the object; they are not meant to be applied as-is, and nothing applies
+  them. `docs` is splinter's `remediation` URL.
 
 ## Vendored splinter
 

@@ -26,4 +26,5 @@ export {
   resolvePolicy,
   rulesAt,
 } from "./policy.ts";
+export { type Fix, type FixKind } from "./fix.ts";
 export { SPLINTER_VERSION } from "./vendor/splinter.ts";

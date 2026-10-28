@@ -45,7 +45,7 @@ describe("parseFindings", () => {
         type: "table",
         splinterLevel: "ERROR",
         detail: "public.foo finding",
-        fix: "alter table public.foo enable row level security; then add a policy for each role that needs access: create policy ... on public.foo for <command> to <role> using (<condition>);",
+        fixes: expect.any(Array),
         docs: "https://supabase.com/docs/guides/database/database-linter?lint=rls_disabled_in_public",
       },
       {
@@ -56,13 +56,13 @@ describe("parseFindings", () => {
         type: "function",
         splinterLevel: "ERROR",
         detail: "public.bar finding",
-        fix: "alter function public.bar set search_path = ''; then schema-qualify every object its body references.",
+        fixes: expect.any(Array),
         docs: "https://supabase.com/docs/guides/database/database-linter?lint=function_search_path_mutable",
       },
     ]);
   });
 
-  test("fix text names the object, per rule; docs stays splinter's URL", () => {
+  test("fixes name the object, per rule and intent; docs stays splinter's URL", () => {
     const withMetadata = (
       base: ReturnType<typeof row>,
       extra: Record<string, unknown>,
@@ -83,18 +83,144 @@ describe("parseFindings", () => {
       ],
       resolvePolicy({}),
     );
-    expect(Object.fromEntries(findings.map((f) => [f.rule, f.fix])))
+    expect(
+      Object.fromEntries(
+        findings.map((f) => [f.rule, f.fixes.map((fix) => fix.kind)]),
+      ),
+    ).toEqual({
+      rls_disabled_in_public: ["statement", "template"],
+      rls_enabled_no_policy: ["statement", "template"],
+      policy_exists_rls_disabled: ["statement"],
+      security_definer_view: ["statement"],
+      rls_policy_always_true: ["template"],
+      sensitive_columns_exposed: ["template", "guidance"],
+      auth_users_exposed: ["statement", "guidance"],
+      function_search_path_mutable: ["guidance"],
+      rls_references_user_metadata: ["guidance"],
+    });
+    for (const finding of findings) {
+      const object = `${finding.schema}.${finding.name}`;
+      for (const fix of finding.fixes) {
+        expect(fix.label.length).toBeGreaterThan(0);
+        expect(fix.why.length).toBeGreaterThan(0);
+        if (fix.kind === "guidance") expect(fix.sql).toBeNull();
+        else expect(fix.sql).not.toBeNull();
+        if (fix.kind === "template") expect(fix.sql).toMatch(/<[a-z_]+>/);
+        if (fix.kind === "statement") expect(fix.sql).not.toMatch(/<[a-z_]+>/);
+        // Every fix names its object, quoted in SQL when needed.
+        expect(`${fix.sql ?? ""} ${fix.why}`).toContain(
+          finding.name === "Profiles" ? 'public."Profiles"' : object,
+        );
+      }
+    }
+    expect(Object.fromEntries(findings.map((f) => [f.rule, f.fixes])))
       .toMatchInlineSnapshot(`
       {
-        "auth_users_exposed": "View public.members exposes auth.users to the API: revoke select on public.members from anon, authenticated; or drop it and copy the columns you need into a table with RLS (e.g. public.profiles filled by a trigger on auth.users).",
-        "function_search_path_mutable": "alter function public.f set search_path = ''; then schema-qualify every object its body references.",
-        "policy_exists_rls_disabled": "The policies on public.blog have no effect until RLS is on: alter table public.blog enable row level security;",
-        "rls_disabled_in_public": "alter table public."Profiles" enable row level security; then add a policy for each role that needs access: create policy ... on public."Profiles" for <command> to <role> using (<condition>);",
-        "rls_enabled_no_policy": "If only service_role should use this table, state it: create policy "service_role only" on app.customers for all using (false); otherwise add a policy for the roles that need access.",
-        "rls_policy_always_true": "Policy "allow all" on public.posts allows every row: alter policy "allow all" on public.posts using (<condition>) with check (<condition>);",
-        "rls_references_user_metadata": "A policy on public.docs reads user_metadata, which users can edit: base it on app_metadata or on a table you control.",
-        "security_definer_view": "alter view public.v set (security_invoker = on);",
-        "sensitive_columns_exposed": "public.users has sensitive columns and no RLS: alter table public.users enable row level security; and add policies, or move those columns to a table the API cannot read.",
+        "auth_users_exposed": [
+          {
+            "kind": "statement",
+            "label": "Revoke API access",
+            "sql": "revoke select on public.members from anon, authenticated;",
+            "why": "public.members exposes auth.users to the API; the API roles can no longer read it.",
+          },
+          {
+            "kind": "guidance",
+            "label": "Use a profiles table",
+            "sql": null,
+            "why": "Drop public.members and copy the columns you need into a table with RLS, e.g. public.profiles filled by a trigger on auth.users.",
+          },
+        ],
+        "function_search_path_mutable": [
+          {
+            "kind": "guidance",
+            "label": "Pin the search_path",
+            "sql": null,
+            "why": "Function public.f resolves names through the caller's search_path. Set search_path = '' on it (every overload) and schema-qualify every object its body references.",
+          },
+        ],
+        "policy_exists_rls_disabled": [
+          {
+            "kind": "statement",
+            "label": "Enable RLS",
+            "sql": "alter table public.blog enable row level security;",
+            "why": "The policies on public.blog have no effect until RLS is on. Check that they allow what the API needs before enabling it.",
+          },
+        ],
+        "rls_disabled_in_public": [
+          {
+            "kind": "statement",
+            "label": "Restrict to service_role",
+            "sql": 
+      "alter table public."Profiles" enable row level security;
+      create policy "service_role only" on public."Profiles" for all using (false);"
+      ,
+            "why": "Only service_role can read or write public."Profiles"; anon and authenticated get no rows.",
+          },
+          {
+            "kind": "template",
+            "label": "Allow access per user",
+            "sql": 
+      "alter table public."Profiles" enable row level security;
+      create policy "owner access" on public."Profiles" for <command> to authenticated using (auth.uid() = <owner_column>);"
+      ,
+            "why": "Enable RLS on public."Profiles" and add a policy for each role and command that needs access.",
+          },
+        ],
+        "rls_enabled_no_policy": [
+          {
+            "kind": "statement",
+            "label": "State service_role only",
+            "sql": "create policy "service_role only" on app.customers for all using (false);",
+            "why": "app.customers has RLS and no policy, so only service_role can use it. If that is intended, say so with a deny-all policy.",
+          },
+          {
+            "kind": "template",
+            "label": "Allow access per user",
+            "sql": "create policy "owner access" on app.customers for <command> to authenticated using (auth.uid() = <owner_column>);",
+            "why": "Add a policy on app.customers for each role and command that needs access.",
+          },
+        ],
+        "rls_policy_always_true": [
+          {
+            "kind": "template",
+            "label": "Narrow the policy",
+            "sql": "alter policy "allow all" on public.posts using (<condition>) with check (<condition>);",
+            "why": "Policy "allow all" on public.posts allows every row; replace true with the condition that should apply.",
+          },
+        ],
+        "rls_references_user_metadata": [
+          {
+            "kind": "guidance",
+            "label": "Stop trusting user_metadata",
+            "sql": null,
+            "why": "A policy on public.docs reads user_metadata, which users can edit. Base it on app_metadata or on a table you control.",
+          },
+        ],
+        "security_definer_view": [
+          {
+            "kind": "statement",
+            "label": "Use the caller's permissions",
+            "sql": "alter view public.v set (security_invoker = on);",
+            "why": "public.v then reads its tables with the caller's permissions and RLS, so callers without access to those tables lose rows.",
+          },
+        ],
+        "sensitive_columns_exposed": [
+          {
+            "kind": "template",
+            "label": "Enable RLS with policies",
+            "sql": 
+      "alter table public.users enable row level security;
+      create policy "owner access" on public.users for <command> to authenticated using (auth.uid() = <owner_column>);"
+      ,
+            "why": "public.users has sensitive columns and no RLS; enable it and add policies for the roles that need access.",
+          },
+          {
+            "kind": "guidance",
+            "label": "Move the sensitive columns",
+            "sql": null,
+            "why": "Move the sensitive columns of public.users to a table in a schema the API does not expose.",
+          },
+        ],
       }
     `);
     expect(new Set(findings.map((f) => f.docs))).toEqual(
