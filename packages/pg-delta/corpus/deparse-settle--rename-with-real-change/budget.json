@@ -1,0 +1,8 @@
+{
+  "a-to-b": {
+    "forbid": ["rename:table"]
+  },
+  "b-to-a": {
+    "forbid": ["rename:table"]
+  }
+}

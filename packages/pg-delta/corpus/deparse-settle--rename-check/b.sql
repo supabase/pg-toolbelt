@@ -1,0 +1,5 @@
+-- The table is renamed; its check means the same but loads nested.
+CREATE SCHEMA s;
+
+CREATE TABLE s.t2 (a int, b int,
+  CONSTRAINT ck CHECK (b BETWEEN 0 AND 10 AND a >= 0));

@@ -12,10 +12,10 @@ import pg from "pg";
 import { apply } from "../src/apply/apply.ts";
 import { encodeId } from "../src/core/stable-id.ts";
 import { extract } from "../src/extract/extract.ts";
-import { plan } from "../src/plan/plan.ts";
+import { plan, type Plan } from "../src/plan/plan.ts";
 import { probeApplierCapability } from "../src/policy/capability.ts";
 import { rel } from "../src/plan/render.ts";
-import { settleDesired } from "../src/frontends/settle-desired.ts";
+import { planSettled } from "../src/frontends/settle-desired.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import { enforceActionShapeBudgetForMode } from "./action-shape-budgets.ts";
 import { enforceSeedCoverage, runPinnedDirection } from "./seed-coverage.ts";
@@ -147,11 +147,18 @@ async function proveOn(
 
     const sourceState = await extractState(sourceWork);
     let desiredState = await extractState(desiredWork);
+    // Probe the connection that will apply (superuser `test`, or the
+    // CREATEROLE login when `createroleApplier` is set) so capability-gated
+    // compaction sees the same role as extract/prove.
+    const capability = await probeApplierCapability(sourceWork);
+    const planOptions = { capability, compact, renames: renames ?? "off" };
+    let thePlan: Plan;
     if (settle) {
-      const settled = await settleDesired(
+      const settled = await planSettled(
         desiredWork,
         sourceState.factBase,
         desiredState.factBase,
+        planOptions,
       );
       const settleFailures = settled.diagnostics.filter(
         (d) => d.code === "deparse_settle_failed",
@@ -161,17 +168,11 @@ async function proveOn(
           `[${name}] ${settleFailures.map((d) => d.message).join("\n")}`,
         );
       }
-      desiredState = { ...desiredState, factBase: settled.factBase };
+      desiredState = { ...desiredState, factBase: settled.desired };
+      thePlan = settled.plan;
+    } else {
+      thePlan = plan(sourceState.factBase, desiredState.factBase, planOptions);
     }
-    // Probe the connection that will apply (superuser `test`, or the
-    // CREATEROLE login when `createroleApplier` is set) so capability-gated
-    // compaction sees the same role as extract/prove.
-    const capability = await probeApplierCapability(sourceWork);
-    const thePlan = plan(sourceState.factBase, desiredState.factBase, {
-      capability,
-      compact,
-      renames: renames ?? "off",
-    });
     enforceActionShapeBudgetForMode(
       compact,
       thePlan.actions,

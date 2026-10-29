@@ -22,6 +22,8 @@ import {
   ShadowProvisionError,
   writeExportManifest,
   type ManagementScope,
+  type PlanSchemaFilesOptions,
+  type PlanSchemaFilesResult,
   type SqlFile,
 } from "../src/frontends/index.ts";
 import {
@@ -37,6 +39,83 @@ const SCHEMA_SQL = `
   CREATE SCHEMA app;
   CREATE TABLE app.items (id integer PRIMARY KEY, name text NOT NULL);
 `;
+
+/** A pool on `uri` logged in as `role`, whose password is its name. */
+function loginPool(uri: string, role: string): pg.Pool {
+  const url = new URL(uri);
+  url.username = role;
+  url.password = role;
+  const pool = new pg.Pool({ connectionString: url.toString(), max: 5 });
+  pool.on("error", () => {});
+  return pool;
+}
+
+/** Plan `files` against a fresh target built from `targetSql`, read as
+ *  `applier` when given. */
+async function planAgainst(
+  name: string,
+  targetSql: string,
+  files: string,
+  {
+    renames = "auto",
+    profile = rawProfile,
+    applier,
+    acceptRenames,
+  }: {
+    renames?: "auto" | "prompt" | "off";
+    profile?: IntegrationProfile;
+    applier?: string;
+    acceptRenames?: PlanSchemaFilesOptions["acceptRenames"];
+  } = {},
+): Promise<PlanSchemaFilesResult> {
+  const cluster = await sharedCluster();
+  const target = await cluster.createDb(`${name}_target`);
+  const shadow = await cluster.createDb(`${name}_shadow`);
+  const pool =
+    applier === undefined ? target.pool : loginPool(target.uri, applier);
+  try {
+    await target.pool.query(targetSql);
+    return await planSchemaFiles(
+      pool,
+      shadow.pool,
+      [{ name: "t.sql", sql: files }],
+      {
+        profile,
+        scope: "database",
+        renames,
+        ...(acceptRenames === undefined ? {} : { acceptRenames }),
+      },
+    );
+  } finally {
+    if (pool !== target.pool) await pool.end();
+    await Promise.all([target.drop(), shadow.drop()]);
+  }
+}
+
+/** Run with a NOLOGIN owner and a non-superuser LOGIN applier, dropped after. */
+async function withOwnerAndApplier(
+  tag: string,
+  run: (owner: string, applier: string) => Promise<void>,
+): Promise<void> {
+  const { adminPool } = await sharedCluster();
+  const suffix = Date.now().toString(36);
+  const owner = `${tag}_owner_${suffix}`;
+  const applier = `${tag}_app_${suffix}`;
+  try {
+    await adminPool.query(`
+      CREATE ROLE "${owner}" NOLOGIN;
+      CREATE ROLE "${applier}" LOGIN NOSUPERUSER PASSWORD '${applier}';
+    `);
+    await run(owner, applier);
+  } finally {
+    await adminPool.query(
+      `DROP ROLE IF EXISTS "${owner}"; DROP ROLE IF EXISTS "${applier}"`,
+    );
+  }
+}
+
+const sqlOf = (planned: PlanSchemaFilesResult): string[] =>
+  planned.plan.actions.map((a) => a.sql);
 
 describe("public schema frontends", () => {
   test("buildSchemaExport reproduces CLI export files + manifest (raw, database scope)", async () => {
@@ -488,6 +567,350 @@ describe("public schema frontends", () => {
     } finally {
       await Promise.all([target.drop(), shadow.drop()]);
     }
+  }, 120_000);
+
+  // Renamed-table settling the proof loop can prove lives in the
+  // corpus/deparse-settle--rename-* scenarios; these need a prompt, a
+  // restricted applier, a policy, or a new object the target never holds.
+  const checked = (table: string, check: string): string => `
+    CREATE TABLE s.${table} (a int, b int, CONSTRAINT ck CHECK (${check}));
+  `;
+  const flat = (upper: number): string =>
+    `(b >= 0) AND (b <= ${upper}) AND (a >= 0)`;
+  const between = (upper: number): string =>
+    `b BETWEEN 0 AND ${upper} AND a >= 0`;
+  const renamedT1 = `CREATE SCHEMA s; ${checked("t1", flat(10))}`;
+
+  test("planSchemaFiles reports a settled rename in prompt mode, and a real change stays drop+create (#535)", async () => {
+    const renamedT2 = `CREATE SCHEMA s; ${checked("t2", between(10))}`;
+    const prompted = await planAgainst(
+      "frontend_settle_p",
+      renamedT1,
+      renamedT2,
+      { renames: "prompt" },
+    );
+    expect(
+      prompted.plan.renameCandidates.map((c) => [
+        encodeId(c.from),
+        encodeId(c.to),
+        c.status,
+      ]),
+    ).toEqual([["table:s.t1", "table:s.t2", "unambiguous"]]);
+    // accepting the reported pair plans the rename
+    const accepted = await planAgainst(
+      "frontend_settle_pa",
+      renamedT1,
+      renamedT2,
+      {
+        renames: "prompt",
+        acceptRenames: prompted.plan.renameCandidates,
+      },
+    );
+    expect(sqlOf(accepted)).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "s"."t1" RENAME TO "t2"",
+      ]
+    `);
+    const changed = await planAgainst(
+      "frontend_settle_c",
+      renamedT1,
+      `CREATE SCHEMA s; ${checked("t2", between(11))}`,
+    );
+    expect(sqlOf(changed)).toMatchInlineSnapshot(`
+      [
+        "DROP TABLE "s"."t1"",
+        "CREATE TABLE "s"."t2" ("a" integer, "b" integer, CONSTRAINT "ck" CHECK (((b >= 0) AND (b <= 11) AND (a >= 0))))",
+      ]
+    `);
+    // the columns swap types, so the check reads them differently
+    const swapped = await planAgainst(
+      "frontend_settle_cs",
+      "CREATE SCHEMA s; CREATE TABLE s.t1 (a int, b numeric, CHECK (a / 2 + b >= 0));",
+      "CREATE SCHEMA s; CREATE TABLE s.t2 (a numeric, b int, CHECK (a / 2 + b >= 0));",
+    );
+    // the columns are renamed too, which no table rename carries
+    const columnsRenamed = await planAgainst(
+      "frontend_settle_cn",
+      `CREATE SCHEMA s; CREATE TABLE s.t1 (a int, b int, t1_x int, t1_y int, CONSTRAINT ck CHECK (${flat(10)}));`,
+      `CREATE SCHEMA s; CREATE TABLE s.t2 (a int, b int, t2_x int, t2_y int, CONSTRAINT ck CHECK (${between(10)}));`,
+    );
+    expect(sqlOf(columnsRenamed)).toMatchInlineSnapshot(`
+      [
+        "DROP TABLE "s"."t1"",
+        "CREATE TABLE "s"."t2" ("a" integer, "b" integer, "t2_x" integer, "t2_y" integer, CONSTRAINT "ck" CHECK ((((b >= 0) AND (b <= 10)) AND (a >= 0))))",
+      ]
+    `);
+    expect(sqlOf(swapped)).toMatchInlineSnapshot(`
+      [
+        "DROP TABLE "s"."t1"",
+        "CREATE TABLE "s"."t2" ("a" numeric, "b" integer, CONSTRAINT "t2_check" CHECK ((((a / (2)::numeric) + (b)::numeric) >= (0)::numeric)))",
+      ]
+    `);
+  }, 120_000);
+
+  test("planSchemaFiles settles before refusing an owner the applier cannot set (#535)", async () => {
+    // Replacing the table for its partition key would restore an owner the
+    // applier cannot become; the key only differs in spelling.
+    await withOwnerAndApplier("frontend_settle_o", async (owner, applier) => {
+      const table = (key: string): string => `
+        CREATE SCHEMA s;
+        CREATE TABLE s.pt (a int, b int) PARTITION BY LIST ((${key}));
+        ALTER TABLE s.pt OWNER TO "${owner}";
+      `;
+      const planned = await planAgainst(
+        "frontend_settle_o",
+        table(`(${flat(10)})`),
+        table(between(10)),
+        { applier, renames: "off" },
+      );
+      expect(sqlOf(planned)).toEqual([]);
+      // a key that really changes is still refused, also when nothing settles
+      // and the owner-widened first plan would otherwise be kept
+      const refused = await planAgainst(
+        "frontend_settle_o2",
+        table(`(${flat(10)})`),
+        table(`(${flat(11)})`),
+        { applier, renames: "off" },
+      ).catch((error: unknown) => error);
+      expect(String(refused)).toMatch(/capability: cannot set owner/);
+    });
+  }, 120_000);
+
+  test("planSchemaFiles keeps an exact rename over a near-miss counterpart (#535)", async () => {
+    // s.kept matches the files exactly; s.other only after settling.
+    const planned = await planAgainst(
+      "frontend_settle_k",
+      `CREATE SCHEMA s; ${checked("kept", between(10))} ${checked("other", flat(10))}`,
+      `CREATE SCHEMA s; ${checked("renamed", between(10))}`,
+    );
+    expect(sqlOf(planned)).toMatchInlineSnapshot(`
+      [
+        "DROP TABLE "s"."other"",
+        "ALTER TABLE "s"."kept" RENAME TO "renamed"",
+      ]
+    `);
+  }, 120_000);
+
+  test("planSchemaFiles never loses an exact rename to settling (#535)", async () => {
+    // s.added settles equal to s.kept, which would make s.kept -> s.renamed
+    // ambiguous; rebuilding s.renamed would need an owner the applier cannot
+    // become, which must not be refused before the rename is restored.
+    await withOwnerAndApplier("frontend_settle_eo", async (owner, applier) => {
+      const owned = (table: string, check: string, role: string): string =>
+        `${checked(table, check)} ALTER TABLE s.${table} OWNER TO "${role}";`;
+      const planned = await planAgainst(
+        "frontend_settle_eo",
+        `CREATE SCHEMA s; ${owned("kept", flat(10), owner)} ${owned("gone", flat(9), applier)}`,
+        `CREATE SCHEMA s; ${owned("renamed", flat(10), owner)} ${owned("added", between(10), applier)}`,
+        { applier },
+      );
+      expect(sqlOf(planned)).toMatchInlineSnapshot(`
+        [
+          "DROP TABLE "s"."gone"",
+          "CREATE TABLE "s"."added" ("a" integer, "b" integer, CONSTRAINT "ck" CHECK ((((b >= 0) AND (b <= 10)) AND (a >= 0))))",
+          "ALTER TABLE "s"."kept" RENAME TO "renamed"",
+        ]
+      `);
+    });
+  }, 120_000);
+
+  test("planSchemaFiles never loses an exact rename once a counterpart runs out of old names (#535)", async () => {
+    // s.added pairs only with s.gone, whose rename never lands; its own stable
+    // text then equals s.kept's, which would make s.kept -> s.renamed ambiguous.
+    const table = (name: string, dflt: number, check: string): string =>
+      `CREATE TABLE s.${name} (a int DEFAULT ${dflt}, b int, c int, CONSTRAINT ck CHECK (${check}));`;
+    const kept =
+      "a IS DISTINCT FROM 1 OR b IS DISTINCT FROM 2 OR c IS DISTINCT FROM 3";
+    const planned = await planAgainst(
+      "frontend_settle_x",
+      `CREATE SCHEMA s; ${table("kept", 2, kept)} ${table("gone", 1, "((a, b), c) IS DISTINCT FROM ((1, 2), 3)")}`,
+      `CREATE SCHEMA s; ${table("renamed", 2, kept)} ${table("added", 2, "(a, b) IS DISTINCT FROM (1, 2) OR c IS DISTINCT FROM 3")}`,
+    );
+    expect(sqlOf(planned)).toMatchInlineSnapshot(`
+      [
+        "DROP TABLE "s"."gone"",
+        "CREATE TABLE "s"."added" ("a" integer DEFAULT 2, "b" integer, "c" integer, CONSTRAINT "ck" CHECK ((((a IS DISTINCT FROM 1) OR (b IS DISTINCT FROM 2)) OR (c IS DISTINCT FROM 3))))",
+        "ALTER TABLE "s"."kept" RENAME TO "renamed"",
+      ]
+    `);
+  }, 120_000);
+
+  test("planSchemaFiles never settles a name an ambiguous rename claims (#535)", async () => {
+    // s.a1 and s.a2 both match s.t exactly; settling s.b must not single it out.
+    const planned = await planAgainst(
+      "frontend_settle_a",
+      `CREATE SCHEMA s; ${checked("a1", between(10))} ${checked("a2", between(10))} ${checked("b", flat(10))}`,
+      `CREATE SCHEMA s; ${checked("t", between(10))}`,
+    );
+    expect(sqlOf(planned)).toMatchInlineSnapshot(`
+      [
+        "DROP TABLE "s"."a1"",
+        "DROP TABLE "s"."a2"",
+        "DROP TABLE "s"."b"",
+        "CREATE TABLE "s"."t" ("a" integer, "b" integer, CONSTRAINT "ck" CHECK ((((b >= 0) AND (b <= 10)) AND (a >= 0))))",
+      ]
+    `);
+  }, 120_000);
+
+  test("planSchemaFiles pairs a renamed table's managed descendants only (#535)", async () => {
+    // The indexes are outside the profile, so s.t2 lacking them must not
+    // stop s.t1's subtree from pairing with its own.
+    const profile: IntegrationProfile = {
+      id: "ignore-indexes",
+      handlers: [],
+      policy: {
+        id: "ignore-indexes",
+        filter: [{ match: { kind: "index" }, action: "exclude" }],
+      },
+    };
+    const planned = await planAgainst(
+      "frontend_settle_x",
+      `${renamedT1} CREATE INDEX i1 ON s.t1 (a);`,
+      `CREATE SCHEMA s; ${checked("t2", between(10))}`,
+      { profile },
+    );
+    expect(sqlOf(planned)).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "s"."t1" RENAME TO "t2"",
+      ]
+    `);
+  }, 120_000);
+
+  test("planSchemaFiles keeps the applier's projection while settling (#535)", async () => {
+    // A non-superuser cannot grant on a foreign-data wrapper, so the grant is
+    // projected out; collecting what to settle must not plan it anyway.
+    const [clusterA, clusterB] = await isolatedClusterPair();
+    const rolesBeforeA = await clusterA.listRoles();
+    const rolesBeforeB = await clusterB.listRoles();
+    const applier = `frontend_settle_fdw_app_${Date.now().toString(36)}`;
+    const target = await clusterA.createDb("frontend_settle_f_target");
+    const shadow = await clusterB.createDb("frontend_settle_f_shadow");
+    let applierPool: pg.Pool | undefined;
+    try {
+      await clusterA.adminPool.query(
+        `CREATE ROLE "${applier}" LOGIN NOSUPERUSER PASSWORD '${applier}'`,
+      );
+      await target.pool.query(`
+        GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO "${applier}";
+        CREATE FOREIGN DATA WRAPPER w NO HANDLER NO VALIDATOR;
+      `);
+      await clusterB.adminPool.query(`CREATE ROLE frontend_settle_shadow_only`);
+      applierPool = loginPool(target.uri, applier);
+      const files: SqlFile[] = [
+        {
+          name: "w.sql",
+          sql: `
+            CREATE FOREIGN DATA WRAPPER w NO HANDLER NO VALIDATOR;
+            GRANT USAGE ON FOREIGN DATA WRAPPER w TO frontend_settle_shadow_only;
+          `,
+        },
+      ];
+      const planned = await planSchemaFiles(applierPool, shadow.pool, files, {
+        profile: rawProfile,
+        scope: "database",
+        isolatedShadow: true,
+      });
+      expect(sqlOf(planned)).toEqual([]);
+    } finally {
+      await applierPool?.end();
+      await Promise.all([target.drop(), shadow.drop()]);
+      await Promise.all([
+        clusterA.dropRolesExcept(rolesBeforeA, { strict: true }),
+        clusterB.dropRolesExcept(rolesBeforeB, { strict: true }),
+      ]);
+    }
+  }, 120_000);
+
+  test("planSchemaFiles pairs a renamed table's grants by grantee (#535)", async () => {
+    // Grants to two roles hold the same privileges and have no name.
+    await withOwnerAndApplier("frontend_settle_acl", async (r1, r2) => {
+      const granted = (table: string, check: string, to: string): string =>
+        `CREATE SCHEMA s; ${checked(table, check)}
+         GRANT SELECT ON s.${table} TO ${to};`;
+      const plan = async (name: string, from: string) =>
+        sqlOf(
+          await planAgainst(
+            name,
+            granted("t1", flat(10), from),
+            granted("t2", between(10), `"${r1}", "${r2}"`),
+          ),
+        ).map((sql) => sql.replaceAll(r1, "r1").replaceAll(r2, "r2"));
+      expect(await plan("frontend_settle_acl", `"${r1}", "${r2}"`))
+        .toMatchInlineSnapshot(`
+          [
+            "ALTER TABLE "s"."t1" RENAME TO "t2"",
+          ]
+        `);
+      // a grant to another role is a real change, never paired
+      expect(await plan("frontend_settle_acl2", `"${r1}", PUBLIC`))
+        .toMatchInlineSnapshot(`
+          [
+            "DROP TABLE "s"."t1"",
+            "CREATE TABLE "s"."t2" ("a" integer, "b" integer, CONSTRAINT "ck" CHECK ((((b >= 0) AND (b <= 10)) AND (a >= 0))))",
+            "GRANT SELECT ON TABLE "s"."t2" TO "r2", "r1"",
+          ]
+        `);
+    });
+  }, 120_000);
+
+  test("planSchemaFiles pairs unnamed checks by structure, text, dependencies, then generated name, across a rename (#535)", async () => {
+    const plan = async (name: string, checks: string, renamed: string) =>
+      sqlOf(
+        await planAgainst(
+          name,
+          `CREATE SCHEMA s; CREATE TABLE s.t1 (a int, b int, c int, ${checks});`,
+          `CREATE SCHEMA s; CREATE TABLE s.t2 (a int, b int, c int, ${renamed});`,
+        ),
+      );
+    expect(
+      await plan(
+        "frontend_settle_u",
+        `CHECK (${flat(10)})`,
+        `CHECK (${between(10)})`,
+      ),
+    ).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "s"."t1" RENAME TO "t2"",
+      ]
+    `);
+    // from here the target holds the nested spellings, so only the right
+    // pairs settle equal. Declared in another order: only the unrespelled
+    // one's text tells them apart
+    expect(
+      await plan(
+        "frontend_settle_u2",
+        `CHECK (${between(10)}), CHECK (a + b < 100)`,
+        `CHECK (a + b < 100), CHECK (${flat(10)})`,
+      ),
+    ).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "s"."t1" RENAME TO "t2"",
+      ]
+    `);
+    // both respelled, in another order: only what each depends on
+    expect(
+      await plan(
+        "frontend_settle_u3",
+        `CHECK (${between(10)}), CHECK (c BETWEEN 0 AND 5 AND a <> 3)`,
+        `CHECK ((c >= 0) AND (c <= 5) AND (a <> 3)), CHECK (${flat(10)})`,
+      ),
+    ).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "s"."t1" RENAME TO "t2"",
+      ]
+    `);
+    // both respelled, depending on the same columns: only the generated names
+    expect(
+      await plan(
+        "frontend_settle_u4",
+        `CHECK (${between(10)}), CHECK (b BETWEEN 1 AND 9 AND a <> 3)`,
+        `CHECK (${flat(10)}), CHECK ((b >= 1) AND (b <= 9) AND (a <> 3))`,
+      ),
+    ).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "s"."t1" RENAME TO "t2"",
+      ]
+    `);
   }, 120_000);
 
   test("planSchemaFiles never probes the profile's assumed schemas in an isolated shadow (supabase/cli#6453)", async () => {

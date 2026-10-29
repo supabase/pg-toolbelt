@@ -2149,3 +2149,44 @@ cycle; both reproduce on `main` before #534 too.
   (`inheritsAlso: "replace"`, same as `parentTable`). Before #550 they were not
   extracted at all. An in-place `ALTER TABLE … INHERIT / NO INHERIT` path would
   avoid the rebuild for both attributes.
+
+## PR #555 review triage — rename settling gaps
+
+#555 lets a renamed table whose checks Postgres respells be renamed rather
+than dropped and recreated. These narrower gaps are deferred.
+
+- **Generated child names keep the old table's name.** An unnamed check is
+  paired by shape, so `s.t1` → `s.t2` is planned as `ALTER TABLE … RENAME`
+  alone. The check is still `t1_check` afterwards while the files name it
+  `t2_check`, so the next plan is `DROP CONSTRAINT` + `ADD CONSTRAINT`, which
+  revalidates under lock. The unrespelled case already leaves a
+  `RENAME CONSTRAINT` behind on `main`. A column renamed along with its table
+  is left behind the same way, as `main` already does without a check. A fix
+  would reconcile child names after a parent rename, covered by an
+  apply-and-replan test. A corpus scenario with two unnamed checks waits on
+  this fix: until then the constraints keep the old table's name, so the
+  state proof fails.
+- **Respelled unnamed checks nothing tells apart.** Unnamed checks pair by
+  shape, then by text, by what they read, then by their generated name. Two
+  that are both respelled, read the same columns, and are declared in another
+  order are paired the wrong way round, so when the target holds the nested
+  spelling the table is still dropped and recreated, as on `main`. A fix would
+  try each pairing in such a group against the settled texts.
+- **A rename beside an owner the applier cannot set.** The first plan treats
+  every owner as settable, so a non-superuser applying a table rename together
+  with a schema owner change now gets `dependency cycle` instead of
+  `capability: cannot set owner`. A rename beside `ALTER SCHEMA … OWNER` is the
+  same cycle a superuser already hits on `main`; ordering the rename after its
+  schema's alter would fix both.
+- **A table rebuilt instead of renamed keeps its first printout.** When the
+  rename is not applied (a sibling really changed, or prompt mode without
+  `--accept-rename` plus `--allow-data-loss`), the new table is created from
+  text Postgres re-stores in another spelling, as any new object is (see the
+  `settle-desired.ts` header). The SQL means the same and the next sync
+  converges, but the settled desired state differs from what is applied, so a
+  proof of that plan fails. A fix would settle new objects to their stable text.
+- **Old names tried one at a time.** Each pass re-settles and re-plans, so a
+  new name with k same-shape old names costs up to k + 2 settles. When a later
+  pass makes an exact rename ambiguous, every counterpart is dropped, including
+  ones an earlier pass had landed. Both need several same-shape tables spelled
+  differently.
