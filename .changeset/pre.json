@@ -198,6 +198,7 @@
     "self-fk-unique-index-export",
     "seq-bounds-public-roles-parse-guard-acl-dedup",
     "serial-owned-by-table-file",
+    "settle-before-rename-and-capability",
     "settle-deparsed-definitions",
     "shadow-load-assist-context",
     "shadow-load-async-commit",
