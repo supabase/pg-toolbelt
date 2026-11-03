@@ -538,7 +538,12 @@ jobs:
       - pg-delta-integration-pg17-compat
       - pg-topo-tests
       - deno2-library-e2e
-    if: always() && !cancelled() && needs.detect-changes.outputs.is-release-pr != 'true'
+    # Never publish previews from the merge queue: merge_group runs carry the
+    # gh-readonly-queue ref, not a PR, and publishing belongs to the PR run.
+    if: >-
+      always() && !cancelled() &&
+      github.event_name != 'merge_group' &&
+      needs.detect-changes.outputs.is-release-pr != 'true'
     name: Release preview
     runs-on: ubuntu-latest
     steps:
@@ -550,3 +555,35 @@ jobs:
         run: bun run build
       - name: Release preview
         run: bunx pkg-pr-new publish ./packages/pg-delta ./packages/pg-topo
+
+  # Single required status check for branch protection / the merge queue. Most
+  # jobs above are path-filtered or matrixed, so their individual check names
+  # are skipped or unstable and cannot be required directly. `needs` lists every
+  # other job in this file (keep it in sync when adding one); a failed or
+  # cancelled need fails the check, while skipped needs (path filter, draft PR,
+  # release PR) pass.
+  all-green:
+    if: always()
+    needs:
+      - detect-changes
+      - check-types
+      - format-and-lint
+      - knip
+      - pg-delta-unit
+      - pg-delta-corpus
+      - pg-delta-export-roundtrip
+      - pg-delta-integration
+      - pg-delta-integration-pg15-compat
+      - pg-delta-integration-pg17-compat
+      - pg-topo-tests
+      - coverage
+      - deno2-library-e2e
+      - release-preview
+    name: All tests passed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to succeed or be skipped
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: jq -e 'all(.[]; . == "success" or . == "skipped")' <<<"$RESULTS"
