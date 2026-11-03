@@ -158,6 +158,9 @@ export interface FinalizeInput {
   /** action index → encoded `destroys` ids that are side-effect wipes (see
    *  ActionEmitterOutput.implicitDestroys). */
   implicitDestroys: ReadonlyMap<number, ReadonlySet<string>>;
+  /** [before, after] action-index pairs the emitter requires beyond what
+   *  produces/consumes/destroys express (see ActionEmitterOutput.extraEdges). */
+  extraEdges: ReadonlyArray<[number, number]>;
   /** per-action compaction metadata captured during emission (never persisted). */
   foldHints: ReadonlyArray<FoldHint | undefined>;
   acceptsFolds: readonly boolean[];
@@ -219,6 +222,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     desired,
     renameActionIndices,
     implicitDestroys,
+    extraEdges,
     foldHints,
     acceptsFolds,
     assumedRoleNames,
@@ -262,6 +266,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     evaluatorActions,
     implicitDestroys,
   );
+  edges.push(...extraEdges);
   chainColumnCreatesByPosition(
     actions,
     desired,
