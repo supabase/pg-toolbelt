@@ -578,7 +578,6 @@ jobs:
       - pg-topo-tests
       - coverage
       - deno2-library-e2e
-      - release-preview
     name: All tests passed
     runs-on: ubuntu-latest
     timeout-minutes: 5
