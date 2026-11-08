@@ -25,7 +25,7 @@ export interface Fact {
 /** Where a fact base came from. Provenance is metadata, NOT state: it never
  *  enters the rollup hash, so two bases with identical facts compare equal
  *  regardless of source. Policy (§3.9) and frontends use it for routing. */
-export type FactSource = "liveDb" | "sqlFiles" | "snapshot";
+export type FactSource = "liveDb" | "sqlFiles" | "snapshot" | "spark";
 
 export type EdgeKind = "depends" | "owner" | "memberOfExtension" | "managedBy";
 

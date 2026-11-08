@@ -31,6 +31,8 @@
  *                  [--renames auto|prompt|off] [--force]
  *                  [--accept-rename <from>=<to>] ... [--no-reorder]
  *                  [--dry-run] [--verbose] [--out-plan <plan.json>]
+ *   spark export   --url <spark-api-url> --key <service-key> --out <dir>
+ *   spark plan     --url <spark-api-url> --key <service-key> --schema <dir> [--out-plan <file.sql>]
  *   schema lint    --dir <dir>
  *                  Statically check the SQL files (pg-topo) for shadow-load
  *                  cycles and other issues, without touching a database.
@@ -50,6 +52,7 @@ import { cmdProve } from "./commands/prove.ts";
 import { cmdDiff } from "./commands/diff.ts";
 import { cmdDrift } from "./commands/drift.ts";
 import { cmdSnapshot } from "./commands/snapshot.ts";
+import { cmdSpark } from "./commands/spark.ts";
 import {
   cmdSchemaExport,
   cmdSchemaApply,
@@ -75,6 +78,9 @@ Commands:
   diff           --source <pg-url> --desired <pg-url>
   drift          --env <pg-url> --snapshot <file>
   snapshot       --source <pg-url> --out <file>
+  spark export   --url <spark-api-url> --key <service-key> --out <dir>
+  spark plan     --url <spark-api-url> --key <service-key> --schema <dir> [--out-plan <file.sql>]
+                 Plan and prove against a Spark project (no Postgres needed).
   schema export  --source <pg-url> --out-dir <dir> [--layout by-object|ordered|grouped]
                  [--path-style flat|nested]   (flat: <schema>/…, _cluster/…)
                  [--format-options <json>]   (pretty-print SQL; any layout)
@@ -278,6 +284,9 @@ async function main(): Promise<void> {
         break;
       case "snapshot":
         await cmdSnapshot(rest);
+        break;
+      case "spark":
+        await cmdSpark(rest);
         break;
       case "schema": {
         const sub = rest[0];

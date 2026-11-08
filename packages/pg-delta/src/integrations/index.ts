@@ -32,3 +32,19 @@ export {
   type ApplierCapability,
   probeApplierCapability,
 } from "../policy/capability.ts";
+
+// Spark source: plan / export / prove from Spark's schema description.
+export type * from "./spark/description.ts";
+export { sparkFactBase } from "./spark/fact-base.ts";
+export {
+  exportSparkSchema,
+  fetchSparkSchema,
+  planSparkFactBases,
+  planSparkSchema,
+  type SparkConnection,
+  type SparkPlanResult,
+  type SparkScratchRequest,
+  type SparkScratchResult,
+  sparkScratch,
+  sparkStatusDiagnostics,
+} from "./spark/frontend.ts";
