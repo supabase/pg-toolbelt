@@ -105,17 +105,29 @@ export function sparkStatusDiagnostics(
   return out;
 }
 
+/** Roles the project's policies name: Spark has no role facts, so they are
+ *  ambient (the project's own `authenticated`, `anon`, ...), not objects to create. */
+function policyRoles(description: SparkSchemaDescription): string[] {
+  const roles = new Set<string>();
+  for (const t of description.tables)
+    for (const p of t.policies)
+      for (const r of p.roles) if (r.toLowerCase() !== "public") roles.add(r);
+  return [...roles].sort();
+}
+
 /** Diff two Spark fact bases into a plan (managed schemas are assumed). */
 export function planSparkFactBases(
   current: FactBase,
   desired: FactBase,
   managedSchemas: readonly string[],
+  assumedRoles: readonly string[] = [],
 ): { plan: Plan; sql: string } {
-  const result = plan(
-    current,
-    desired,
-    managedSchemas.length > 0 ? { assumedSchemas: [...managedSchemas] } : {},
-  );
+  const result = plan(current, desired, {
+    ...(managedSchemas.length > 0
+      ? { assumedSchemas: [...managedSchemas] }
+      : {}),
+    ...(assumedRoles.length > 0 ? { assumedRoles: [...assumedRoles] } : {}),
+  });
   return {
     plan: result,
     sql: result.actions.length === 0 ? "" : renderPlanSql(result),
@@ -136,6 +148,9 @@ export function exportSparkSchema(
     ...(options.grouping !== undefined ? { grouping: options.grouping } : {}),
     ...(description.managed_schemas.length > 0
       ? { assumedSchemas: [...description.managed_schemas] }
+      : {}),
+    ...(policyRoles(description).length > 0
+      ? { assumedRoles: policyRoles(description) }
       : {}),
   });
 }
@@ -183,7 +198,18 @@ export async function planSparkSchema(
       ...desiredLoad.schema.managed_schemas,
     ]),
   ];
-  const { plan: result, sql } = planSparkFactBases(current, desired, managed);
+  const roles = [
+    ...new Set([
+      ...policyRoles(currentDescription),
+      ...policyRoles(desiredLoad.schema),
+    ]),
+  ];
+  const { plan: result, sql } = planSparkFactBases(
+    current,
+    desired,
+    managed,
+    roles,
+  );
   if (sql === "") return { sql, plan: result, diagnostics };
 
   const proofLoad = await sparkScratch(conn, {

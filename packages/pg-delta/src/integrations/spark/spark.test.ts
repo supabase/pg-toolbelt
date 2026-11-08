@@ -20,7 +20,9 @@ const emptyProject = (): SparkSchemaDescription => {
 };
 
 const planBetween = (a: SparkSchemaDescription, b: SparkSchemaDescription) =>
-  planSparkFactBases(sparkFactBase(a), sparkFactBase(b), b.managed_schemas);
+  planSparkFactBases(sparkFactBase(a), sparkFactBase(b), b.managed_schemas, [
+    "authenticated",
+  ]);
 
 describe("spark source", () => {
   test("identical descriptions plan no changes", () => {
@@ -105,6 +107,18 @@ describe("spark source", () => {
       ]
     `);
     expect(files.map((f) => f.sql).join("\n")).not.toContain("auth.users (");
+  });
+
+  test("a policy for a platform role exports and plans without owning the role", () => {
+    const withRole = () => {
+      const d = todosDescription();
+      d.tables[1]!.policies[0]!.roles = ["authenticated"];
+      return d;
+    };
+    const files = exportSparkSchema(withRole());
+    expect(files.map((f) => f.sql).join("\n")).toContain(`TO "authenticated"`);
+    const { sql } = planBetween(emptyProject(), withRole());
+    expect(sql).toContain(`FOR ALL TO "authenticated"`);
   });
 
   test("statuses map to diagnostics", () => {
