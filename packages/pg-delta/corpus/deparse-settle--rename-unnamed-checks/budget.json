@@ -1,0 +1,8 @@
+{
+  "a-to-b": {
+    "require": ["rename:table"]
+  },
+  "b-to-a": {
+    "require": ["rename:table"]
+  }
+}

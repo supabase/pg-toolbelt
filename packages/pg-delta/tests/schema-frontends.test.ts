@@ -871,6 +871,7 @@ describe("public schema frontends", () => {
     ).toMatchInlineSnapshot(`
       [
         "ALTER TABLE "s"."t1" RENAME TO "t2"",
+        "ALTER TABLE "s"."t2" RENAME CONSTRAINT "t1_check" TO "t2_check"",
       ]
     `);
     // from here the target holds the nested spellings, so only the right
@@ -885,6 +886,8 @@ describe("public schema frontends", () => {
     ).toMatchInlineSnapshot(`
       [
         "ALTER TABLE "s"."t1" RENAME TO "t2"",
+        "ALTER TABLE "s"."t2" RENAME CONSTRAINT "t1_check" TO "t2_check1"",
+        "ALTER TABLE "s"."t2" RENAME CONSTRAINT "t1_check1" TO "t2_check"",
       ]
     `);
     // both respelled, in another order: only what each depends on
@@ -897,6 +900,8 @@ describe("public schema frontends", () => {
     ).toMatchInlineSnapshot(`
       [
         "ALTER TABLE "s"."t1" RENAME TO "t2"",
+        "ALTER TABLE "s"."t2" RENAME CONSTRAINT "t1_check" TO "t2_check1"",
+        "ALTER TABLE "s"."t2" RENAME CONSTRAINT "t1_check1" TO "t2_check"",
       ]
     `);
     // both respelled, depending on the same columns: only the generated names
@@ -909,6 +914,31 @@ describe("public schema frontends", () => {
     ).toMatchInlineSnapshot(`
       [
         "ALTER TABLE "s"."t1" RENAME TO "t2"",
+        "ALTER TABLE "s"."t2" RENAME CONSTRAINT "t1_check1" TO "t2_check1"",
+        "ALTER TABLE "s"."t2" RENAME CONSTRAINT "t1_check" TO "t2_check"",
+      ]
+    `);
+  }, 120_000);
+
+  test("planSchemaFiles leaves a generated name another table still holds to the next plan", async () => {
+    // a key's name is also its index's, so nothing but the schema keeps
+    // z's t2_pkey from colliding with the one the rename would generate
+    const tables = (t: string, key: string): string =>
+      `CREATE SCHEMA s;
+       CREATE TABLE s.${t} (id int PRIMARY KEY);
+       CREATE TABLE s.z (id int CONSTRAINT ${key} PRIMARY KEY);`;
+    expect(
+      sqlOf(
+        await planAgainst(
+          "frontend_rename_held_name",
+          tables("t1", "t2_pkey"),
+          tables("t2", "z_pkey"),
+        ),
+      ),
+    ).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "s"."t1" RENAME TO "t2"",
+        "ALTER TABLE "s"."z" RENAME CONSTRAINT "t2_pkey" TO "z_pkey"",
       ]
     `);
   }, 120_000);
