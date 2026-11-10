@@ -60,7 +60,7 @@ function isRelationId(id: StableId): id is RelationId {
 }
 
 /** Project one structured ID through an accepted root rename. Rename actions
- * destroy/produce the whole structural subtree, while Plan.acceptedRenames
+ * destroy/produce the structural subtree, while Plan.acceptedRenames
  * deliberately stamps only the accepted root pair. */
 function projectThroughAcceptedRename(
   id: StableId,

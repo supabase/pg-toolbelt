@@ -2155,17 +2155,26 @@ cycle; both reproduce on `main` before #534 too.
 #555 lets a renamed table whose checks Postgres respells be renamed rather
 than dropped and recreated. These narrower gaps are deferred.
 
-- **Generated child names keep the old table's name.** An unnamed check is
-  paired by shape, so `s.t1` → `s.t2` is planned as `ALTER TABLE … RENAME`
-  alone. The check is still `t1_check` afterwards while the files name it
-  `t2_check`, so the next plan is `DROP CONSTRAINT` + `ADD CONSTRAINT`, which
-  revalidates under lock. The unrespelled case already leaves a
-  `RENAME CONSTRAINT` behind on `main`. A column renamed along with its table
-  is left behind the same way, as `main` already does without a check. A fix
-  would reconcile child names after a parent rename, covered by an
-  apply-and-replan test. A corpus scenario with two unnamed checks waits on
-  this fix: until then the constraints keep the old table's name, so the
-  state proof fails.
+- **A column renamed along with its table is left behind.**
+  `s.t1 (a int)` → `s.t2 (b int)` is planned as `ALTER TABLE … RENAME` alone.
+  The next plan renames the column in auto mode, and in prompt mode refuses a
+  `DROP COLUMN` unless the column rename is accepted too. A fix would pair the
+  columns as constraints are, accepted with the table in prompt mode.
+- **A constraint name another relation still holds.** `s.t1` → `s.t2` beside
+  `s.z`, whose key is named `t2_pkey` and renamed in the same plan: a key's name
+  is also its index's, shared across the schema, and no action id says so. The
+  child rename waits for the next plan, so one apply does not converge and the
+  case has no corpus scenario. A fix would order the rename after whatever
+  frees the name.
+- **Identical unnamed checks on a renamed table.** Two checks with the same
+  text are equally alike, so neither is paired and the next plan renames them,
+  as on `main`. Any pairing would do; a fix would take them in name order.
+- **A renamed child table's own check that is also inherited.** Postgres refuses
+  to rename a constraint inherited from a parent. Constraint facts do not record
+  that, so a check named after the child and matching one on its parent fails
+  the rename's apply. A fix would extract `coninhcount`.
+- **A domain rename with a column using it.** The domain rename and the
+  column's `ALTER COLUMN … TYPE` form a dependency cycle, on `main` too.
 - **Respelled unnamed checks nothing tells apart.** Unnamed checks pair by
   shape, then by text, by what they read, then by their generated name. Two
   that are both respelled, read the same columns, and are declared in another

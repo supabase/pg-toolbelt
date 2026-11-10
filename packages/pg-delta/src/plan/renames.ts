@@ -2,8 +2,8 @@
  * Rename detection (target-architecture §4.1, stage 9): over the diff's
  * remove/add pairs, find candidates whose STRUCTURAL rollup (the
  * identity-free fold from stage 1) matches — same content, different name.
- * A rename rewrites the whole subtree's IDs without emitting subtree
- * actions, and preserves data by construction.
+ * A rename rewrites the whole subtree's IDs, emitting subtree actions only
+ * for the child names it leaves behind, and preserves data by construction.
  *
  * Never guess: ambiguity (n removed × m added with equal rollups) and
  * swaps/chains (the target name already exists in the source) are
@@ -16,6 +16,7 @@
  */
 import type { Fact, FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
+import { isNamedAfterParent, ruleFlag } from "./rule-flags.ts";
 import { defaultRulesForId, type RulesForId } from "./rules.ts";
 
 export type RenameMode = "auto" | "prompt" | "off";
@@ -136,6 +137,75 @@ export function matchRenameCandidates(
     const kb = `${encodeId(b.from)}>${encodeId(b.to)}`;
     return ka < kb ? -1 : 1;
   });
+}
+
+/**
+ * The children a parent's rename leaves under a stale name, such as the
+ * constraints Postgres named after it (`t1_pkey` where the desired side has
+ * `t2_pkey`). Each pairs with the only stale child of its structure, as the
+ * next plan's rename discovery would. `from` is the desired fact under the old
+ * name, so its rename rule addresses the renamed parent.
+ */
+export function childNameRenames(
+  source: FactBase,
+  desired: FactBase,
+  from: StableId,
+  to: StableId,
+): Array<{ from: Fact; to: Fact }> {
+  const nameOf = (fact: Fact) => ("name" in fact.id ? fact.id.name : "");
+  const stale = (children: Fact[], others: Fact[]) =>
+    children.filter(
+      (child) =>
+        isNamedAfterParent(child.id.kind) &&
+        !others.some(
+          (other) =>
+            other.id.kind === child.id.kind && nameOf(other) === nameOf(child),
+        ),
+    );
+  const sourceChildren = source.childrenOf(from);
+  const desiredChildren = desired.childrenOf(to);
+  const olds = stale(sourceChildren, desiredChildren);
+  const wanted = stale(desiredChildren, sourceChildren);
+  // nothing orders a rename after whatever frees a name the schema shares, so
+  // that one waits for the next plan
+  const subtree = new Set(subtreeIds(source, from).map(encodeId));
+  const schemaOf = (id: StableId) => (id as { schema?: string }).schema;
+  const namesRelation = (fact: Fact) =>
+    ruleFlag(fact.id.kind, "namesRelation")?.(fact) === true;
+  const held = new Set(
+    source
+      .facts()
+      .filter(
+        (fact) =>
+          schemaOf(fact.id) === schemaOf(from) &&
+          !subtree.has(encodeId(fact.id)) &&
+          (namesRelation(fact) ||
+            (fact.id as { table?: string }).table === undefined),
+      )
+      .map(nameOf),
+  );
+  const renames: Array<{ from: Fact; to: Fact }> = [];
+  for (const fact of wanted) {
+    const id = fact.id;
+    const shape = desired.structuralRollupOf(id);
+    const alike = (fb: FactBase, other: Fact) =>
+      other.id.kind === id.kind && fb.structuralRollupOf(other.id) === shape;
+    const matches = olds.filter((old) => alike(source, old));
+    if (
+      !("name" in id) ||
+      (namesRelation(fact) && held.has(id.name)) ||
+      matches.length !== 1 ||
+      wanted.filter((other) => alike(desired, other)).length !== 1
+    ) {
+      continue;
+    }
+    const old = matches[0] as Fact;
+    renames.push({
+      from: { ...fact, id: { ...id, name: nameOf(old) } },
+      to: fact,
+    });
+  }
+  return renames;
 }
 
 /** A fact id plus every descendant id, root first. */
