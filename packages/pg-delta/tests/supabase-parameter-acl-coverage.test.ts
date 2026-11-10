@@ -5,7 +5,7 @@
  * coverage gap. Raw extract is unchanged.
  *
  * Grants are revoked in `finally` so they cannot leak into another file's
- * extract on the shared test cluster.
+ * extract on the shared test cluster; the last test verifies that.
  */
 import { describe, expect, test } from "bun:test";
 import type { Pool } from "pg";
@@ -15,7 +15,7 @@ import { rawProfile, resolveProfile } from "../src/integrations/profile.ts";
 import { supabaseProfile } from "../src/integrations/supabase.ts";
 import { supabasePolicy } from "../src/policy/supabase.ts";
 import { classifyPlanHazards } from "../src/plan/hazards.ts";
-import { createTestDb } from "./containers.ts";
+import { createTestDb, sharedCluster } from "./containers.ts";
 
 const PG_MAJOR = Number(
   /postgres:(\d+)/.exec(
@@ -63,6 +63,12 @@ async function revokePlatformParameterAcls(pool: Pool): Promise<void> {
   );
   await pool.query(
     `REVOKE SET ON PARAMETER log_min_messages FROM supabase_realtime_admin`,
+  );
+  // The fixture stripped the owner entry, so the revokes above leave
+  // paracl = {} and the row survives. Postgres deletes the row only once the
+  // ACL is back to its default, which is that owner entry.
+  await pool.query(
+    `GRANT SET, ALTER SYSTEM ON PARAMETER log_min_messages TO CURRENT_USER`,
   );
 }
 
@@ -214,5 +220,15 @@ describe.skipIf(PG_MAJOR < 15)(
         await db.drop();
       }
     }, 120_000);
+
+    // Runs last. A row left here reaches every later extract on the shared
+    // cluster, so a failed cleanup must fail here, not in an unrelated file.
+    test("leaves no pg_parameter_acl row behind", async () => {
+      const { adminPool } = await sharedCluster();
+      const { rows } = await adminPool.query(
+        `SELECT parname, paracl::text FROM pg_catalog.pg_parameter_acl`,
+      );
+      expect(rows).toEqual([]);
+    });
   },
 );
