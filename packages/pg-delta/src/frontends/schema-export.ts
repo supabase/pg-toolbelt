@@ -47,6 +47,9 @@ export interface BuildSchemaExportOptions {
   /** Pretty-print options; omit for raw renderer output. */
   format?: SqlFormatOptions;
   /** Default owner whose OWNER TO stays implicit under database scope.
+   *  Exception: schema `public` pre-exists in a fresh database under another
+   *  owner (`pg_database_owner` on PG15+, the bootstrap superuser on PG14), so
+   *  its OWNER TO <defaultOwner> is exported.
    *  - a role name → that role
    *  - `null` → verbose (every OWNER TO)
    *  - omit → profile defaultOwner, else `datdba` */
@@ -160,13 +163,53 @@ export async function buildSchemaExport(
       { allowDangling: retainOwnerRoleDangling },
     );
   }
+  /* the owner edge to the default owner is dropped (by the scope projection,
+     or by a policy excluding that role, e.g. supabase rule 7b) because the
+     applier creates the object; `public` pre-exists in a fresh database, owned
+     by pg_database_owner (PG15+) or the bootstrap superuser (PG14), so restore
+     the edge unless a fresh `public` already has this owner */
+  const publicOwner =
+    publicSchema === undefined || resolvedDefaultOwner === null
+      ? undefined
+      : factBase
+          .outgoingEdges(publicSchema.id)
+          .find(
+            (e) =>
+              e.kind === "owner" &&
+              e.to.kind === "role" &&
+              e.to.name === resolvedDefaultOwner,
+          );
+  let publicOwnerReattached = false;
+  if (
+    publicOwner !== undefined &&
+    scopedView.has(publicOwner.from) &&
+    !scopedView.outgoingEdges(publicOwner.from).some((e) => e.kind === "owner")
+  ) {
+    const fresh = (
+      await pool.query<{ owner: string }>(
+        `SELECT CASE WHEN current_setting('server_version_num')::int >= 150000
+           THEN 'pg_database_owner' ELSE pg_catalog.pg_get_userbyid(10) END AS owner`,
+      )
+    ).rows[0]?.owner;
+    if (fresh !== resolvedDefaultOwner) {
+      publicOwnerReattached = true;
+      scopedView = buildFactBase(
+        [...scopedView.facts()],
+        [...scopedView.edges, publicOwner],
+        scopedView.source,
+        scopedView.referenceOnly,
+        { allowDangling: retainOwnerRoleDangling },
+      );
+    }
+  }
   if (exportScope === "database" && resolvedDefaultOwner !== null) {
     const cu = (await pool.query<{ u: string }>(`SELECT current_user AS u`))
       .rows[0]?.u;
     if (cu !== undefined && cu !== resolvedDefaultOwner) {
       options.onWarning?.(
         `the resolved default owner "${resolvedDefaultOwner}" differs from the export ` +
-          `connection role "${cu}"; ownership of its objects will be left implicit (no OWNER TO). ` +
+          `connection role "${cu}"; ownership of its objects will be left implicit ` +
+          `(no OWNER TO${publicOwnerReattached ? ", except for schema public" : ""}). ` +
           `Apply this directory connecting as "${resolvedDefaultOwner}", or re-export with ` +
           `defaultOwner "${cu}" / defaultOwner null (verbose).`,
       );

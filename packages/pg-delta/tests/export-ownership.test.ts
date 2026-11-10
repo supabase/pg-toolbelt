@@ -15,7 +15,14 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import pg from "pg";
 import { extract } from "../src/extract/extract.ts";
+import { buildSchemaExport } from "../src/frontends/schema-export.ts";
+import { planSchemaFiles } from "../src/frontends/schema-plan.ts";
+import {
+  type IntegrationProfile,
+  rawProfile,
+} from "../src/integrations/profile.ts";
 import { plan } from "../src/plan/plan.ts";
 import { sharedCluster, type TestDb } from "./containers.ts";
 
@@ -634,5 +641,77 @@ describe("schema apply: manifest-absent directory is verbose", () => {
          WHERE relname = 't' AND relnamespace = 'public'::regnamespace`,
     );
     expect(owner.rows[0]?.o).toBe("own6_a");
+  }, 300_000);
+});
+
+// #567: a fresh `public` is NOT owned by the default owner (PG15+:
+// pg_database_owner; PG14: the bootstrap superuser), so `ALTER SCHEMA public
+// OWNER TO <defaultOwner>` must export, or a sync of the unchanged tree re-plans
+// the owner's ACL entry. An untouched `public` must not gain an OWNER TO.
+describe("schema export: public owned by the default owner (#567)", () => {
+  test("(i) exports ALTER SCHEMA public OWNER TO the default owner and re-plans nothing", async () => {
+    const cluster = await sharedCluster();
+    await cluster.adminPool
+      .query(`CREATE ROLE own567 SUPERUSER LOGIN PASSWORD 'o'`)
+      .catch(() => {});
+    const targetDb = await cluster.createDb("pub567_target");
+    const untouched = await cluster.createDb("pub567_untouched");
+    dbs.push(targetDb, untouched);
+    const target = new pg.Pool({
+      connectionString: uriAsRole(targetDb, "own567", "o"),
+    });
+    // raw (no policy), and a policy excluding role facts: its owner edge is
+    // removed by the role exclusion (Supabase rule 7b) before scope projection.
+    const roleExcluded: IntegrationProfile = {
+      ...rawProfile,
+      id: "role-excluded",
+      policy: {
+        id: "role-excluded",
+        filter: [{ match: { kind: "role" }, action: "exclude" }],
+      },
+    };
+    try {
+      await target.query(`ALTER SCHEMA public OWNER TO own567`);
+      for (const profile of [rawProfile, roleExcluded]) {
+        const shadowDb = await cluster.createDb("pub567_shadow");
+        dbs.push(shadowDb);
+        const shadow = new pg.Pool({
+          connectionString: uriAsRole(shadowDb, "own567", "o"),
+        });
+        try {
+          const exported = await buildSchemaExport(target, {
+            profile,
+            defaultOwner: "own567",
+          });
+          const sql = exported.files.map((f) => f.sql).join("\n");
+          const planned = await planSchemaFiles(
+            target,
+            shadow,
+            exported.files,
+            {
+              profile,
+              manifest: exported.manifest,
+            },
+          );
+          expect({
+            profile: profile.id,
+            ownerTo: sql.includes(`ALTER SCHEMA "public" OWNER TO "own567"`),
+            replan: planned.plan.actions.map((a) => a.sql),
+          }).toEqual({ profile: profile.id, ownerTo: true, replan: [] });
+        } finally {
+          await shadow.end();
+        }
+      }
+    } finally {
+      await target.end();
+    }
+
+    // untouched `public` (raw default owner = datdba): no OWNER TO noise
+    const plain = await buildSchemaExport(untouched.pool, {
+      profile: rawProfile,
+    });
+    expect(plain.files.map((f) => f.sql).join("\n")).not.toContain(
+      `ALTER SCHEMA "public" OWNER TO`,
+    );
   }, 300_000);
 });
