@@ -16,7 +16,7 @@
  */
 import type { Fact, FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
-import { isNamedAfterParent, ruleFlag } from "./rule-flags.ts";
+import { ruleFlag } from "./rule-flags.ts";
 import { defaultRulesForId, type RulesForId } from "./rules.ts";
 
 export type RenameMode = "auto" | "prompt" | "off";
@@ -152,11 +152,10 @@ export function childNameRenames(
   from: StableId,
   to: StableId,
 ): Array<{ from: Fact; to: Fact }> {
-  const nameOf = (fact: Fact) => ("name" in fact.id ? fact.id.name : "");
   const stale = (children: Fact[], others: Fact[]) =>
     children.filter(
       (child) =>
-        isNamedAfterParent(child.id.kind) &&
+        flagged(child, "namedAfterParent") &&
         !others.some(
           (other) =>
             other.id.kind === child.id.kind && nameOf(other) === nameOf(child),
@@ -166,24 +165,15 @@ export function childNameRenames(
   const desiredChildren = desired.childrenOf(to);
   const olds = stale(sourceChildren, desiredChildren);
   const wanted = stale(desiredChildren, sourceChildren);
+  if (olds.length === 0 || wanted.length === 0) return [];
   // nothing orders a rename after whatever frees a name the schema shares, so
   // that one waits for the next plan
   const subtree = new Set(subtreeIds(source, from).map(encodeId));
-  const schemaOf = (id: StableId) => (id as { schema?: string }).schema;
-  const namesRelation = (fact: Fact) =>
-    ruleFlag(fact.id.kind, "namesRelation")?.(fact) === true;
-  const held = new Set(
-    source
-      .facts()
-      .filter(
-        (fact) =>
-          schemaOf(fact.id) === schemaOf(from) &&
-          !subtree.has(encodeId(fact.id)) &&
-          (namesRelation(fact) ||
-            (fact.id as { table?: string }).table === undefined),
-      )
-      .map(nameOf),
-  );
+  const held = (fact: Fact) =>
+    flagged(fact, "namesRelation") &&
+    (relationNames(source).get(relationKey(fact)) ?? []).some(
+      (id) => !subtree.has(encodeId(id)),
+    );
   const renames: Array<{ from: Fact; to: Fact }> = [];
   for (const fact of wanted) {
     const id = fact.id;
@@ -193,7 +183,7 @@ export function childNameRenames(
     const matches = olds.filter((old) => alike(source, old));
     if (
       !("name" in id) ||
-      (namesRelation(fact) && held.has(id.name)) ||
+      held(fact) ||
       matches.length !== 1 ||
       wanted.filter((other) => alike(desired, other)).length !== 1
     ) {
@@ -206,6 +196,31 @@ export function childNameRenames(
     });
   }
   return renames;
+}
+
+const nameOf = (fact: Fact) => ("name" in fact.id ? fact.id.name : "");
+
+const flagged = (fact: Fact, flag: "namedAfterParent" | "namesRelation") =>
+  ruleFlag(fact.id.kind, flag)?.(fact) === true;
+
+const relationKey = (fact: Fact) =>
+  JSON.stringify([(fact.id as { schema?: string }).schema, nameOf(fact)]);
+
+const relationNamesOf = new WeakMap<FactBase, Map<string, StableId[]>>();
+
+/** The facts holding each name among a schema's relations. */
+function relationNames(fb: FactBase): Map<string, StableId[]> {
+  let names = relationNamesOf.get(fb);
+  if (names === undefined) {
+    names = new Map();
+    for (const fact of fb.facts()) {
+      if (!flagged(fact, "namesRelation")) continue;
+      const key = relationKey(fact);
+      names.set(key, [...(names.get(key) ?? []), fact.id]);
+    }
+    relationNamesOf.set(fb, names);
+  }
+  return names;
 }
 
 /** A fact id plus every descendant id, root first. */

@@ -14,6 +14,7 @@ export const viewRules: Record<string, KindRules> = {
   view: {
     weight: 12,
     cascadesToChildren: true,
+    namesRelation: () => true,
     rebuildable: true,
     defaclObjtype: "r",
     rename: renameRule((fact) => {
@@ -54,6 +55,7 @@ export const viewRules: Record<string, KindRules> = {
   materializedView: {
     weight: 13,
     cascadesToChildren: true,
+    namesRelation: () => true,
     rebuildable: true,
     defaclObjtype: "r",
     rename: renameRule((fact) => {

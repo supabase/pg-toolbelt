@@ -920,25 +920,49 @@ describe("public schema frontends", () => {
     `);
   }, 120_000);
 
-  test("planSchemaFiles leaves a generated name another table still holds to the next plan", async () => {
-    // a key's name is also its index's, so nothing but the schema keeps
-    // z's t2_pkey from colliding with the one the rename would generate
-    const tables = (t: string, key: string): string =>
-      `CREATE SCHEMA s;
-       CREATE TABLE s.${t} (id int PRIMARY KEY);
-       CREATE TABLE s.z (id int CONSTRAINT ${key} PRIMARY KEY);`;
-    expect(
+  test("planSchemaFiles leaves a generated key name another relation still holds to the next plan", async () => {
+    // a key's name is also its index's, unique among the schema's relations,
+    // so another relation named t2_pkey blocks the name t2's key would take
+    const planned = async (name: string, before: string, after: string) =>
       sqlOf(
         await planAgainst(
-          "frontend_rename_held_name",
-          tables("t1", "t2_pkey"),
-          tables("t2", "z_pkey"),
+          name,
+          `CREATE SCHEMA s; CREATE TABLE s.t1 (id int PRIMARY KEY); ${before}`,
+          `CREATE SCHEMA s; CREATE TABLE s.t2 (id int PRIMARY KEY); ${after}`,
         ),
+      );
+    expect(
+      await planned(
+        "frontend_rename_held_key",
+        "CREATE TABLE s.z (id int CONSTRAINT t2_pkey PRIMARY KEY);",
+        "CREATE TABLE s.z (id int CONSTRAINT z_pkey PRIMARY KEY);",
       ),
     ).toMatchInlineSnapshot(`
       [
         "ALTER TABLE "s"."t1" RENAME TO "t2"",
         "ALTER TABLE "s"."z" RENAME CONSTRAINT "t2_pkey" TO "z_pkey"",
+      ]
+    `);
+    expect(
+      await planned(
+        "frontend_rename_held_view",
+        "CREATE VIEW s.t2_pkey AS SELECT 1 AS x;",
+        "CREATE VIEW s.v AS SELECT 1 AS x;",
+      ),
+    ).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "s"."t1" RENAME TO "t2"",
+        "ALTER VIEW "s"."t2_pkey" RENAME TO "v"",
+      ]
+    `);
+    // a function's name is not a relation's, so it holds nothing
+    const fn =
+      "CREATE FUNCTION s.t2_pkey() RETURNS int LANGUAGE sql AS 'SELECT 1';";
+    expect(await planned("frontend_rename_function_name", fn, fn))
+      .toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "s"."t1" RENAME TO "t2"",
+        "ALTER TABLE "s"."t2" RENAME CONSTRAINT "t1_pkey" TO "t2_pkey"",
       ]
     `);
   }, 120_000);

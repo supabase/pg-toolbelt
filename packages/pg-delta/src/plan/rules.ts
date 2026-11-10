@@ -199,10 +199,11 @@ export interface KindRules {
    *  rebuilt (drop + recreate from the desired state) */
   rebuildable?: boolean;
   /** PostgreSQL names an unnamed fact of this kind after its parent
-   *  (`t_pkey`, `t_a_check`) and keeps that name when the parent is renamed */
-  namedAfterParent?: boolean;
-  /** this fact's name is also a relation's (a key's index), unique across the
-   *  schema rather than within its parent */
+   *  (`t_pkey`, `t_a_check`) and keeps that name when the parent is renamed;
+   *  false for one it renames only through another (an inherited constraint) */
+  namedAfterParent?: (fact: Fact) => boolean;
+  /** this fact's name is a relation's (a key's is its index's), unique among
+   *  the schema's relations */
   namesRelation?: (fact: Fact) => boolean;
   /** whether a fact of this kind MAY be folded into a parent's cascading
    *  drop. Default true. FK constraints return false: an explicit

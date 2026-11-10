@@ -9,6 +9,7 @@ export const sequenceRules: Record<string, KindRules> = {
   sequence: {
     weight: 3,
     cascadesToChildren: true,
+    namesRelation: () => true,
     defaclObjtype: "S",
     dropRootRedirect: (fact, isRemoved) => {
       const ownedBy = fact.payload["ownedBy"] as {

@@ -2162,17 +2162,24 @@ than dropped and recreated. These narrower gaps are deferred.
   columns as constraints are, accepted with the table in prompt mode.
 - **A constraint name another relation still holds.** `s.t1` → `s.t2` beside
   `s.z`, whose key is named `t2_pkey` and renamed in the same plan: a key's name
-  is also its index's, shared across the schema, and no action id says so. The
-  child rename waits for the next plan, so one apply does not converge and the
-  case has no corpus scenario. A fix would order the rename after whatever
-  frees the name.
+  is also its index's, unique among the schema's relations, and no action id
+  says so. The child rename waits for the next plan, so one apply does not
+  converge and the case has no corpus scenario. A name held only by a relation
+  that is not extracted (a partition's inherited key) is not seen, so that
+  rename fails the apply, as the next plan does on `main`. A fix would order the
+  rename after whatever frees the name.
 - **Identical unnamed checks on a renamed table.** Two checks with the same
-  text are equally alike, so neither is paired and the next plan renames them,
-  as on `main`. Any pairing would do; a fix would take them in name order.
-- **A renamed child table's own check that is also inherited.** Postgres refuses
-  to rename a constraint inherited from a parent. Constraint facts do not record
-  that, so a check named after the child and matching one on its parent fails
-  the rename's apply. A fix would extract `coninhcount`.
+  text are equally alike, so neither is paired and the next plan drops and
+  re-adds them, revalidating under lock, as on `main`. Any pairing would do; a
+  fix would take them in name order.
+- **A child table's check merged with its parent's.** Postgres renames such a
+  check only through the parent's, so a rename leaves it alone. When the files
+  give the child its own generated name instead, the next plan's
+  `RENAME CONSTRAINT` fails, as on `main`.
+- **Generated names that are not facts.** A renamed partition keeps the key
+  names it inherits (`t1_pkey`), so a later table taking that name fails with
+  `relation already exists`, and on PG 18 `NOT NULL` constraints keep the old
+  name too, as on `main`.
 - **A domain rename with a column using it.** The domain rename and the
   column's `ALTER COLUMN … TYPE` form a dependency cycle, on `main` too.
 - **Respelled unnamed checks nothing tells apart.** Unnamed checks pair by

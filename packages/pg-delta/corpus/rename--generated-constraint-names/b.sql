@@ -6,7 +6,7 @@ CREATE TABLE s.t2 (
   a int UNIQUE CHECK (a >= 0) CONSTRAINT t1_kept CHECK (a >= 0)
 );
 
--- names elsewhere that take nothing from the ones t2 generates
+-- a column and another table's check may reuse t2's generated names
 CREATE TABLE s.z (t2_pkey int, a int CONSTRAINT t2_a_check CHECK (a >= 0));
 
 CREATE DOMAIN s.d2 AS int CHECK (VALUE >= 0);

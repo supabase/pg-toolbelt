@@ -8,7 +8,7 @@ export const constraintRules: Record<string, KindRules> = {
     weight: 10,
     cascadesToChildren: true,
     rebuildable: true,
-    namedAfterParent: true,
+    namedAfterParent: (fact) => p(fact, "_inherited") !== true,
     namesRelation: (fact) => ["p", "u", "x"].includes(str(p(fact, "type"))),
     suppressible: (fact) => fact.payload["type"] !== "f",
     rename: (fact, to) => {

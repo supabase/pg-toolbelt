@@ -111,6 +111,7 @@ export const typeRules: Record<string, KindRules> = {
   type: {
     weight: 7,
     cascadesToChildren: true,
+    namesRelation: (fact) => p(fact, "variant") === "composite",
     defaclObjtype: "T", // ALTER DEFAULT PRIVILEGES … ON TYPES
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };

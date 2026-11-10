@@ -260,12 +260,12 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     });
   };
 
-  // renames: one action renames the subtree — produces every new id but the
-  // child names below, destroys every old id; dependents order against those
-  // sets. Tracked so buildActionGraph can treat them as identity-only: a rename
-  // does NOT establish or tear down the owner edge (PostgreSQL preserves the
-  // owner across RENAME), so owner edges on the renamed subtree must not drive
-  // graph ordering through the rename (review P1 #2: rename/rename cycle).
+  // renames: one action renames the whole subtree — produces every new id,
+  // destroys every old id; dependents order against those sets. Tracked so
+  // buildActionGraph can treat them as identity-only: a rename does NOT
+  // establish or tear down the owner edge (PostgreSQL preserves the owner across
+  // RENAME), so owner edges on the renamed subtree must not drive graph ordering
+  // through the rename (review P1 #2: rename/rename cycle).
   const renameActionIndices = new Set<number>();
   const renameRuleOf = (id: StableId) => {
     const rename = rulesForId(id).rename;
@@ -277,31 +277,22 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     return rename;
   };
   for (const { from, to, sourceSubtree, desiredSubtree } of acceptedRenames) {
-    // Postgres keeps a child's name across its parent's rename, so a stale one
-    // gets its own rename after the parent's. The parent still destroys it: a
-    // child's destroys would order it before the parent rename.
-    const children = childNameRenames(source, desired, from.id, to.id).map(
-      (child) => ({ ...child, ids: subtreeIds(desired, child.to.id) }),
-    );
-    const renamedIds = new Set(
-      children.flatMap((child) => child.ids.map(encodeId)),
-    );
     renameActionIndices.add(
       pushAction("alter", renameRuleOf(from.id)(from, to.id), {
-        produces: desiredSubtree.filter((id) => !renamedIds.has(encodeId(id))),
+        produces: desiredSubtree,
         destroys: sourceSubtree,
         consumes: to.parent !== undefined ? [to.parent] : [],
       }),
     );
-    for (const child of children) {
+    // Postgres keeps a child's name across its parent's rename, so a stale one
+    // gets its own rename after the parent's (a child's destroys would order
+    // it before)
+    for (const child of childNameRenames(source, desired, from.id, to.id)) {
       renameActionIndices.add(
         pushAction(
           "alter",
           renameRuleOf(child.from.id)(child.from, child.to.id),
-          {
-            produces: child.ids,
-            consumes: [to.id],
-          },
+          { produces: subtreeIds(desired, child.to.id) },
         ),
       );
     }
