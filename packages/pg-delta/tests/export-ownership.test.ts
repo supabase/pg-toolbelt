@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pg from "pg";
 import { extract } from "../src/extract/extract.ts";
+import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { buildSchemaExport } from "../src/frontends/schema-export.ts";
 import { planSchemaFiles } from "../src/frontends/schema-plan.ts";
 import {
@@ -644,19 +645,33 @@ describe("schema apply: manifest-absent directory is verbose", () => {
   }, 300_000);
 });
 
-// #567: a fresh `public` is NOT owned by the default owner (PG15+:
-// pg_database_owner; PG14: the bootstrap superuser), so `ALTER SCHEMA public
-// OWNER TO <defaultOwner>` must export, or a sync of the unchanged tree re-plans
-// the owner's ACL entry. An untouched `public` must not gain an OWNER TO.
+// #567: on PG15+ a fresh `public` is owned by pg_database_owner, not the
+// default owner, so `ALTER SCHEMA public OWNER TO <defaultOwner>` must export, or
+// a sync of the unchanged tree re-plans the owner's ACL entry. On PG14 the export
+// is unchanged: a non-superuser database owner cannot take over the bootstrap
+// superuser's `public` in the shadow. An untouched `public` gains no OWNER TO.
 describe("schema export: public owned by the default owner (#567)", () => {
-  test("(i) exports ALTER SCHEMA public OWNER TO the default owner and re-plans nothing", async () => {
+  test("(i) exports public's OWNER TO the default owner on PG15+ and re-plans nothing; PG14 unchanged", async () => {
     const cluster = await sharedCluster();
+    const pg15 = (await cluster.pgMajor()) >= 15;
     await cluster.adminPool
-      .query(`CREATE ROLE own567 SUPERUSER LOGIN PASSWORD 'o'`)
+      .query(`CREATE ROLE own567 LOGIN PASSWORD 'o'`)
       .catch(() => {});
-    const targetDb = await cluster.createDb("pub567_target");
+    const ownedDb = async (prefix: string): Promise<TestDb> => {
+      const db = await cluster.createDb(prefix);
+      dbs.push(db);
+      await cluster.adminPool.query(
+        `ALTER DATABASE "${db.name}" OWNER TO own567`,
+      );
+      // PG14: own567 cannot COMMENT ON the superuser's `public` either (also
+      // on main); drop the stock comment so the load hinges on the owner line
+      await db.pool.query(`COMMENT ON SCHEMA public IS NULL`);
+      return db;
+    };
+    const targetDb = await ownedDb("pub567_target");
     const untouched = await cluster.createDb("pub567_untouched");
-    dbs.push(targetDb, untouched);
+    dbs.push(untouched);
+    await targetDb.pool.query(`ALTER SCHEMA public OWNER TO own567`);
     const target = new pg.Pool({
       connectionString: uriAsRole(targetDb, "own567", "o"),
     });
@@ -671,33 +686,42 @@ describe("schema export: public owned by the default owner (#567)", () => {
       },
     };
     try {
-      await target.query(`ALTER SCHEMA public OWNER TO own567`);
       for (const profile of [rawProfile, roleExcluded]) {
-        const shadowDb = await cluster.createDb("pub567_shadow");
-        dbs.push(shadowDb);
         const shadow = new pg.Pool({
-          connectionString: uriAsRole(shadowDb, "own567", "o"),
+          connectionString: uriAsRole(
+            await ownedDb("pub567_shadow"),
+            "own567",
+            "o",
+          ),
         });
         try {
           const exported = await buildSchemaExport(target, {
             profile,
             defaultOwner: "own567",
           });
-          const sql = exported.files.map((f) => f.sql).join("\n");
-          const planned = await planSchemaFiles(
-            target,
-            shadow,
-            exported.files,
-            {
-              profile,
-              manifest: exported.manifest,
-            },
+          const ownerTo = exported.files.some((f) =>
+            f.sql.includes(`ALTER SCHEMA "public" OWNER TO "own567"`),
           );
-          expect({
-            profile: profile.id,
-            ownerTo: sql.includes(`ALTER SCHEMA "public" OWNER TO "own567"`),
-            replan: planned.plan.actions.map((a) => a.sql),
-          }).toEqual({ profile: profile.id, ownerTo: true, replan: [] });
+          if (pg15) {
+            const planned = await planSchemaFiles(
+              target,
+              shadow,
+              exported.files,
+              { profile, manifest: exported.manifest },
+            );
+            expect({
+              profile: profile.id,
+              ownerTo,
+              replan: planned.plan.actions.map((a) => a.sql),
+            }).toEqual({ profile: profile.id, ownerTo: true, replan: [] });
+          } else {
+            // PG14 exports as before #567, so the shadow load must not fail
+            await loadSqlFiles(exported.files, shadow);
+            expect({ profile: profile.id, ownerTo }).toEqual({
+              profile: profile.id,
+              ownerTo: false,
+            });
+          }
         } finally {
           await shadow.end();
         }

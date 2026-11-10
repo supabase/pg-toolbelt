@@ -47,9 +47,8 @@ export interface BuildSchemaExportOptions {
   /** Pretty-print options; omit for raw renderer output. */
   format?: SqlFormatOptions;
   /** Default owner whose OWNER TO stays implicit under database scope.
-   *  Exception: schema `public` pre-exists in a fresh database under another
-   *  owner (`pg_database_owner` on PG15+, the bootstrap superuser on PG14), so
-   *  its OWNER TO <defaultOwner> is exported.
+   *  Exception (PG15+): schema `public` pre-exists in a fresh database, owned
+   *  by `pg_database_owner`, so its OWNER TO <defaultOwner> is exported.
    *  - a role name → that role
    *  - `null` → verbose (every OWNER TO)
    *  - omit → profile defaultOwner, else `datdba` */
@@ -86,7 +85,9 @@ export async function buildSchemaExport(
     redactSecrets,
   });
 
-  const { factBase, diagnostics } = await ctx.extract(pool, { redactSecrets });
+  const { factBase, diagnostics, pgVersion } = await ctx.extract(pool, {
+    redactSecrets,
+  });
 
   const assumed = ctx.planOptions.policy
     ? flattenPolicy(ctx.planOptions.policy)
@@ -165,11 +166,14 @@ export async function buildSchemaExport(
   }
   /* the owner edge to the default owner is dropped (by the scope projection,
      or by a policy excluding that role, e.g. supabase rule 7b) because the
-     applier creates the object; `public` pre-exists in a fresh database, owned
-     by pg_database_owner (PG15+) or the bootstrap superuser (PG14), so restore
-     the edge unless a fresh `public` already has this owner */
+     applier creates the object; on PG15+ `public` pre-exists in a fresh
+     database, owned by pg_database_owner, so restore the edge. PG14's `public`
+     belongs to the bootstrap superuser, which a non-superuser default owner
+     cannot take over on load, so it stays implicit there */
   const publicOwner =
-    publicSchema === undefined || resolvedDefaultOwner === null
+    publicSchema === undefined ||
+    resolvedDefaultOwner === null ||
+    Number.parseInt(pgVersion, 10) < 15
       ? undefined
       : factBase
           .outgoingEdges(publicSchema.id)
@@ -185,22 +189,14 @@ export async function buildSchemaExport(
     scopedView.has(publicOwner.from) &&
     !scopedView.outgoingEdges(publicOwner.from).some((e) => e.kind === "owner")
   ) {
-    const fresh = (
-      await pool.query<{ owner: string }>(
-        `SELECT CASE WHEN current_setting('server_version_num')::int >= 150000
-           THEN 'pg_database_owner' ELSE pg_catalog.pg_get_userbyid(10) END AS owner`,
-      )
-    ).rows[0]?.owner;
-    if (fresh !== resolvedDefaultOwner) {
-      publicOwnerReattached = true;
-      scopedView = buildFactBase(
-        [...scopedView.facts()],
-        [...scopedView.edges, publicOwner],
-        scopedView.source,
-        scopedView.referenceOnly,
-        { allowDangling: retainOwnerRoleDangling },
-      );
-    }
+    publicOwnerReattached = true;
+    scopedView = buildFactBase(
+      [...scopedView.facts()],
+      [...scopedView.edges, publicOwner],
+      scopedView.source,
+      scopedView.referenceOnly,
+      { allowDangling: retainOwnerRoleDangling },
+    );
   }
   if (exportScope === "database" && resolvedDefaultOwner !== null) {
     const cu = (await pool.query<{ u: string }>(`SELECT current_user AS u`))
