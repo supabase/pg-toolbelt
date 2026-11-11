@@ -2166,8 +2166,10 @@ than dropped and recreated. These narrower gaps are deferred.
   says so. The child rename waits for the next plan, so one apply does not
   converge and the case has no corpus scenario. A name held only by a relation
   that is not extracted (a partition's inherited key) is not seen, so that
-  rename fails the apply, as the next plan does on `main`. A fix would order the
-  rename after whatever frees the name.
+  rename fails the apply and rolls back its transaction segment, the table
+  rename included, where on `main` the table rename applied and the follow-up
+  plan failed. A fix would record every relation name a schema holds and order
+  the rename after whatever frees the name.
 - **Identical unnamed checks on a renamed table.** Two checks with the same
   text are equally alike, so neither is paired and the next plan drops and
   re-adds them, revalidating under lock, as on `main`. Any pairing would do; a
@@ -2175,7 +2177,14 @@ than dropped and recreated. These narrower gaps are deferred.
 - **A child table's check merged with its parent's.** Postgres renames such a
   check only through the parent's, so a rename leaves it alone. When the files
   give the child its own generated name instead, the next plan's
-  `RENAME CONSTRAINT` fails, as on `main`.
+  `RENAME CONSTRAINT` fails, as on `main`. Renaming the parent fails at plan
+  time (`dependency cycle`), as on `main`: renaming any inheritance parent drops
+  and recreates its children, losing their rows, and the child's merged check is
+  paired for a rename only the parent's can make. Leaving that check unpaired
+  removes the cycle but not the rebuild, and the parent's recursive
+  `RENAME CONSTRAINT` then meets the name the recreated child already has. A fix
+  keeps the children across the parent's rename and plans nothing for the merged
+  check, which the parent's `RENAME CONSTRAINT` renames.
 - **Generated names that are not facts.** A renamed partition keeps the key
   names it inherits (`t1_pkey`), so a later table taking that name fails with
   `relation already exists`, and on PG 18 `NOT NULL` constraints keep the old
