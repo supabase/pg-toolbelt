@@ -349,7 +349,9 @@ export interface Policy {
    * The role whose object ownership stays IMPLICIT in a database-scope export:
    * `schema export` suppresses `ALTER … OWNER TO <defaultOwner>` (that role is the
    * expected applier), while every object owned by another role serializes its
-   * owner. Consumed as the profile-declared tier of the `--default-owner` chain
+   * owner. Exception (PG15+): schema `public` pre-exists in a fresh database,
+   * owned by `pg_database_owner`, so its `OWNER TO <defaultOwner>` is exported.
+   * Consumed as the profile-declared tier of the `--default-owner` chain
    * (flag > profile default > database `datdba`). Undefined → fall through to the
    * database owner. Supabase sets this to `postgres`.
    */
