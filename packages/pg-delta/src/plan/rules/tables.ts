@@ -22,6 +22,7 @@ export const tableRules: Record<string, KindRules> = {
   table: {
     weight: 4,
     cascadesToChildren: true,
+    namesRelation: () => true,
     // Partitions / INHERITS children are parented at the schema, not the
     // parent table. Incoming inherit `depends` must force-rebuild them when
     // the parent is replaced (DROP TABLE cascades them away).

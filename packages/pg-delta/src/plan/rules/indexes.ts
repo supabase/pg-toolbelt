@@ -7,6 +7,7 @@ export const indexRules: Record<string, KindRules> = {
   index: {
     weight: 14,
     cascadesToChildren: true,
+    namesRelation: () => true,
     rebuildable: true,
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };

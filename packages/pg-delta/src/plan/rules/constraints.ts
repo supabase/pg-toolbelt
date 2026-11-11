@@ -1,5 +1,5 @@
 /** Rule definitions for table / domain constraints. */
-import { qid } from "../render.ts";
+import { qid, rel } from "../render.ts";
 import type { KindRules } from "../rules.ts";
 import { constraintTarget, p, str } from "./helpers.ts";
 
@@ -8,11 +8,18 @@ export const constraintRules: Record<string, KindRules> = {
     weight: 10,
     cascadesToChildren: true,
     rebuildable: true,
+    namedAfterParent: (fact) => p(fact, "_inherited") !== true,
+    namesRelation: (fact) => ["p", "u", "x"].includes(str(p(fact, "type"))),
     suppressible: (fact) => fact.payload["type"] !== "f",
     rename: (fact, to) => {
-      const id = fact.id as { name: string };
+      const id = fact.id as { schema: string; table: string; name: string };
+      // ALTER FOREIGN TABLE has no RENAME CONSTRAINT; ALTER TABLE takes one
+      const target =
+        fact.parent?.kind === "foreignTable"
+          ? `ALTER TABLE ${rel(id.schema, id.table)}`
+          : constraintTarget(fact);
       return {
-        sql: `${constraintTarget(fact)} RENAME CONSTRAINT ${qid(id.name)} TO ${qid((to as { name: string }).name)}`,
+        sql: `${target} RENAME CONSTRAINT ${qid(id.name)} TO ${qid((to as { name: string }).name)}`,
       };
     },
     create: (fact) => {

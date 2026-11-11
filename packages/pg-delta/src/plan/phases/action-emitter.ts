@@ -25,7 +25,7 @@ import { extensionMemberClosure } from "../../policy/view.ts";
 import { lockClassFor } from "../locks.ts";
 import type { Action } from "../plan.ts";
 import { qid } from "../render.ts";
-import { subtreeIds } from "../renames.ts";
+import { childNameRenames, subtreeIds } from "../renames.ts";
 import { cascadesToChildren, ruleFlag } from "../rule-flags.ts";
 import {
   type ActionSpec,
@@ -44,6 +44,8 @@ import type { AcceptedRename } from "./change-set.ts";
 export interface ActionEmitterInput {
   /** resolved source / desired views + the projected plan target */
   source: FactBase;
+  /** the unfiltered source extract */
+  rawSource: FactBase;
   desired: FactBase;
   projectedDesired: FactBase;
   /** canonical add/remove worklists + grouped set-deltas */
@@ -100,6 +102,7 @@ export interface ActionEmitterOutput {
 export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const {
     source,
+    rawSource,
     desired,
     projectedDesired,
     removed,
@@ -267,20 +270,41 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // RENAME), so owner edges on the renamed subtree must not drive graph ordering
   // through the rename (review P1 #2: rename/rename cycle).
   const renameActionIndices = new Set<number>();
-  for (const { from, to, sourceSubtree, desiredSubtree } of acceptedRenames) {
-    const rename = rulesForId(from.id).rename;
+  const renameRuleOf = (id: StableId) => {
+    const rename = rulesForId(id).rename;
     if (rename === undefined) {
       throw new Error(
-        `rename: kind '${from.id.kind}' matched as candidate but has no rename rule`,
+        `rename: kind '${id.kind}' matched as candidate but has no rename rule`,
       );
     }
+    return rename;
+  };
+  for (const { from, to, sourceSubtree, desiredSubtree } of acceptedRenames) {
     renameActionIndices.add(
-      pushAction("alter", rename(from, to.id), {
+      pushAction("alter", renameRuleOf(from.id)(from, to.id), {
         produces: desiredSubtree,
         destroys: sourceSubtree,
         consumes: to.parent !== undefined ? [to.parent] : [],
       }),
     );
+    // Postgres keeps a child's name across its parent's rename, so a stale one
+    // gets its own rename after the parent's (a child's destroys would order
+    // it before)
+    for (const child of childNameRenames(
+      source,
+      desired,
+      from.id,
+      to.id,
+      rawSource,
+    )) {
+      renameActionIndices.add(
+        pushAction(
+          "alter",
+          renameRuleOf(child.from.id)(child.from, child.to.id),
+          { produces: subtreeIds(desired, child.to.id) },
+        ),
+      );
+    }
   }
 
   // Desired-side extension → member-keys index, computed lazily — only an

@@ -131,6 +131,7 @@ export const foreignRules: Record<string, KindRules> = {
   foreignTable: {
     weight: 5,
     cascadesToChildren: true,
+    namesRelation: () => true,
     defaclObjtype: "r",
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
