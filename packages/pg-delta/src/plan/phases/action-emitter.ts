@@ -44,6 +44,8 @@ import type { AcceptedRename } from "./change-set.ts";
 export interface ActionEmitterInput {
   /** resolved source / desired views + the projected plan target */
   source: FactBase;
+  /** the unfiltered source extract */
+  rawSource: FactBase;
   desired: FactBase;
   projectedDesired: FactBase;
   /** canonical add/remove worklists + grouped set-deltas */
@@ -100,6 +102,7 @@ export interface ActionEmitterOutput {
 export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const {
     source,
+    rawSource,
     desired,
     projectedDesired,
     removed,
@@ -287,7 +290,13 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // Postgres keeps a child's name across its parent's rename, so a stale one
     // gets its own rename after the parent's (a child's destroys would order
     // it before)
-    for (const child of childNameRenames(source, desired, from.id, to.id)) {
+    for (const child of childNameRenames(
+      source,
+      desired,
+      from.id,
+      to.id,
+      rawSource,
+    )) {
       renameActionIndices.add(
         pushAction(
           "alter",

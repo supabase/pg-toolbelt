@@ -144,13 +144,15 @@ export function matchRenameCandidates(
  * constraints Postgres named after it (`t1_pkey` where the desired side has
  * `t2_pkey`). Each pairs with the only stale child of its structure, as the
  * next plan's rename discovery would. `from` is the desired fact under the old
- * name, so its rename rule addresses the renamed parent.
+ * name, so its rename rule addresses the renamed parent. `catalog` is the
+ * unfiltered source, so a relation a policy hides still holds its name.
  */
 export function childNameRenames(
   source: FactBase,
   desired: FactBase,
   from: StableId,
   to: StableId,
+  catalog: FactBase,
 ): Array<{ from: Fact; to: Fact }> {
   const stale = (children: Fact[], others: Fact[]) =>
     children.filter(
@@ -171,7 +173,7 @@ export function childNameRenames(
   const subtree = new Set(subtreeIds(source, from).map(encodeId));
   const held = (fact: Fact) =>
     flagged(fact, "namesRelation") &&
-    (relationNames(source).get(relationKey(fact)) ?? []).some(
+    (relationNames(catalog).get(relationKey(fact)) ?? []).some(
       (id) => !subtree.has(encodeId(id)),
     );
   const renames: Array<{ from: Fact; to: Fact }> = [];
