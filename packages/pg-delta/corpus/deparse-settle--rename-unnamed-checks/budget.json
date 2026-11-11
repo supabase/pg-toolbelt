@@ -1,0 +1,10 @@
+{
+  "a-to-b": {
+    "require": ["rename:table"],
+    "forbid": ["create:constraint", "drop:constraint"]
+  },
+  "b-to-a": {
+    "require": ["rename:table"],
+    "forbid": ["create:constraint", "drop:constraint"]
+  }
+}

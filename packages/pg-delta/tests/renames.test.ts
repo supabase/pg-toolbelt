@@ -663,4 +663,40 @@ describe("stage 9: renames", () => {
       await dbs.drop();
     }
   }, 60_000);
+
+  test("a generated key name a policy-excluded relation holds waits for the next plan", async () => {
+    const dbs = await pair(
+      "ren_held_excluded",
+      `CREATE SCHEMA app;
+       CREATE TABLE app.t1 (id integer PRIMARY KEY);
+       CREATE TABLE app.z (a integer);
+       CREATE INDEX t2_pkey ON app.z (a);`,
+      `CREATE SCHEMA app;
+       CREATE TABLE app.t2 (id integer PRIMARY KEY);
+       CREATE TABLE app.z (a integer);`,
+    );
+    const policy: Policy = {
+      id: "exclude-indexes",
+      filter: [{ match: { kind: "index" }, action: "exclude" }],
+    };
+    try {
+      const [s, d] = [
+        await extract(dbs.source.pool),
+        await extract(dbs.desired.pool),
+      ];
+      const thePlan = plan(s.factBase, d.factBase, {
+        renames: "auto",
+        policy,
+      });
+      expect(thePlan.actions.map((action) => action.sql)).toEqual([
+        'ALTER TABLE "app"."t1" RENAME TO "t2"',
+      ]);
+      const report = await apply(thePlan, dbs.source.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+    } finally {
+      await dbs.drop();
+    }
+  }, 60_000);
 });

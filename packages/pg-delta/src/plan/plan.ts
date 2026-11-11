@@ -756,6 +756,7 @@ export function plan(
     implicitDestroys,
   } = emitActions({
     source,
+    rawSource,
     desired,
     projectedDesired,
     removed,

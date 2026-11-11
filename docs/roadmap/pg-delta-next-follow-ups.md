@@ -2155,17 +2155,42 @@ cycle; both reproduce on `main` before #534 too.
 #555 lets a renamed table whose checks Postgres respells be renamed rather
 than dropped and recreated. These narrower gaps are deferred.
 
-- **Generated child names keep the old table's name.** An unnamed check is
-  paired by shape, so `s.t1` → `s.t2` is planned as `ALTER TABLE … RENAME`
-  alone. The check is still `t1_check` afterwards while the files name it
-  `t2_check`, so the next plan is `DROP CONSTRAINT` + `ADD CONSTRAINT`, which
-  revalidates under lock. The unrespelled case already leaves a
-  `RENAME CONSTRAINT` behind on `main`. A column renamed along with its table
-  is left behind the same way, as `main` already does without a check. A fix
-  would reconcile child names after a parent rename, covered by an
-  apply-and-replan test. A corpus scenario with two unnamed checks waits on
-  this fix: until then the constraints keep the old table's name, so the
-  state proof fails.
+- **A column renamed along with its table is left behind.**
+  `s.t1 (a int)` → `s.t2 (b int)` is planned as `ALTER TABLE … RENAME` alone.
+  The next plan renames the column in auto mode, and in prompt mode refuses a
+  `DROP COLUMN` unless the column rename is accepted too. A fix would pair the
+  columns as constraints are, accepted with the table in prompt mode.
+- **A constraint name another relation still holds.** `s.t1` → `s.t2` beside
+  `s.z`, whose key is named `t2_pkey` and renamed in the same plan: a key's name
+  is also its index's, unique among the schema's relations, and no action id
+  says so. The child rename waits for the next plan, so one apply does not
+  converge and the case has no corpus scenario. A name held only by a relation
+  that is not extracted (a partition's inherited key) is not seen, so that
+  rename fails the apply and rolls back its transaction segment, the table
+  rename included, where on `main` the table rename applied and the follow-up
+  plan failed. A fix would record every relation name a schema holds and order
+  the rename after whatever frees the name.
+- **Identical unnamed checks on a renamed table.** Two checks with the same
+  text are equally alike, so neither is paired and the next plan drops and
+  re-adds them, revalidating under lock, as on `main`. Any pairing would do; a
+  fix would take them in name order.
+- **A child table's check merged with its parent's.** Postgres renames such a
+  check only through the parent's, so a rename leaves it alone. When the files
+  give the child its own generated name instead, the next plan's
+  `RENAME CONSTRAINT` fails, as on `main`. Renaming the parent fails at plan
+  time (`dependency cycle`), as on `main`: renaming any inheritance parent drops
+  and recreates its children, losing their rows, and the child's merged check is
+  paired for a rename only the parent's can make. Leaving that check unpaired
+  removes the cycle but not the rebuild, and the parent's recursive
+  `RENAME CONSTRAINT` then meets the name the recreated child already has. A fix
+  keeps the children across the parent's rename and plans nothing for the merged
+  check, which the parent's `RENAME CONSTRAINT` renames.
+- **Generated names that are not facts.** A renamed partition keeps the key
+  names it inherits (`t1_pkey`), so a later table taking that name fails with
+  `relation already exists`, and on PG 18 `NOT NULL` constraints keep the old
+  name too, as on `main`.
+- **A domain rename with a column using it.** The domain rename and the
+  column's `ALTER COLUMN … TYPE` form a dependency cycle, on `main` too.
 - **Respelled unnamed checks nothing tells apart.** Unnamed checks pair by
   shape, then by text, by what they read, then by their generated name. Two
   that are both respelled, read the same columns, and are declared in another

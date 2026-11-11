@@ -334,6 +334,7 @@ const TABLE_CONSTRAINTS_SQL = `
            c.relkind AS table_kind,
            pg_get_constraintdef(con.oid) AS def,
            con.contype AS type, con.convalidated AS validated,
+           con.coninhcount > 0 AS inherited,
            obj_description(con.oid, 'pg_constraint') AS comment,
            CASE
              WHEN con.contype NOT IN ('p', 'u') THEN NULL
@@ -418,6 +419,9 @@ export const tableConstraintsFamily: CatalogFamily = {
                     : [],
                 }
               : {}),
+            // Planner-only: a local constraint merged with an inherited one,
+            // which Postgres renames only through the parent's
+            ...(row["inherited"] === true ? { _inherited: true } : {}),
           },
         },
         row,

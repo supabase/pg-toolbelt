@@ -2,8 +2,8 @@
  * Rename detection (target-architecture §4.1, stage 9): over the diff's
  * remove/add pairs, find candidates whose STRUCTURAL rollup (the
  * identity-free fold from stage 1) matches — same content, different name.
- * A rename rewrites the whole subtree's IDs without emitting subtree
- * actions, and preserves data by construction.
+ * A rename rewrites the whole subtree's IDs, emitting subtree actions only
+ * for the child names it leaves behind, and preserves data by construction.
  *
  * Never guess: ambiguity (n removed × m added with equal rollups) and
  * swaps/chains (the target name already exists in the source) are
@@ -16,6 +16,7 @@
  */
 import type { Fact, FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
+import { ruleFlag } from "./rule-flags.ts";
 import { defaultRulesForId, type RulesForId } from "./rules.ts";
 
 export type RenameMode = "auto" | "prompt" | "off";
@@ -136,6 +137,92 @@ export function matchRenameCandidates(
     const kb = `${encodeId(b.from)}>${encodeId(b.to)}`;
     return ka < kb ? -1 : 1;
   });
+}
+
+/**
+ * The children a parent's rename leaves under a stale name, such as the
+ * constraints Postgres named after it (`t1_pkey` where the desired side has
+ * `t2_pkey`). Each pairs with the only stale child of its structure, as the
+ * next plan's rename discovery would. `from` is the desired fact under the old
+ * name, so its rename rule addresses the renamed parent. `catalog` is the
+ * unfiltered source, so a relation a policy hides still holds its name.
+ */
+export function childNameRenames(
+  source: FactBase,
+  desired: FactBase,
+  from: StableId,
+  to: StableId,
+  catalog: FactBase,
+): Array<{ from: Fact; to: Fact }> {
+  const stale = (children: Fact[], others: Fact[]) =>
+    children.filter(
+      (child) =>
+        flagged(child, "namedAfterParent") &&
+        !others.some(
+          (other) =>
+            other.id.kind === child.id.kind && nameOf(other) === nameOf(child),
+        ),
+    );
+  const sourceChildren = source.childrenOf(from);
+  const desiredChildren = desired.childrenOf(to);
+  const olds = stale(sourceChildren, desiredChildren);
+  const wanted = stale(desiredChildren, sourceChildren);
+  if (olds.length === 0 || wanted.length === 0) return [];
+  // nothing orders a rename after whatever frees a name the schema shares, so
+  // that one waits for the next plan
+  const subtree = new Set(subtreeIds(source, from).map(encodeId));
+  const held = (fact: Fact) =>
+    flagged(fact, "namesRelation") &&
+    (relationNames(catalog).get(relationKey(fact)) ?? []).some(
+      (id) => !subtree.has(encodeId(id)),
+    );
+  const renames: Array<{ from: Fact; to: Fact }> = [];
+  for (const fact of wanted) {
+    const id = fact.id;
+    const shape = desired.structuralRollupOf(id);
+    const alike = (fb: FactBase, other: Fact) =>
+      other.id.kind === id.kind && fb.structuralRollupOf(other.id) === shape;
+    const matches = olds.filter((old) => alike(source, old));
+    if (
+      !("name" in id) ||
+      held(fact) ||
+      matches.length !== 1 ||
+      wanted.filter((other) => alike(desired, other)).length !== 1
+    ) {
+      continue;
+    }
+    const old = matches[0] as Fact;
+    renames.push({
+      from: { ...fact, id: { ...id, name: nameOf(old) } },
+      to: fact,
+    });
+  }
+  return renames;
+}
+
+const nameOf = (fact: Fact) => ("name" in fact.id ? fact.id.name : "");
+
+const flagged = (fact: Fact, flag: "namedAfterParent" | "namesRelation") =>
+  ruleFlag(fact.id.kind, flag)?.(fact) === true;
+
+const relationKey = (fact: Fact) =>
+  JSON.stringify([(fact.id as { schema?: string }).schema, nameOf(fact)]);
+
+const relationNamesOf = new WeakMap<FactBase, Map<string, StableId[]>>();
+
+/** The facts holding each name among a schema's relations. */
+function relationNames(fb: FactBase): Map<string, StableId[]> {
+  let names = relationNamesOf.get(fb);
+  if (names === undefined) {
+    names = new Map();
+    for (const fact of fb.facts()) {
+      if (!flagged(fact, "namesRelation")) continue;
+      const key = relationKey(fact);
+      names.set(key, [...(names.get(key) ?? []), fact.id]);
+    }
+    relationNamesOf.set(fb, names);
+  }
+  return names;
 }
 
 /** A fact id plus every descendant id, root first. */
