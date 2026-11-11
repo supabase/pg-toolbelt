@@ -1,5 +1,13 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.61
+
+### Patch Changes
+
+- d1820a9: Keep `ALTER SCHEMA "public" OWNER TO <default owner>` in `schema export` on PG15+ when `public` is owned by the default owner, so a declarative sync of the unchanged export no longer plans `REVOKE`/`GRANT` churn on `public`.
+- ec45485: A renamed table, domain, or foreign table now renames the constraint names Postgres generated from its old name (`t1_pkey` to `t2_pkey`) in the same plan. Before, the next plan renamed them, or dropped and re-added them (rebuilding a primary key, revalidating a check) when a check was respelled or the rename was accepted in prompt mode. A key whose new name another relation still holds is renamed by the next plan. A constraint on a foreign table is now renamed with `ALTER TABLE`, since Postgres rejects `ALTER FOREIGN TABLE … RENAME CONSTRAINT`.
+- 36ac91d: `planSchemaFiles` (`schema apply`) now settles spelling-only definition differences before rename discovery and before the capability check, so a renamed table whose checks are only respelled is renamed instead of dropped and recreated (a check Postgres named is matched by its text, what it reads, or its generated name), and an unchanged schema no longer fails with `capability: cannot set owner`. Two table renames in one schema no longer fail with a `dependency cycle`.
+
 ## 1.0.0-alpha.60
 
 ### Patch Changes
