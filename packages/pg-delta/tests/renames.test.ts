@@ -718,6 +718,11 @@ describe("stage 9: renames", () => {
         await extract(dbs.source.pool),
         await extract(dbs.desired.pool),
       ];
+      const unconfirmed = plan(s.factBase, d.factBase, { renames: "prompt" });
+      expect(unconfirmed.acceptedRenames).toBeUndefined();
+      expect(
+        unconfirmed.renameCandidates.map(({ from }) => from),
+      ).toContainEqual({ kind: "table", schema: "app", name: "q1" });
       const thePlan = plan(s.factBase, d.factBase, {
         renames: "prompt",
         acceptRenames: [

@@ -215,12 +215,28 @@ export function buildChangeSet(
         (rename) => `${encodeId(rename.from)}>${encodeId(rename.to)}`,
       ),
     );
+    // a merged check rides its parent's RENAME CONSTRAINT, so it waits while
+    // its table is recreated: it or an ancestor is gone with no rename confirmed
+    const confirmedFrom = new Set(
+      (options?.acceptRenames ?? []).map((rename) => encodeId(rename.from)),
+    );
+    const recreated = (id: StableId, seen = new Set<string>()): boolean => {
+      const key = encodeId(id);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      if (discoveryRemoved.has(key) && !confirmedFrom.has(key)) return true;
+      return physicalSource
+        .outgoingEdges(id)
+        .some((edge) => edge.kind === "depends" && recreated(edge.to, seen));
+    };
     for (const candidate of candidates) {
       if (candidate.status !== "unambiguous") continue;
       const key = `${encodeId(candidate.from)}>${encodeId(candidate.to)}`;
       const from = discoveryRemoved.get(encodeId(candidate.from)) as Fact;
       const throughParent =
-        rulesForId(from.id).renamedThroughParent?.(from) === true;
+        rulesForId(from.id).renamedThroughParent?.(from) === true &&
+        from.parent !== undefined &&
+        !recreated(from.parent);
       if (renameMode === "prompt" && !confirmed.has(key) && !throughParent)
         continue;
       const to = discoveryAdded.get(encodeId(candidate.to)) as Fact;
