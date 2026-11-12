@@ -24,6 +24,7 @@ import type { PlanOptions } from "../plan.ts";
 import { projectTarget } from "../project.ts";
 import {
   matchRenameCandidates,
+  renameFollower,
   subtreeIds,
   type RenameCandidate,
   type RenameMode,
@@ -217,8 +218,11 @@ export function buildChangeSet(
     for (const candidate of candidates) {
       if (candidate.status !== "unambiguous") continue;
       const key = `${encodeId(candidate.from)}>${encodeId(candidate.to)}`;
-      if (renameMode === "prompt" && !confirmed.has(key)) continue;
       const from = discoveryRemoved.get(encodeId(candidate.from)) as Fact;
+      const throughParent =
+        rulesForId(from.id).renamedThroughParent?.(from) === true;
+      if (renameMode === "prompt" && !confirmed.has(key) && !throughParent)
+        continue;
       const to = discoveryAdded.get(encodeId(candidate.to)) as Fact;
       discoveredRenames.push({
         from,
@@ -284,12 +288,23 @@ export function buildChangeSet(
     }
   }
 
+  // set-deltas that only follow an accepted rename
+  const follows = renameFollower(acceptedRenames, rulesForId);
+  const followed = new Set(
+    deltas.filter((delta) => delta.verb === "set" && follows(delta)),
+  );
+  for (const [key, sets] of setsByFact) {
+    const changes = sets.filter((delta) => !followed.has(delta));
+    if (changes.length === 0) setsByFact.delete(key);
+    else setsByFact.set(key, changes);
+  }
+
   return {
     physicalSource,
     source,
     desired,
     projectedDesired,
-    deltas,
+    deltas: deltas.filter((delta) => !followed.has(delta)),
     filteredDeltas,
     removed,
     added,
