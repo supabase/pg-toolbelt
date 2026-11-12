@@ -196,7 +196,8 @@ export interface Plan {
   /** every rename candidate found, applied or not — "prompt" mode renders
    *  these as questions; near-misses explain why they degraded (§4.1) */
   renameCandidates: RenameCandidate[];
-  /** the renames this plan actually applied (as { from, to } stable-id pairs),
+  /** the renames this plan actually applied (as { from, to } stable-id pairs;
+   *  a merged check an ancestor's RENAME CONSTRAINT carries counts too),
    *  stamped only when non-empty so corpus / direct-library plan artifacts stay
    *  byte-identical. The proof loop reads this to keep a renamed table under
    *  data-preservation coverage: an accepted rename destroys the OLD subtree, so
@@ -227,8 +228,9 @@ export interface PlanOptions {
    *  subtracts a provided FactBase, never reads a file. */
   baseline?: FactBase;
   /** rename detection (§4.1, stage 9). "auto" applies unambiguous
-   *  candidates; "prompt" reports candidates and applies only those in
-   *  acceptRenames; "off" (default) preserves drop+create. */
+   *  candidates; "prompt" reports candidates and applies those in
+   *  acceptRenames, plus a check merged with its parent's, which Postgres
+   *  will not drop on its own; "off" (default) preserves drop+create. */
   renames?: RenameMode;
   /** in "prompt" mode: the candidates the caller confirmed */
   acceptRenames?: Array<{ from: StableId; to: StableId }>;

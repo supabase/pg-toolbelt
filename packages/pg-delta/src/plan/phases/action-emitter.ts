@@ -25,7 +25,7 @@ import { extensionMemberClosure } from "../../policy/view.ts";
 import { lockClassFor } from "../locks.ts";
 import type { Action } from "../plan.ts";
 import { qid } from "../render.ts";
-import { childNameRenames, subtreeIds } from "../renames.ts";
+import { childNameRenames, nameChange, subtreeIds } from "../renames.ts";
 import { cascadesToChildren, ruleFlag } from "../rule-flags.ts";
 import {
   type ActionSpec,
@@ -279,7 +279,18 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     }
     return rename;
   };
-  for (const { from, to, sourceSubtree, desiredSubtree } of acceptedRenames) {
+  // each name change, on the source relation whose own fact it renames;
+  // source ids, since ancestors are found through source edges
+  const renamed = new Set<string>();
+  const renamedOn = (from: Fact, to: Fact, on: StableId | undefined) =>
+    `${nameChange(from, to)}${on === undefined ? "" : encodeId(on)}`;
+  const emitRename = ({
+    from,
+    to,
+    sourceSubtree,
+    desiredSubtree,
+  }: AcceptedRename) => {
+    renamed.add(renamedOn(from, to, from.parent));
     renameActionIndices.add(
       pushAction("alter", renameRuleOf(from.id)(from, to.id), {
         produces: desiredSubtree,
@@ -287,6 +298,16 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         consumes: to.parent !== undefined ? [to.parent] : [],
       }),
     );
+  };
+  const throughParent = new Set(
+    acceptedRenames.filter(
+      ({ from }) => rulesForId(from.id).renamedThroughParent?.(from) === true,
+    ),
+  );
+  for (const rename of acceptedRenames) {
+    if (throughParent.has(rename)) continue;
+    const { from, to } = rename;
+    emitRename(rename);
     // Postgres keeps a child's name across its parent's rename, so a stale one
     // gets its own rename after the parent's (a child's destroys would order
     // it before)
@@ -297,6 +318,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       to.id,
       rawSource,
     )) {
+      renamed.add(renamedOn(child.from, child.to, from.id));
       renameActionIndices.add(
         pushAction(
           "alter",
@@ -306,6 +328,32 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       );
     }
   }
+  // a merged check is renamed by an ancestor's recursive RENAME CONSTRAINT
+  // when the plan renames the ancestor's alike, itself merged or not
+  for (const { from, to } of throughParent) {
+    renamed.add(renamedOn(from, to, from.parent));
+  }
+  const ancestors = (id: StableId): StableId[] => {
+    const found = new Map<string, StableId>();
+    const visit = (at: StableId) => {
+      for (const edge of source.outgoingEdges(at)) {
+        if (edge.kind !== "depends" || found.has(encodeId(edge.to))) continue;
+        found.set(encodeId(edge.to), edge.to);
+        visit(edge.to);
+      }
+    };
+    visit(id);
+    return [...found.values()];
+  };
+  const own = [...throughParent].filter(
+    ({ from, to }) =>
+      from.parent === undefined ||
+      (!replaceIds.has(encodeId(from.parent)) &&
+        !ancestors(from.parent).some((at) =>
+          renamed.has(renamedOn(from, to, at)),
+        )),
+  );
+  for (const rename of own) emitRename(rename);
 
   // Desired-side extension → member-keys index, computed lazily — only an
   // extension REPLACE needs it (see the satellite replay below). Inverted from

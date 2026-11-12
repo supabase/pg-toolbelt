@@ -28,6 +28,7 @@ export const tableRules: Record<string, KindRules> = {
     // the parent is replaced (DROP TABLE cascades them away).
     rebuildable: true,
     defaclObjtype: "r",
+    followsRenames: { parentTable: "table", inheritsAlso: "table" },
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER TABLE ${rel(id.schema, id.name)}`;
