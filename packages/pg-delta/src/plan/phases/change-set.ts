@@ -218,7 +218,15 @@ export function buildChangeSet(
     // a merged check rides its parent's RENAME CONSTRAINT, so it waits while
     // its table is recreated: it or an ancestor is gone with no rename confirmed
     const confirmedFrom = new Set(
-      (options?.acceptRenames ?? []).map((rename) => encodeId(rename.from)),
+      candidates
+        .filter(
+          (candidate) =>
+            candidate.status === "unambiguous" &&
+            confirmed.has(
+              `${encodeId(candidate.from)}>${encodeId(candidate.to)}`,
+            ),
+        )
+        .map((candidate) => encodeId(candidate.from)),
     );
     const recreated = (id: StableId, seen = new Set<string>()): boolean => {
       const key = encodeId(id);

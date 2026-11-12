@@ -723,6 +723,16 @@ describe("stage 9: renames", () => {
       expect(
         unconfirmed.renameCandidates.map(({ from }) => from),
       ).toContainEqual({ kind: "table", schema: "app", name: "q1" });
+      const stale = plan(s.factBase, d.factBase, {
+        renames: "prompt",
+        acceptRenames: [
+          {
+            from: { kind: "table", schema: "app", name: "q1" },
+            to: { kind: "table", schema: "app", name: "q3" },
+          },
+        ],
+      });
+      expect(stale.acceptedRenames).toBeUndefined();
       const thePlan = plan(s.factBase, d.factBase, {
         renames: "prompt",
         acceptRenames: [
