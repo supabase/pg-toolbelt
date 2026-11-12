@@ -906,4 +906,53 @@ describe("stage 9: renames", () => {
       await dbs.drop();
     }
   }, 60_000);
+
+  test("'prompt' renames a merged check only through its parent's accepted rename", async () => {
+    const dbs = await pair(
+      "ren_prompt_merged_carried",
+      `CREATE SCHEMA app;
+       CREATE TABLE app.p (a integer, CONSTRAINT old_check CHECK (1 > 0));
+       CREATE TABLE app.z (CONSTRAINT old_check CHECK (1 > 0)) INHERITS (app.p);
+       INSERT INTO app.z VALUES (1);`,
+      `CREATE SCHEMA app;
+       CREATE TABLE app.p (a integer, CONSTRAINT new_check CHECK (1 > 0));
+       CREATE TABLE app.z (CONSTRAINT new_check CHECK (1 > 0)) INHERITS (app.p);`,
+    );
+    try {
+      const [s, d] = [
+        await extract(dbs.source.pool),
+        await extract(dbs.desired.pool),
+      ];
+      const unconfirmed = plan(s.factBase, d.factBase, { renames: "prompt" });
+      expect(unconfirmed.acceptedRenames).toBeUndefined();
+      const confirmed = plan(s.factBase, d.factBase, {
+        renames: "prompt",
+        acceptRenames: [
+          {
+            from: {
+              kind: "constraint",
+              schema: "app",
+              table: "p",
+              name: "old_check",
+            },
+            to: {
+              kind: "constraint",
+              schema: "app",
+              table: "p",
+              name: "new_check",
+            },
+          },
+        ],
+      });
+      expect(confirmed.actions.map((action) => action.sql)).toEqual([
+        'ALTER TABLE "app"."p" RENAME CONSTRAINT "old_check" TO "new_check"',
+      ]);
+      const report = await apply(unconfirmed, dbs.source.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+    } finally {
+      await dbs.drop();
+    }
+  }, 60_000);
 });

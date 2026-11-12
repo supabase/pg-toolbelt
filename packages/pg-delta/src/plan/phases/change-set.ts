@@ -23,7 +23,9 @@ import {
 import type { PlanOptions } from "../plan.ts";
 import { projectTarget } from "../project.ts";
 import {
+  childNameRenames,
   matchRenameCandidates,
+  nameChange,
   renameFollower,
   subtreeIds,
   type RenameCandidate,
@@ -217,17 +219,45 @@ export function buildChangeSet(
     );
     // a merged check rides its parent's RENAME CONSTRAINT, so it waits while
     // its table is recreated: it or an ancestor is gone with no rename confirmed
-    const confirmedFrom = new Set(
-      candidates
-        .filter(
-          (candidate) =>
-            candidate.status === "unambiguous" &&
-            confirmed.has(
-              `${encodeId(candidate.from)}>${encodeId(candidate.to)}`,
-            ),
-        )
-        .map((candidate) => encodeId(candidate.from)),
+    const confirmedRenames = candidates.filter(
+      (candidate) =>
+        candidate.status === "unambiguous" &&
+        confirmed.has(`${encodeId(candidate.from)}>${encodeId(candidate.to)}`),
     );
+    const confirmedFrom = new Set(
+      confirmedRenames.map((candidate) => encodeId(candidate.from)),
+    );
+    // and waits unless a confirmed rename renames an ancestor's alike: each
+    // confirmed name change, on the relation it renames
+    const carried = new Set(
+      confirmedRenames.flatMap(({ from, to }) => {
+        const old = discoveryRemoved.get(encodeId(from)) as Fact;
+        const now = discoveryAdded.get(encodeId(to)) as Fact;
+        return [
+          `${nameChange(old, now)}${old.parent === undefined ? "" : encodeId(old.parent)}`,
+          ...childNameRenames(
+            physicalSource,
+            physicalDesired,
+            from,
+            to,
+            rawSource,
+          ).map(
+            (child) => `${nameChange(child.from, child.to)}${encodeId(from)}`,
+          ),
+        ];
+      }),
+    );
+    const carries = (
+      id: StableId,
+      change: string,
+      seen = new Set<string>(),
+    ): boolean =>
+      physicalSource.outgoingEdges(id).some((edge) => {
+        const key = encodeId(edge.to);
+        if (edge.kind !== "depends" || seen.has(key)) return false;
+        seen.add(key);
+        return carried.has(`${change}${key}`) || carries(edge.to, change, seen);
+      });
     const recreated = (id: StableId, seen = new Set<string>()): boolean => {
       const key = encodeId(id);
       if (seen.has(key)) return false;
@@ -241,13 +271,14 @@ export function buildChangeSet(
       if (candidate.status !== "unambiguous") continue;
       const key = `${encodeId(candidate.from)}>${encodeId(candidate.to)}`;
       const from = discoveryRemoved.get(encodeId(candidate.from)) as Fact;
+      const to = discoveryAdded.get(encodeId(candidate.to)) as Fact;
       const throughParent =
         rulesForId(from.id).renamedThroughParent?.(from) === true &&
         from.parent !== undefined &&
-        !recreated(from.parent);
+        !recreated(from.parent) &&
+        carries(from.parent, nameChange(from, to));
       if (renameMode === "prompt" && !confirmed.has(key) && !throughParent)
         continue;
-      const to = discoveryAdded.get(encodeId(candidate.to)) as Fact;
       discoveredRenames.push({
         from,
         to,
