@@ -348,9 +348,10 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const own = [...throughParent].filter(
     ({ from, to }) =>
       from.parent === undefined ||
-      !ancestors(from.parent).some((at) =>
-        renamed.has(renamedOn(from, to, at)),
-      ),
+      (!replaceIds.has(encodeId(from.parent)) &&
+        !ancestors(from.parent).some((at) =>
+          renamed.has(renamedOn(from, to, at)),
+        )),
   );
   for (const rename of own) emitRename(rename);
 
