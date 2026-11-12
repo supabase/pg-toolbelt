@@ -699,4 +699,158 @@ describe("stage 9: renames", () => {
       await dbs.drop();
     }
   }, 60_000);
+
+  test("'prompt' renames a merged check with the parent it accepts", async () => {
+    const dbs = await pair(
+      "ren_prompt_merged",
+      `CREATE SCHEMA app;
+       CREATE TABLE app.q1 (CHECK (1 > 0));
+       CREATE TABLE app.d (a integer, CONSTRAINT q1_check CHECK (1 > 0));
+       ALTER TABLE app.d INHERIT app.q1;
+       INSERT INTO app.d VALUES (1);`,
+      `CREATE SCHEMA app;
+       CREATE TABLE app.q2 (CHECK (1 > 0));
+       CREATE TABLE app.d (a integer, CONSTRAINT q2_check CHECK (1 > 0));
+       ALTER TABLE app.d INHERIT app.q2;`,
+    );
+    try {
+      const [s, d] = [
+        await extract(dbs.source.pool),
+        await extract(dbs.desired.pool),
+      ];
+      const thePlan = plan(s.factBase, d.factBase, {
+        renames: "prompt",
+        acceptRenames: [
+          {
+            from: { kind: "table", schema: "app", name: "q1" },
+            to: { kind: "table", schema: "app", name: "q2" },
+          },
+        ],
+      });
+      expect(thePlan.actions.map((action) => action.sql)).toEqual([
+        'ALTER TABLE "app"."q1" RENAME TO "q2"',
+        'ALTER TABLE "app"."q2" RENAME CONSTRAINT "q1_check" TO "q2_check"',
+      ]);
+      const report = await apply(thePlan, dbs.source.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+      const rows = await dbs.source.pool.query(`SELECT a FROM app.d`);
+      expect(rows.rows).toEqual([{ a: 1 }]);
+    } finally {
+      await dbs.drop();
+    }
+  }, 60_000);
+
+  test("a merged check whose parent's rename a policy hides keeps its own rename", async () => {
+    const dbs = await pair(
+      "ren_merged_hidden",
+      `CREATE SCHEMA app;
+       CREATE TABLE app.p (CONSTRAINT old_check CHECK (1 > 0));
+       CREATE TABLE app.d (a integer, CONSTRAINT old_check CHECK (1 > 0));
+       ALTER TABLE app.d INHERIT app.p;`,
+      `CREATE SCHEMA app;
+       CREATE TABLE app.p (CONSTRAINT new_check CHECK (1 > 0));
+       CREATE TABLE app.d (a integer, CONSTRAINT new_check CHECK (1 > 0));
+       ALTER TABLE app.d INHERIT app.p;`,
+    );
+    const policy: Policy = {
+      id: "exclude-parent-constraints",
+      filter: [
+        {
+          match: {
+            all: [
+              { kind: "constraint" },
+              { idField: { field: "table", glob: "p" } },
+            ],
+          },
+          action: "exclude",
+        },
+      ],
+    };
+    try {
+      const [s, d] = [
+        await extract(dbs.source.pool),
+        await extract(dbs.desired.pool),
+      ];
+      const thePlan = plan(s.factBase, d.factBase, { renames: "auto", policy });
+      expect(thePlan.actions.map((action) => action.sql)).toEqual([
+        'ALTER TABLE "app"."d" RENAME CONSTRAINT "old_check" TO "new_check"',
+      ]);
+    } finally {
+      await dbs.drop();
+    }
+  }, 60_000);
+
+  test("merged checks renamed beside their parent's dropped check are each renamed, whatever another table renames", async () => {
+    const dbs = await pair(
+      "ren_merged_parent_drop",
+      `CREATE SCHEMA app;
+       CREATE TABLE app.p (CONSTRAINT old_check CHECK (1 > 0));
+       CREATE TABLE app.d (a integer, CONSTRAINT old_check CHECK (1 > 0));
+       CREATE TABLE app.e (a integer, CONSTRAINT old_check CHECK (1 > 0));
+       ALTER TABLE app.d INHERIT app.p;
+       ALTER TABLE app.e INHERIT app.p;
+       CREATE TABLE app.u (x integer CONSTRAINT old_check CHECK (x > 0));`,
+      `CREATE SCHEMA app;
+       CREATE TABLE app.p ();
+       CREATE TABLE app.d (a integer, CONSTRAINT new_check CHECK (1 > 0));
+       CREATE TABLE app.e (a integer, CONSTRAINT new_check CHECK (1 > 0));
+       ALTER TABLE app.d INHERIT app.p;
+       ALTER TABLE app.e INHERIT app.p;
+       CREATE TABLE app.u (x integer CONSTRAINT new_check CHECK (x > 0));`,
+    );
+    try {
+      const [s, d] = [
+        await extract(dbs.source.pool),
+        await extract(dbs.desired.pool),
+      ];
+      const thePlan = plan(s.factBase, d.factBase, { renames: "auto" });
+      expect(thePlan.actions.map((action) => action.sql)).toEqual([
+        'ALTER TABLE "app"."p" DROP CONSTRAINT "old_check"',
+        'ALTER TABLE "app"."d" RENAME CONSTRAINT "old_check" TO "new_check"',
+        'ALTER TABLE "app"."e" RENAME CONSTRAINT "old_check" TO "new_check"',
+        'ALTER TABLE "app"."u" RENAME CONSTRAINT "old_check" TO "new_check"',
+      ]);
+      const report = await apply(thePlan, dbs.source.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+    } finally {
+      await dbs.drop();
+    }
+  }, 60_000);
+
+  test("a grandchild's merged check follows its grandparent's rename", async () => {
+    const dbs = await pair(
+      "ren_merged_grandchild",
+      `CREATE SCHEMA app;
+       CREATE TABLE app.p1 (CHECK (1 > 0));
+       CREATE TABLE app.m () INHERITS (app.p1);
+       CREATE TABLE app.d (a integer, CONSTRAINT p1_check CHECK (1 > 0));
+       ALTER TABLE app.d INHERIT app.m;`,
+      `CREATE SCHEMA app;
+       CREATE TABLE app.p2 (CHECK (1 > 0));
+       CREATE TABLE app.m () INHERITS (app.p2);
+       CREATE TABLE app.d (a integer, CONSTRAINT p2_check CHECK (1 > 0));
+       ALTER TABLE app.d INHERIT app.m;`,
+    );
+    try {
+      const [s, d] = [
+        await extract(dbs.source.pool),
+        await extract(dbs.desired.pool),
+      ];
+      const thePlan = plan(s.factBase, d.factBase, { renames: "auto" });
+      expect(thePlan.actions.map((action) => action.sql)).toEqual([
+        'ALTER TABLE "app"."p1" RENAME TO "p2"',
+        'ALTER TABLE "app"."p2" RENAME CONSTRAINT "p1_check" TO "p2_check"',
+      ]);
+      const report = await apply(thePlan, dbs.source.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+    } finally {
+      await dbs.drop();
+    }
+  }, 60_000);
 });

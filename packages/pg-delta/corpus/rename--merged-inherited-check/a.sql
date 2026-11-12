@@ -6,3 +6,9 @@ CREATE SCHEMA s;
 CREATE TABLE s.c1 (a int, CHECK (1 > 0));
 CREATE TABLE s.p (CONSTRAINT c1_check CHECK (1 > 0));
 ALTER TABLE s.c1 INHERIT s.p;
+
+-- The parent renamed instead: the child's check is merged with the parent's,
+-- so only the parent's rename can rename it.
+CREATE TABLE s.q1 (CHECK (1 > 0));
+CREATE TABLE s.d (a int, CONSTRAINT q1_check CHECK (1 > 0));
+ALTER TABLE s.d INHERIT s.q1;
