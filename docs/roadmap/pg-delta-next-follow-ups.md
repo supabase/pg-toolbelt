@@ -2177,14 +2177,24 @@ than dropped and recreated. These narrower gaps are deferred.
 - **A child table's check merged with its parent's.** Postgres renames such a
   check only through the parent's, so a rename leaves it alone. When the files
   give the child its own generated name instead, the next plan's
-  `RENAME CONSTRAINT` fails, as on `main`. Renaming the parent fails at plan
-  time (`dependency cycle`), as on `main`: renaming any inheritance parent drops
-  and recreates its children, losing their rows, and the child's merged check is
-  paired for a rename only the parent's can make. Leaving that check unpaired
-  removes the cycle but not the rebuild, and the parent's recursive
-  `RENAME CONSTRAINT` then meets the name the recreated child already has. A fix
-  keeps the children across the parent's rename and plans nothing for the merged
-  check, which the parent's `RENAME CONSTRAINT` renames.
+  `RENAME CONSTRAINT` fails, as on `main`. A child created in the same plan as
+  its parent's rename, declaring the check by its new name, is created before
+  the parent's `RENAME CONSTRAINT`, which then meets that name and fails the
+  plan; on `main` that plan applied, left the child two checks, and every later
+  plan failed. A fix would order the create after its parent's constraint
+  renames. A child of two parents whose merged check comes from one parent,
+  while the other's same-named check is `NO INHERIT` and renamed alike, takes
+  that rename as its own and waits for the next plan; recording `NO INHERIT`
+  would tell them apart. A check merged from two parents cannot be renamed
+  through either (`cannot rename inherited constraint`), as on `main`. A
+  merged check whose child keeps only the inherited copy plans
+  `DROP CONSTRAINT` on the child, which Postgres refuses, as on `main`; with
+  its parent renamed too, `main` passed by recreating the child and losing its
+  rows.
+- **A parent renamed together with its children.** A child or partition
+  renamed in the same plan as its parent still names the old parent, so it is
+  not paired and is dropped and recreated, losing its rows, as on `main`. A fix
+  would pair children after following their parent's rename.
 - **Generated names that are not facts.** A renamed partition keeps the key
   names it inherits (`t1_pkey`), so a later table taking that name fails with
   `relation already exists`, and on PG 18 `NOT NULL` constraints keep the old

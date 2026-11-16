@@ -205,6 +205,14 @@ export interface KindRules {
   /** this fact's name is a relation's (a key's is its index's), unique among
    *  the schema's relations */
   namesRelation?: (fact: Fact) => boolean;
+  /** PostgreSQL renames this fact through an ancestor's (a check merged with
+   *  an inherited one), so it has no rename of its own while the plan renames
+   *  that one alike */
+  renamedThroughParent?: (fact: Fact) => boolean;
+  /** payload attributes naming a fact of the given kind by its
+   *  `{ schema, name }`, which PostgreSQL holds by OID, so they follow an
+   *  accepted rename of that fact (a child table's `parentTable`) */
+  followsRenames?: Readonly<Record<string, string>>;
   /** whether a fact of this kind MAY be folded into a parent's cascading
    *  drop. Default true. FK constraints return false: an explicit
    *  DROP CONSTRAINT first makes mutual-FK teardown cycles unconstructible. */

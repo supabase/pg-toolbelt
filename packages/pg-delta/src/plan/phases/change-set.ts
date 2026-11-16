@@ -23,7 +23,10 @@ import {
 import type { PlanOptions } from "../plan.ts";
 import { projectTarget } from "../project.ts";
 import {
+  childNameRenames,
   matchRenameCandidates,
+  nameChange,
+  renameFollower,
   subtreeIds,
   type RenameCandidate,
   type RenameMode,
@@ -214,12 +217,68 @@ export function buildChangeSet(
         (rename) => `${encodeId(rename.from)}>${encodeId(rename.to)}`,
       ),
     );
+    // a merged check rides its parent's RENAME CONSTRAINT, so it waits while
+    // its table is recreated: it or an ancestor is gone with no rename confirmed
+    const confirmedRenames = candidates.filter(
+      (candidate) =>
+        candidate.status === "unambiguous" &&
+        confirmed.has(`${encodeId(candidate.from)}>${encodeId(candidate.to)}`),
+    );
+    const confirmedFrom = new Set(
+      confirmedRenames.map((candidate) => encodeId(candidate.from)),
+    );
+    // and waits unless a confirmed rename renames an ancestor's alike: each
+    // confirmed name change, on the relation it renames
+    const carried = new Set(
+      confirmedRenames.flatMap(({ from, to }) => {
+        const old = discoveryRemoved.get(encodeId(from)) as Fact;
+        const now = discoveryAdded.get(encodeId(to)) as Fact;
+        return [
+          `${nameChange(old, now)}${old.parent === undefined ? "" : encodeId(old.parent)}`,
+          ...childNameRenames(
+            physicalSource,
+            physicalDesired,
+            from,
+            to,
+            rawSource,
+          ).map(
+            (child) => `${nameChange(child.from, child.to)}${encodeId(from)}`,
+          ),
+        ];
+      }),
+    );
+    const carries = (
+      id: StableId,
+      change: string,
+      seen = new Set<string>(),
+    ): boolean =>
+      physicalSource.outgoingEdges(id).some((edge) => {
+        const key = encodeId(edge.to);
+        if (edge.kind !== "depends" || seen.has(key)) return false;
+        seen.add(key);
+        return carried.has(`${change}${key}`) || carries(edge.to, change, seen);
+      });
+    const recreated = (id: StableId, seen = new Set<string>()): boolean => {
+      const key = encodeId(id);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      if (discoveryRemoved.has(key) && !confirmedFrom.has(key)) return true;
+      return physicalSource
+        .outgoingEdges(id)
+        .some((edge) => edge.kind === "depends" && recreated(edge.to, seen));
+    };
     for (const candidate of candidates) {
       if (candidate.status !== "unambiguous") continue;
       const key = `${encodeId(candidate.from)}>${encodeId(candidate.to)}`;
-      if (renameMode === "prompt" && !confirmed.has(key)) continue;
       const from = discoveryRemoved.get(encodeId(candidate.from)) as Fact;
       const to = discoveryAdded.get(encodeId(candidate.to)) as Fact;
+      const throughParent =
+        rulesForId(from.id).renamedThroughParent?.(from) === true &&
+        from.parent !== undefined &&
+        !recreated(from.parent) &&
+        carries(from.parent, nameChange(from, to));
+      if (renameMode === "prompt" && !confirmed.has(key) && !throughParent)
+        continue;
       discoveredRenames.push({
         from,
         to,
@@ -284,12 +343,23 @@ export function buildChangeSet(
     }
   }
 
+  // set-deltas that only follow an accepted rename
+  const follows = renameFollower(acceptedRenames, rulesForId);
+  const followed = new Set(
+    deltas.filter((delta) => delta.verb === "set" && follows(delta)),
+  );
+  for (const [key, sets] of setsByFact) {
+    const changes = sets.filter((delta) => !followed.has(delta));
+    if (changes.length === 0) setsByFact.delete(key);
+    else setsByFact.set(key, changes);
+  }
+
   return {
     physicalSource,
     source,
     desired,
     projectedDesired,
-    deltas,
+    deltas: deltas.filter((delta) => !followed.has(delta)),
     filteredDeltas,
     removed,
     added,

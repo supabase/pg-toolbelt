@@ -1,0 +1,10 @@
+{
+  "a-to-b": {
+    "require": ["rename:table"],
+    "forbid": ["replacement:table", "drop:table"]
+  },
+  "b-to-a": {
+    "require": ["rename:table"],
+    "forbid": ["replacement:table", "drop:table"]
+  }
+}

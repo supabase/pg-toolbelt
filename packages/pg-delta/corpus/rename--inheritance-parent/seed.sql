@@ -1,0 +1,3 @@
+INSERT INTO s.q1 VALUES (1);
+INSERT INTO s.m (y, x, z) VALUES (1, 2, 3);
+INSERT INTO s.r1 VALUES (1);

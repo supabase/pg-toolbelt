@@ -14,7 +14,9 @@
  * renamed table) break transitive rollup equality — those candidates
  * degrade to drop+create and are reported as near-misses.
  */
+import type { Delta } from "../core/diff.ts";
 import type { Fact, FactBase } from "../core/fact.ts";
+import { canonicalize, type PayloadValue } from "../core/hash.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { ruleFlag } from "./rule-flags.ts";
 import { defaultRulesForId, type RulesForId } from "./rules.ts";
@@ -200,7 +202,46 @@ export function childNameRenames(
   return renames;
 }
 
+/**
+ * Whether a set-delta only moves `{ schema, name }` references to the new
+ * names `renames` give (a child's `parentTable` naming its renamed parent).
+ * PostgreSQL holds such a reference by OID, so the rename alone settles it.
+ */
+export function renameFollower(
+  renames: ReadonlyArray<{ from: Fact; to: Fact }>,
+  rulesForId: RulesForId = defaultRulesForId,
+): (delta: Extract<Delta, { verb: "set" }>) => boolean {
+  const moved = new Map<string, PayloadValue>();
+  for (const { from, to } of renames) {
+    moved.set(canonicalize([from.id.kind, refOf(from)]), refOf(to));
+  }
+  return (delta) => {
+    const kind = rulesForId(delta.id).followsRenames?.[delta.attr];
+    if (
+      kind === undefined ||
+      delta.from === undefined ||
+      delta.to === undefined
+    )
+      return false;
+    const follow = (value: PayloadValue): PayloadValue =>
+      Array.isArray(value)
+        ? value.map(follow)
+        : (moved.get(canonicalize([kind, value])) ?? value);
+    return canonicalize(follow(delta.from)) === canonicalize(delta.to);
+  };
+}
+
+/** A rename's kind, old name and new name, whatever the parent. */
+export const nameChange = (from: Fact, to: Fact) =>
+  JSON.stringify([from.id.kind, nameOf(from), nameOf(to)]);
+
 const nameOf = (fact: Fact) => ("name" in fact.id ? fact.id.name : "");
+
+/** how a payload names `fact`: `{ schema, name }` */
+const refOf = (fact: Fact) => ({
+  schema: (fact.id as { schema?: string }).schema ?? null,
+  name: nameOf(fact),
+});
 
 const flagged = (fact: Fact, flag: "namedAfterParent" | "namesRelation") =>
   ruleFlag(fact.id.kind, flag)?.(fact) === true;
