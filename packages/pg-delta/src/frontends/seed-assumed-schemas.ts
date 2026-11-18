@@ -103,12 +103,10 @@ export interface AssumedSchemaSeed {
   seededRoutines: Map<string, string>;
 }
 
-const EMPTY: AssumedSchemaSeed = {
-  sql: "",
-  facts: 0,
-  schemas: [],
-  seededRoutines: new Map(),
-};
+/** Fresh per call so one caller mutating the result cannot leak into the next. */
+function emptySeed(): AssumedSchemaSeed {
+  return { sql: "", facts: 0, schemas: [], seededRoutines: new Map() };
+}
 
 /** Assumed-schema name a fact belongs to: a schema fact IS its own schema; any
  *  schema-qualified fact carries `schema`. (Satellites — `target`-shaped ids —
@@ -169,7 +167,7 @@ export function deriveAssumedSchemaSeed(
     (opts.assumedPublications ?? []).length === 0 &&
     (opts.assumedExtensions ?? []).length === 0
   ) {
-    return EMPTY;
+    return emptySeed();
   }
 
   // NB: opts.baseline is deliberately NOT passed — the seed derives from the RAW
@@ -180,7 +178,7 @@ export function deriveAssumedSchemaSeed(
   const seedIds = new Set(
     [...view.referenceOnly].filter((id) => !members.has(id)),
   );
-  if (seedIds.size === 0) return EMPTY;
+  if (seedIds.size === 0) return emptySeed();
 
   // Omit default-privilege (ADP) facts entirely: `ALTER DEFAULT PRIVILEGES FOR
   // ROLE <r>` needs membership in <r>, which a non-superuser applier lacks, and
@@ -328,7 +326,7 @@ export function deriveAssumedSchemaSeed(
     excludedIds.size > 0
       ? candidateFacts.filter((f) => !excludedIds.has(encodeId(f.id)))
       : candidateFacts;
-  if (seedFacts.length === 0) return EMPTY;
+  if (seedFacts.length === 0) return emptySeed();
   const finalIds = new Set(seedFacts.map((f) => encodeId(f.id)));
 
   // Defensive invariant: the edge filter below narrows `view.edges` to intra-seed
@@ -369,7 +367,7 @@ export function deriveAssumedSchemaSeed(
     assumedSchemas: opts.assumedSchemas,
     assumedRoles: opts.assumedRoles,
   });
-  if (seedPlan.actions.length === 0) return EMPTY;
+  if (seedPlan.actions.length === 0) return emptySeed();
 
   const schemas = [
     ...new Set(

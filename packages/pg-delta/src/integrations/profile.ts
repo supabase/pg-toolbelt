@@ -16,12 +16,17 @@
  */
 import type { Pool } from "pg";
 import type { ApplyOptions } from "../apply/apply.ts";
+import type { FactBase } from "../core/fact.ts";
 import {
   extract,
   type ExtractOptions,
   type ExtractResult,
 } from "../extract/extract.ts";
 import type { ExtensionHandler } from "../extract/handler.ts";
+import {
+  type AssumedSchemaSeed,
+  deriveAssumedSchemaSeed,
+} from "../frontends/seed-assumed-schemas.ts";
 import type { PlanOptions } from "../plan/plan.ts";
 import { buildIntentRuleIndex } from "../plan/rules.ts";
 import type { ProveOptions } from "../proof/prove.ts";
@@ -33,6 +38,7 @@ import {
 import { probeApplierCapability } from "../policy/capability.ts";
 import { filterSupabasePlatformParameterAclDiagnostics } from "../policy/parameter-acl.ts";
 import { flattenPolicy, type Policy } from "../policy/policy.ts";
+import { reconstructManagedView } from "../policy/reconstruct.ts";
 import { vaultHandler } from "../policy/extensions/vault.ts";
 
 function policyOrAncestorHasId(
@@ -127,6 +133,26 @@ export interface ResolvedProfile {
    *  cannot REPLAY (Postgres validates proconfig at CREATE time against the
    *  creating role, SQLSTATE 42501). A superuser applier needs no stripping. */
   readonly susetGucs?: ReadonlySet<string>;
+  /** `factBase` through this profile's policy, capability and baseline, then
+   *  `scope` (default `"cluster"`): the view `plan(…, { ...planOptions, scope,
+   *  defaultOwner })` diffs. Assumed-schema objects stay in it as
+   *  reference-only, so test management with `has(id) && !isReferenceOnly(id)`. */
+  readonly managedView: (
+    factBase: FactBase,
+    options?: Pick<PlanOptions, "scope" | "defaultOwner">,
+  ) => FactBase;
+  /** SQL that `planSchemaFiles({ seedAssumedSchemas: true })` replays into a
+   *  co-located shadow (`""` when nothing is assumed). Replay it into an EMPTY
+   *  database on the target's cluster, as the role the profile was resolved
+   *  with: superuser-only `SET` routines are skipped only when that role is not
+   *  a superuser. Default privileges are not replayed. Under `"database"` (the
+   *  default) the target's roles count as present; under `"cluster"` a seeded
+   *  object naming another role (e.g. a policy `TO` role) throws `missing
+   *  requirement`. */
+  readonly assumedSchemaSeed: (
+    targetFactBase: FactBase,
+    options?: Pick<PlanOptions, "scope">,
+  ) => AssumedSchemaSeed;
 }
 
 async function probePgMajor(pool: Pool): Promise<number> {
@@ -301,6 +327,30 @@ export async function resolveProfile(
     applyOptions: {
       ...(baseline !== undefined ? { baseline } : {}),
       reextract: (p) => profileExtract(p),
+    },
+    managedView: (fb, viewOptions) =>
+      reconstructManagedView(fb, {
+        ...view,
+        scope: viewOptions?.scope,
+        defaultOwner: viewOptions?.defaultOwner,
+      }),
+    assumedSchemaSeed: (targetFb, { scope = "database" } = {}) => {
+      const flat = policy !== undefined ? flattenPolicy(policy) : undefined;
+      const targetRoles =
+        scope === "database"
+          ? targetFb
+              .facts()
+              .filter((f) => f.id.kind === "role")
+              .map((f) => (f.id as { name: string }).name)
+          : [];
+      return deriveAssumedSchemaSeed(targetFb, {
+        ...view,
+        assumedSchemas: flat?.assumedSchemas ?? [],
+        assumedPublications: flat?.assumedPublications ?? [],
+        assumedExtensions: flat?.assumedExtensions ?? [],
+        assumedRoles: [...(flat?.assumedRoles ?? []), ...targetRoles],
+        ...(susetGucs !== undefined ? { susetGucs } : {}),
+      });
     },
   };
 }

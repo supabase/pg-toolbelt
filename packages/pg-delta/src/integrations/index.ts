@@ -12,6 +12,7 @@ export type {
   ResolvedProfile,
 } from "./profile.ts";
 export { rawProfile, resolveProfile } from "./profile.ts";
+export type { AssumedSchemaSeed } from "../frontends/seed-assumed-schemas.ts";
 export { SUPABASE_EXTENSION_HANDLERS, supabaseProfile } from "./supabase.ts";
 
 // Building blocks, re-exported for advanced composition (custom profiles).

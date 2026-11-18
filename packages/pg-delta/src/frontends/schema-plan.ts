@@ -49,7 +49,6 @@ import {
   type SqlFile,
 } from "./load-sql-files.ts";
 import { applyManifestLoadOrder } from "./export-manifest.ts";
-import { deriveAssumedSchemaSeed } from "./seed-assumed-schemas.ts";
 import {
   analyzeForShadow,
   attachReorderPredecessors,
@@ -572,23 +571,7 @@ export async function planSchemaFiles(
     ) {
       targetExtract ??= ctx.extract(targetPool, { redactSecrets });
       const seedTarget = await targetExtract;
-      const seed = deriveAssumedSchemaSeed(seedTarget.factBase, {
-        ...(ctx.planOptions.policy ? { policy: ctx.planOptions.policy } : {}),
-        ...(ctx.planOptions.capability
-          ? { capability: ctx.planOptions.capability }
-          : {}),
-        ...(ctx.planOptions.baseline
-          ? { baseline: ctx.planOptions.baseline }
-          : {}),
-        assumedSchemas: profileAssumedSchemas,
-        assumedPublications: profileAssumedPublications,
-        assumedExtensions: profileAssumedExtensions,
-        assumedRoles: [
-          ...(flatProfile?.assumedRoles ?? []),
-          ...rolesOf(seedTarget),
-        ],
-        ...(ctx.susetGucs !== undefined ? { susetGucs: ctx.susetGucs } : {}),
-      });
+      const seed = ctx.assumedSchemaSeed(seedTarget.factBase, { scope });
       if (seed.sql !== "") {
         const seedClient = await connectWithErrorListener(shadowPool);
         try {
