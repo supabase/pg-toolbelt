@@ -39,11 +39,6 @@ export interface ReplacementExpansion {
   dropRootOf: Map<string, string>;
 }
 
-/**
- * Classify set-deltas (in-place alter vs replace), expand the forced dependent
- * rebuild, then compute drop-root suppression + redirect. Behavior-preserving
- * extraction of `plan()`'s replacement/suppression block.
- */
 function restatesDefinition(
   fact: Fact,
   sets: readonly Extract<Delta, { verb: "set" }>[] | undefined,
@@ -56,6 +51,11 @@ function restatesDefinition(
   });
 }
 
+/**
+ * Classify set-deltas (in-place alter vs replace), expand the forced dependent
+ * rebuild, then compute drop-root suppression + redirect. Behavior-preserving
+ * extraction of `plan()`'s replacement/suppression block.
+ */
 export function expandReplacements(
   input: ReplacementExpansionInput,
 ): ReplacementExpansion {
@@ -197,7 +197,34 @@ export function expandReplacements(
     // and survives in `desired` is replaced, and itself becomes a full-destroy
     // target so its own subtree rebuilds.
     const worklist = [...targets];
-    while (worklist.length > 0) {
+    // Dependents skipped below because their own alter releases the target.
+    // Such an alter runs before the drop it releases. If the dependent's
+    // desired definition needs something this plan replaces, or a column whose
+    // type change rebuilds dependents, that work also waits on the drop (the
+    // old helper still references it), so the alter can't go first: rebuild
+    // the dependent after all. Rechecked whenever the worklist drains, since a
+    // later round can replace one of its dependencies.
+    const released = new Map<string, Fact>();
+    const rebuildBlockedReleases = (): boolean => {
+      for (const [key, dependent] of released) {
+        if (targets.has(key)) {
+          released.delete(key);
+          continue;
+        }
+        const blocked = desired.outgoingEdges(dependent.id).some((e) => {
+          const depKey = encodeId(e.to);
+          return fullDestroy.has(depKey) || rebuildSeeds.has(depKey);
+        });
+        if (!blocked) continue;
+        released.delete(key);
+        replaceIds.add(key);
+        fullDestroy.add(key);
+        targets.add(key);
+        worklist.push(key);
+      }
+      return worklist.length > 0;
+    };
+    while (worklist.length > 0 || rebuildBlockedReleases()) {
       const toKey = worklist.pop() as string;
       // Scan childrenOf as well as incoming `depends`. Views/policies often
       // depend on columns, not the table; partitions hang off the schema and
@@ -242,13 +269,10 @@ export function expandReplacements(
           continue;
         }
         if (!isRebuildable(dependent.id.kind)) continue;
-        // a dependent whose in-place alter re-states its whole definition, and
-        // whose desired definition no longer references a REMOVED target,
-        // releases it through that alter (a trigger switching to a new
-        // function before the old one is dropped); the action graph orders the
-        // alter before the drop. Any other dependent (a policy whose unchanged
-        // USING now resolves to a new overload, even if its roles change) only
-        // releases it through a rebuild.
+        // a dependent whose alter re-states its whole definition without the
+        // REMOVED target releases it through that alter (a trigger switching
+        // functions); any other change (a policy's roles, while its unchanged
+        // USING resolves to a new overload) still needs the rebuild
         if (
           removed.has(toKey) &&
           restatesDefinition(dependent, setsByFact.get(fromKey), rulesForId) &&
@@ -256,6 +280,7 @@ export function expandReplacements(
             .outgoingEdges(dependent.id)
             .some((e) => encodeId(e.to) === toKey)
         ) {
+          released.set(fromKey, dependent);
           continue;
         }
         // reached only via a kind-restricted seed: honor the allowed kinds
