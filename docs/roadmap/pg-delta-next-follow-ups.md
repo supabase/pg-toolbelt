@@ -2241,3 +2241,25 @@ case still drops and recreates it, deferred.
   OR REPLACE spec alone cannot help. A fix would skip a dependent in that walk
   when its in-place def alter no longer needs the dropped object, and give the
   alter `releases` of its source-side deps so it runs before the drop.
+
+## PR #584 review triage (Codex) — assumed-schema seed gaps
+
+#584 omits a seed candidate whose dependency was pruned from the managed view.
+Two neighbouring shapes still replay a candidate the shadow cannot create; both
+behave the same on `main` before #584.
+
+- **Member of an extension excluded after pass (1).** An assumed extension
+  installed into a MANAGED schema is excluded by the install-schema pass, but a
+  candidate depending on one of its member TABLES (pruned or reference-only)
+  stays seeded: the cascade walks `view.edges` and never treats an excluded
+  extension's members as excluded. Member functions/types are unaffected
+  (extract resolves those references to the extension id). A fix makes the
+  cascade walk the raw target edges and treat an edge into a member of an
+  excluded extension as excluded, skipping shells so an empty publication shell
+  is not dropped.
+- **Assumed table or view with a managed satellite.** A managed in-view child
+  (e.g. its ACL) makes the candidate a shell, so pass (1) never checks its own
+  `depends` edges and a view reading a pruned or managed relation is still
+  replayed. Narrowing shells to `publicationRel` is not enough: the omitted
+  candidate's managed ACL then plans a spurious `REVOKE`. A fix needs the diff to
+  treat satellites of a seed-omitted candidate as reference-only too.
