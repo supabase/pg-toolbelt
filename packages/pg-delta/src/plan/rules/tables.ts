@@ -432,9 +432,9 @@ export const tableRules: Record<string, KindRules> = {
           }
           return specs;
         },
-        // PostgreSQL rejects ALTER COLUMN … TYPE while a view, rule, or
-        // policy references the column (0A000). Those dependents must be
-        // dropped before the alter and recreated after; indexes and
+        // PostgreSQL rejects ALTER COLUMN … TYPE while a view, rule,
+        // policy, or trigger references the column (0A000). Those dependents
+        // must be dropped before the alter and recreated after; indexes and
         // constraints are NOT force-rebuilt (PG rebuilds them itself, and
         // dropping a PK with dependent FKs would cascade harmfully).
         rebuildsDependents: () => [
@@ -442,6 +442,7 @@ export const tableRules: Record<string, KindRules> = {
           "materializedView",
           "rule",
           "policy",
+          "trigger",
         ],
       },
       notNull: {

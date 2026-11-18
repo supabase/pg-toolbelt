@@ -2,7 +2,7 @@
 import type { StableId } from "../../core/stable-id.ts";
 import { lit, qid, rel } from "../render.ts";
 import type { ActionSpec, KindRules } from "../rules.ts";
-import { enabledPhrase, p, str } from "./helpers.ts";
+import { dependencyConsumes, enabledPhrase, p, str } from "./helpers.ts";
 
 export const triggerRules: Record<string, KindRules> = {
   trigger: {
@@ -33,7 +33,44 @@ export const triggerRules: Record<string, KindRules> = {
       };
     },
     attributes: {
-      def: "replace",
+      // A definition change re-runs the def as CREATE OR REPLACE TRIGGER
+      // (PG14+): SHARE ROW EXCLUSIVE instead of DROP's ACCESS EXCLUSIVE, and
+      // only TRIGGER privilege instead of table ownership. pg_get_triggerdef
+      // has no OR REPLACE form; splice it into the canonical def (as indexes.ts
+      // does for CONCURRENTLY). OR REPLACE resets tgenabled to 'O' and rejects
+      // constraint triggers, which keep drop + create, as does a statement-level
+      // trigger on a partitioned table (OR REPLACE recurses to partitions only
+      // for row-level triggers, so it would leave their clones). Both specs
+      // consume the trigger's desired dependencies (e.g. a new UPDATE OF
+      // column) with the same array, so they share a stratum and the restore
+      // stays second.
+      def: {
+        replaceWhen: (from, to, fact) =>
+          !str(from).startsWith("CREATE TRIGGER ") ||
+          !str(to).startsWith("CREATE TRIGGER ") ||
+          fact.payload["_statementOnPartitioned"] === true,
+        alter: (fact, _from, to, view) => {
+          const id = fact.id as { schema: string; table: string; name: string };
+          const consumes = dependencyConsumes(view, fact.id);
+          const specs: ActionSpec[] = [
+            {
+              sql: str(to).replace(
+                /^CREATE TRIGGER /,
+                "CREATE OR REPLACE TRIGGER ",
+              ),
+              consumes,
+            },
+          ];
+          const enabled = p(fact, "enabled");
+          if (enabled != null && enabled !== "O") {
+            specs.push({
+              sql: `ALTER TABLE ${rel(id.schema, id.table)} ${enabledPhrase(str(enabled))} TRIGGER ${qid(id.name)}`,
+              consumes,
+            });
+          }
+          return specs;
+        },
+      },
       enabled: {
         alter: (fact, _from, to) => {
           const id = fact.id as { schema: string; table: string; name: string };

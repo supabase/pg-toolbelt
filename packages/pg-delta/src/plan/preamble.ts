@@ -20,7 +20,10 @@
  * REFERENCES a routine without its id in the action arrays (e.g. a table
  * trigger, whose create consumes only its parent table — the function
  * reference is a fact edge) does not keep the entry, deliberately:
- * CREATE TRIGGER never validates the function's body. Kinds:
+ * CREATE TRIGGER never validates the function's body. A trigger def-alter
+ * (CREATE OR REPLACE TRIGGER) does keep it, because it consumes its
+ * dependencies, function included, for ordering; harmless, for the same
+ * reason. Kinds:
  *   - function / procedure — the real cases (CREATE OR REPLACE with a body);
  *   - aggregate — no body of its own, kept as routine-family insurance;
  *   - extension / extensionIntent — extension scripts and intent replay run
