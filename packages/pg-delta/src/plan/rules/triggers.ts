@@ -33,17 +33,13 @@ export const triggerRules: Record<string, KindRules> = {
       };
     },
     attributes: {
-      // A definition change re-runs the def as CREATE OR REPLACE TRIGGER
-      // (PG14+): SHARE ROW EXCLUSIVE instead of DROP's ACCESS EXCLUSIVE, and
-      // only TRIGGER privilege instead of table ownership. pg_get_triggerdef
-      // has no OR REPLACE form; splice it into the canonical def (as indexes.ts
-      // does for CONCURRENTLY). OR REPLACE resets tgenabled to 'O' and rejects
-      // constraint triggers, which keep drop + create, as does a statement-level
-      // trigger on a partitioned table (OR REPLACE recurses to partitions only
-      // for row-level triggers, so it would leave their clones). Both specs
-      // consume the trigger's desired dependencies (e.g. a new UPDATE OF
-      // column) with the same array, so they share a stratum and the restore
-      // stays second.
+      // CREATE OR REPLACE TRIGGER takes SHARE ROW EXCLUSIVE and needs the
+      // TRIGGER privilege, where DROP needs ACCESS EXCLUSIVE and ownership.
+      // Constraint triggers and statement-level triggers on a partitioned
+      // table keep drop + create: OR REPLACE rejects the first and recurses
+      // to partitions only for row-level triggers. It resets tgenabled to 'O',
+      // hence the restore; both specs share `consumes`, so the emission-index
+      // tie-break keeps the restore second.
       def: {
         replaceWhen: (from, to, fact) =>
           !str(from).startsWith("CREATE TRIGGER ") ||
@@ -72,7 +68,12 @@ export const triggerRules: Record<string, KindRules> = {
         },
       },
       enabled: {
-        alter: (fact, _from, to) => {
+        alter: (fact, _from, to, _view, sourceView) => {
+          // a def change's OR REPLACE + restore already sets the firing state
+          const sourceDef = sourceView.get(fact.id)?.payload["def"];
+          if (sourceDef !== undefined && sourceDef !== p(fact, "def")) {
+            return [];
+          }
           const id = fact.id as { schema: string; table: string; name: string };
           return {
             sql: `ALTER TABLE ${rel(id.schema, id.table)} ${enabledPhrase(str(to))} TRIGGER ${qid(id.name)}`,

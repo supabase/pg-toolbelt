@@ -261,6 +261,7 @@ describe("stage 6: execution", () => {
       `;
       await source.pool.query(schema("INSERT", "ROW"));
       await desired.pool.query(schema("INSERT OR UPDATE", "STATEMENT"));
+      await desired.pool.query(`ALTER TABLE public.t DISABLE TRIGGER t_trg`);
       const [sourceState, desiredState] = [
         await extract(source.pool),
         await extract(desired.pool),
@@ -271,6 +272,7 @@ describe("stage 6: execution", () => {
       expect(sqlFor("t_trg")).toMatchInlineSnapshot(`
         [
           "CREATE OR REPLACE TRIGGER t_trg BEFORE INSERT OR UPDATE ON public.t FOR EACH ROW EXECUTE FUNCTION public.audit()",
+          "ALTER TABLE "public"."t" DISABLE TRIGGER "t_trg"",
         ]
       `);
       // CREATE OR REPLACE updates only the parent, so the row-level clone on

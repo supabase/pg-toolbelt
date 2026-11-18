@@ -2225,3 +2225,19 @@ than dropped and recreated. These narrower gaps are deferred.
   pass makes an exact rename ambiguous, every counterpart is dropped, including
   ones an earlier pass had landed. Both need several same-shape tables spelled
   differently.
+
+## PR #580 review triage — trigger def change after a dependency drop
+
+#580 plans a changed trigger definition as `CREATE OR REPLACE TRIGGER`. One
+case still drops and recreates it, deferred.
+
+- **A function or column the old definition used is dropped in the same
+  plan.** Switching `EXECUTE FUNCTION f_old` to `f_new` while dropping
+  `f_old`, or dropping a column the old `UPDATE OF` or `WHEN` used, plans
+  `DROP TRIGGER` + `CREATE TRIGGER`, so it still takes ACCESS EXCLUSIVE and
+  table ownership. The forced-rebuild walk in
+  `src/plan/phases/replacement-expansion.ts` marks the trigger for replace
+  from its source-side edge before any alter exists, so `releases` on the
+  OR REPLACE spec alone cannot help. A fix would skip a dependent in that walk
+  when its in-place def alter no longer needs the dropped object, and give the
+  alter `releases` of its source-side deps so it runs before the drop.

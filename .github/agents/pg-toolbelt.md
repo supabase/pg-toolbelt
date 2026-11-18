@@ -80,9 +80,10 @@ generic (`src/core/diff.ts`) — there are **no per-object-type change classes**
   The presentation-only formatter in `src/frontends/sql-format/**` is the only
   presentation exception: it may change casing and layout, never meaning, and
   its output is gated by `load(export(db)) ≡ db` fidelity coverage. Beyond that
-  formatter, the only edits allowed to catalog-printed DDL are anchored keyword
-  insertions that choose how a statement runs, not what it creates:
-  `CONCURRENTLY` on indexes and `OR REPLACE` on plain triggers.
+  formatter, catalog-printed DDL is edited in exactly three ways, each a
+  fixed keyword: `CONCURRENTLY` on indexes, `OR REPLACE` on plain triggers, and
+  `NOT VALID` on unvalidated constraints. This list is closed; a new entry
+  needs a maintainer to add it here first.
 - `@supabase/pg-topo` is an **optional peer** used only by the dev-experience
   frontends (`src/frontends/sql-order.ts`, `schema lint`) — importing the core
   never pulls it in. `canReorder()` probes availability; absence throws
