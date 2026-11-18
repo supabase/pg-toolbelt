@@ -1163,6 +1163,7 @@ export async function loadSqlFiles(
   let failuresBeforeReorder: LoadFailure[] = [];
   let client: PoolClient = await connectWithErrorListener(shadow);
   let clientOpen = true;
+  let restoreTransactionTimeout = false;
   const releaseClient = async (discard = false): Promise<void> => {
     if (!clientOpen) return;
     clientOpen = false;
@@ -1171,6 +1172,9 @@ export async function loadSqlFiles(
     await client
       .query(`RESET check_function_bodies; RESET synchronous_commit`)
       .catch(() => {});
+    if (restoreTransactionTimeout) {
+      await client.query(`RESET transaction_timeout`).catch(() => {});
+    }
     if (discard) {
       client.release(new Error("discard poisoned shadow-load session"));
     } else {
@@ -1637,7 +1641,8 @@ export async function loadSqlFiles(
              ARRAY(SELECT format_type(t.t, NULL)
                    FROM unnest(p.proargtypes) WITH ORDINALITY AS t(t, ord)
                    ORDER BY t.ord)::text[] AS identity_args,
-             pg_get_functiondef(p.oid) AS def
+             pg_get_functiondef(p.oid) AS def,
+             pg_has_role(current_user, p.proowner, 'USAGE') AS replaceable
       FROM pg_proc p
       JOIN pg_namespace n ON n.oid = p.pronamespace
       JOIN pg_language l ON l.oid = p.prolang
@@ -1649,15 +1654,38 @@ export async function loadSqlFiles(
           WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')`);
     await client.query(`COMMIT`);
     await client.query(`SET check_function_bodies = on`);
+    if (pgMajor >= 17) {
+      // each chunk below is one transaction: lift a session transaction_timeout off it
+      await client.query(`SET transaction_timeout = 0`);
+      restoreTransactionTimeout = true;
+    }
     const bodyErrors: Diagnostic[] = [];
     const bodyWarnings: Diagnostic[] = [];
-    for (const row of defs.rows as {
+    const rows = defs.rows as {
       nspname: string;
       proname: string;
       prokind: string;
       identity_args: string[];
       def: string;
-    }[]) {
+      replaceable: boolean;
+    }[];
+    // One multi-statement query per chunk (one implicit transaction, so the
+    // chunk caps its locks); a failed chunk rolls back and its routines re-run
+    // one by one below for per-routine diagnostics.
+    const REVALIDATION_CHUNK = 200;
+    const unvalidated: typeof rows = [];
+    for (let i = 0; i < rows.length; i += REVALIDATION_CHUNK) {
+      const chunk = rows.slice(i, i + REVALIDATION_CHUNK);
+      // routines of a role we are not a member of cannot be replaced: run them alone
+      const batch = chunk.filter((row) => row.replaceable);
+      try {
+        await client.query(batch.map((row) => row.def).join(";\n"));
+        unvalidated.push(...chunk.filter((row) => !row.replaceable));
+      } catch {
+        unvalidated.push(...chunk);
+      }
+    }
+    for (const row of unvalidated) {
       try {
         await client.query(row.def);
       } catch (error) {

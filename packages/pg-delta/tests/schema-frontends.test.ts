@@ -33,7 +33,12 @@ import {
 import { settleDesired } from "../src/frontends/settle-desired.ts";
 import type { Policy } from "../src/policy/policy.ts";
 import { reconstructManagedView } from "../src/policy/reconstruct.ts";
-import { isolatedClusterPair, sharedCluster } from "./containers.ts";
+import { queryText } from "./apply-test-helpers.ts";
+import {
+  isolatedClusterPair,
+  sharedCluster,
+  type TestDb,
+} from "./containers.ts";
 
 const SCHEMA_SQL = `
   CREATE SCHEMA app;
@@ -48,6 +53,81 @@ function loginPool(uri: string, role: string): pg.Pool {
   const pool = new pg.Pool({ connectionString: url.toString(), max: 5 });
   pool.on("error", () => {});
   return pool;
+}
+
+/** A pool on `uri` whose clients send a query only once the promise
+ *  `before(sql)` returns (if any) resolves, and fail it if that rejects. */
+function gatedPool(
+  uri: string,
+  before?: (sql: string) => Promise<unknown> | undefined,
+): pg.Pool {
+  const pool = new pg.Pool({ connectionString: uri, max: 5 });
+  pool.on("error", () => {});
+  pool.on("connect", (client) => {
+    const query = client.query.bind(client) as (...args: unknown[]) => unknown;
+    (client as { query: unknown }).query = (...args: unknown[]) => {
+      const gate = before?.(queryText(args[0]));
+      return gate === undefined
+        ? query(...args)
+        : gate.then(() => query(...args));
+    };
+  });
+  return pool;
+}
+
+/** Plan SCHEMA_SQL against a target already holding it, through a two-sided
+ *  barrier: the target extract's snapshot BEGIN waits for the shadow load's
+ *  preamble, and the load's final (shadow) extract BEGIN waits for the target
+ *  BEGIN, so only an overlapped run passes. Each hold fails after 3 s. */
+async function planWithTargetHeldForLoad(
+  target: TestDb,
+  shadow: TestDb,
+  isolatedShadow: boolean,
+) {
+  const signal = () => {
+    let fire = (): void => {};
+    const fired = new Promise<void>((resolve) => {
+      fire = resolve;
+    });
+    const wait = (what: string) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      return Promise.race([
+        fired,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`held 3 s: ${what}`)),
+            3_000,
+          );
+        }),
+      ]).finally(() => clearTimeout(timer));
+    };
+    return { fire, wait };
+  };
+  const loadStarted = signal();
+  const targetBegan = signal();
+  const targetPool = gatedPool(target.uri, (sql) =>
+    /REPEATABLE READ READ ONLY/.test(sql)
+      ? loadStarted.wait("the shadow load never started").then(targetBegan.fire)
+      : undefined,
+  );
+  const shadowPool = gatedPool(shadow.uri, (sql) => {
+    if (sql.startsWith("SET check_function_bodies = off")) loadStarted.fire();
+    return /REPEATABLE READ READ ONLY/.test(sql)
+      ? targetBegan.wait("the target extract never started")
+      : undefined;
+  });
+  try {
+    await target.pool.query(SCHEMA_SQL);
+    return await planSchemaFiles(
+      targetPool,
+      shadowPool,
+      [{ name: "app.sql", sql: SCHEMA_SQL }],
+      { profile: rawProfile, scope: "database", isolatedShadow },
+    );
+  } finally {
+    await Promise.all([targetPool.end(), shadowPool.end()]);
+    await Promise.all([target.drop(), shadow.drop()]);
+  }
 }
 
 /** Plan `files` against a fresh target built from `targetSql`, read as
@@ -276,6 +356,60 @@ describe("public schema frontends", () => {
       ).toEqual([]);
     } finally {
       await Promise.all([target.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+
+  test("planSchemaFiles extracts the target while a separate-lineage shadow loads", async () => {
+    const [clusterA, clusterB] = await isolatedClusterPair();
+    const planned = await planWithTargetHeldForLoad(
+      await clusterA.createDb("frontend_overlap_target"),
+      await clusterB.createDb("frontend_overlap_shadow"),
+      true,
+    );
+    expect(planned.plan.actions).toEqual([]);
+  }, 120_000);
+
+  test("planSchemaFiles reads a same-cluster target before loading the shadow", async () => {
+    const cluster = await sharedCluster();
+    expect(
+      planWithTargetHeldForLoad(
+        await cluster.createDb("frontend_samecl_target"),
+        await cluster.createDb("frontend_samecl_shadow"),
+        false,
+      ),
+    ).rejects.toThrow("the shadow load never started");
+  }, 120_000);
+
+  test("planSchemaFiles surfaces a failed target extract, alone or with a failing load, and leaks nothing", async () => {
+    const [clusterA, clusterB] = await isolatedClusterPair();
+    for (const sql of [
+      SCHEMA_SQL,
+      "CREATE TABLE app.orphan (id integer REFERENCES app.missing (id));",
+    ]) {
+      const target = await clusterA.createDb("frontend_tfail_target");
+      const shadow = await clusterB.createDb("frontend_tfail_shadow");
+      // fail only the target extract (its snapshot transaction); the
+      // shadow's own extract runs on the shadow pool, which never fails
+      const targetPool = gatedPool(target.uri, (q) =>
+        /REPEATABLE READ READ ONLY/.test(q)
+          ? Promise.reject(new Error("injected target failure"))
+          : undefined,
+      );
+      const shadowPool = gatedPool(shadow.uri);
+      try {
+        expect(
+          planSchemaFiles(targetPool, shadowPool, [{ name: "app.sql", sql }], {
+            profile: rawProfile,
+            scope: "database",
+            isolatedShadow: true,
+          }),
+        ).rejects.toThrow("injected target failure");
+        expect(targetPool.totalCount).toBe(targetPool.idleCount);
+        expect(shadowPool.totalCount).toBe(shadowPool.idleCount);
+      } finally {
+        await Promise.all([targetPool.end(), shadowPool.end()]);
+        await Promise.all([target.drop(), shadow.drop()]);
+      }
     }
   }, 120_000);
 

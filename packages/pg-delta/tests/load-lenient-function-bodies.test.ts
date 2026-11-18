@@ -22,12 +22,14 @@
  * Stock alpine image; Docker required.
  */
 import { describe, expect, test } from "bun:test";
+import pg from "pg";
 import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import {
   loadSqlFiles,
   ShadowLoadError,
 } from "../src/frontends/load-sql-files.ts";
+import { queryText } from "./apply-test-helpers.ts";
 import { createTestDb, sharedCluster } from "./containers.ts";
 
 async function captureError(promise: Promise<unknown>): Promise<unknown> {
@@ -42,6 +44,32 @@ async function captureError(promise: Promise<unknown>): Promise<unknown> {
 // seeded schema, so this is class 3.
 const LEGACY_FN_SQL =
   "CREATE FUNCTION public.legacy() RETURNS int LANGUAGE sql AS 'SELECT x FROM nonexistent';";
+
+// Enough valid user routines to span several re-validation round trips.
+const MANY_FNS_SQL = Array.from(
+  { length: 450 },
+  (_, i) =>
+    `CREATE FUNCTION public.f${i}() RETURNS int LANGUAGE sql AS 'SELECT ${i}';`,
+).join("\n");
+
+// LEGACY_FN_SQL first, then the valid routines, then a second broken routine
+// created last, so the two failures land in the first and a later round trip.
+const BROKEN_FIRST_AND_LAST_SQL = `${LEGACY_FN_SQL}
+${MANY_FNS_SQL}
+CREATE FUNCTION public.zz_legacy() RETURNS int LANGUAGE sql AS 'SELECT y FROM nonexistent';`;
+
+/** Record the SQL of every query sent on each client `pool` opens from now on. */
+function recordQueries(pool: pg.Pool): string[] {
+  const queries: string[] = [];
+  pool.on("connect", (client) => {
+    const query = client.query.bind(client) as (...args: unknown[]) => unknown;
+    (client as { query: unknown }).query = (...args: unknown[]) => {
+      queries.push(queryText(args[0]));
+      return query(...args);
+    };
+  });
+  return queries;
+}
 
 describe("loadSqlFiles — lenient user-routine body validation", () => {
   test("a user routine that fails strict re-lint loads with a WARNING by default", async () => {
@@ -90,6 +118,163 @@ describe("loadSqlFiles — lenient user-routine body validation", () => {
       expect(detail?.severity).toBe("error");
       expect(detail?.message).toContain("public.legacy:");
     } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("re-validation sends many routine definitions in a few round trips", async () => {
+    const shadow = await createTestDb("revalbatch");
+    const queries = recordQueries(shadow.pool);
+    try {
+      await loadSqlFiles(
+        [{ name: "01_fns.sql", sql: MANY_FNS_SQL }],
+        shadow.pool,
+      );
+      const checksOn = queries.indexOf("SET check_function_bodies = on");
+      expect(checksOn).toBeGreaterThan(-1);
+      const revalidation = queries
+        .slice(checksOn)
+        .filter((q) => q.startsWith("CREATE OR REPLACE"));
+      // 450 routines: a handful of chunked round trips, not one per routine.
+      expect(revalidation.length).toBeGreaterThan(0);
+      expect(revalidation.length).toBeLessThan(10);
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("a routine the loading role cannot replace costs no extra round trips", async () => {
+    const shadow = await createTestDb("revalunowned");
+    const owner = `reval_owner_${shadow.name}`;
+    const loader = `reval_loader_${shadow.name}`;
+    // Like a Supabase shadow's platform routines: created before the load and
+    // owned by a role the (non-superuser) loading role is not a member of.
+    await shadow.pool.query(
+      `CREATE ROLE "${owner}";
+       CREATE ROLE "${loader}" LOGIN PASSWORD 'loader' NOSUPERUSER;
+       GRANT ALL ON DATABASE "${shadow.name}" TO "${loader}";
+       GRANT ALL ON SCHEMA public TO "${loader}";
+       CREATE FUNCTION public.platform_fn() RETURNS int LANGUAGE sql AS 'SELECT 1';
+       ALTER FUNCTION public.platform_fn() OWNER TO "${owner}";`,
+    );
+    const loaderPool = new pg.Pool({
+      connectionString: shadow.uri.replace(
+        "postgres://test:test@",
+        `postgres://${loader}:loader@`,
+      ),
+      max: 2,
+    });
+    loaderPool.on("error", () => {});
+    const queries = recordQueries(loaderPool);
+    try {
+      const result = await loadSqlFiles(
+        [{ name: "01_fns.sql", sql: MANY_FNS_SQL }],
+        loaderPool,
+      );
+      expect(
+        result.diagnostics.filter((d) => d.code === "invalid_routine_body"),
+      ).toMatchInlineSnapshot(`
+        [
+          {
+            "code": "invalid_routine_body",
+            "message": "public.platform_fn: must be owner of function platform_fn",
+            "severity": "warning",
+          },
+        ]
+      `);
+      const checksOn = queries.indexOf("SET check_function_bodies = on");
+      expect(checksOn).toBeGreaterThan(-1);
+      const revalidation = queries
+        .slice(checksOn)
+        .filter((q) => q.startsWith("CREATE OR REPLACE"));
+      expect(revalidation.length).toBeGreaterThan(0);
+      expect(revalidation.length).toBeLessThan(10);
+    } finally {
+      await loaderPool.end();
+      await shadow.drop();
+      await shadow.cluster.adminPool.query(
+        `DROP ROLE IF EXISTS "${loader}"; DROP ROLE IF EXISTS "${owner}";`,
+      );
+    }
+  }, 60_000);
+
+  test("strict: broken routines in the first and a later round trip are each attributed", async () => {
+    const shadow = await createTestDb("revalstrictlate");
+    try {
+      const err = await captureError(
+        loadSqlFiles(
+          [{ name: "01_fns.sql", sql: BROKEN_FIRST_AND_LAST_SQL }],
+          shadow.pool,
+          { strictFunctionBodies: true },
+        ),
+      );
+      expect(err).toBeInstanceOf(ShadowLoadError);
+      expect((err as ShadowLoadError).message).toMatchInlineSnapshot(
+        `"2 routine bodies failed validation"`,
+      );
+      expect((err as ShadowLoadError).details).toMatchInlineSnapshot(`
+        [
+          {
+            "code": "invalid_routine_body",
+            "message": "public.legacy: relation "nonexistent" does not exist",
+            "severity": "error",
+          },
+          {
+            "code": "invalid_routine_body",
+            "message": "public.zz_legacy: relation "nonexistent" does not exist",
+            "severity": "error",
+          },
+        ]
+      `);
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("re-validation survives a session transaction_timeout shorter than a batch", async () => {
+    const shadow = await createTestDb("revaltxtimeout");
+    if ((await shadow.cluster.pgMajor()) < 17) {
+      await shadow.drop();
+      return; // transaction_timeout is PG 17+
+    }
+    // The file loads with check_function_bodies off and finishes in time;
+    // only re-validating public.slow_fn (check on) sleeps past the timeout.
+    const sql = `CREATE TABLE public.hits (n int);
+CREATE FUNCTION public.slow_fn() RETURNS int LANGUAGE sql AS 'SELECT 1';
+CREATE FUNCTION public.slow_revalidation() RETURNS event_trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF current_setting('check_function_bodies') = 'on' AND EXISTS (
+    SELECT 1 FROM pg_event_trigger_ddl_commands()
+    WHERE object_identity = 'public.slow_fn()'
+  ) THEN
+    PERFORM pg_sleep(5);
+    INSERT INTO public.hits VALUES (1);
+  END IF;
+END
+$$;
+CREATE EVENT TRIGGER slow_revalidation ON ddl_command_end
+  EXECUTE FUNCTION public.slow_revalidation();`;
+    const loaderPool = new pg.Pool({
+      connectionString: shadow.uri,
+      max: 1,
+      options: "-c transaction_timeout=2s",
+    });
+    loaderPool.on("error", () => {});
+    try {
+      const result = await loadSqlFiles(
+        [{ name: "01_slow.sql", sql }],
+        loaderPool,
+      );
+      // only the row the trigger wrote; no connection or body diagnostics
+      expect(result.diagnostics.map((d) => d.code)).toEqual(["data_statement"]);
+      const hits = await shadow.pool.query(
+        `SELECT count(*)::int AS n FROM public.hits`,
+      );
+      expect(hits.rows[0]).toEqual({ n: 1 });
+      const after = await loaderPool.query(`SHOW transaction_timeout`);
+      expect(after.rows[0]).toEqual({ transaction_timeout: "2s" });
+    } finally {
+      await loaderPool.end();
       await shadow.drop();
     }
   }, 60_000);

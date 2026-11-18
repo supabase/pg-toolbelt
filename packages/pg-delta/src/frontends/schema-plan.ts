@@ -539,11 +539,16 @@ export async function planSchemaFiles(
     }
   }
 
-  const targetResult = await ctx.extract(targetPool, { redactSecrets });
-
-  const assumedTargetRoles =
+  // Extract the target during the shadow load, unless they share a cluster:
+  // the load can write cluster-wide catalogs (roles) the extract reads.
+  let targetExtract: Promise<ExtractResult> | undefined;
+  if (isSamePostgresLineage(targetIdentity, shadowIdentity)) {
+    targetExtract = ctx.extract(targetPool, { redactSecrets });
+    await targetExtract;
+  }
+  const rolesOf = (target: ExtractResult): string[] =>
     scope === "database"
-      ? targetResult.factBase
+      ? target.factBase
           .facts()
           .filter((f) => f.id.kind === "role")
           .map((f) => (f.id as { name: string }).name)
@@ -565,7 +570,9 @@ export async function planSchemaFiles(
       profileAssumedPublications.length > 0 ||
       profileAssumedExtensions.length > 0
     ) {
-      const seed = deriveAssumedSchemaSeed(targetResult.factBase, {
+      targetExtract ??= ctx.extract(targetPool, { redactSecrets });
+      const seedTarget = await targetExtract;
+      const seed = deriveAssumedSchemaSeed(seedTarget.factBase, {
         ...(ctx.planOptions.policy ? { policy: ctx.planOptions.policy } : {}),
         ...(ctx.planOptions.capability
           ? { capability: ctx.planOptions.capability }
@@ -578,7 +585,7 @@ export async function planSchemaFiles(
         assumedExtensions: profileAssumedExtensions,
         assumedRoles: [
           ...(flatProfile?.assumedRoles ?? []),
-          ...assumedTargetRoles,
+          ...rolesOf(seedTarget),
         ],
         ...(ctx.susetGucs !== undefined ? { susetGucs: ctx.susetGucs } : {}),
       });
@@ -653,6 +660,9 @@ export async function planSchemaFiles(
       (d) => d.code === "PARSE_ERROR" || d.code === "DISCOVERY_ERROR",
     );
 
+  targetExtract ??= ctx.extract(targetPool, { redactSecrets });
+  // no-op catch: a rejection during the load is not unhandled; awaits rethrow
+  targetExtract.catch(() => {});
   let loadResult;
   try {
     loadResult = await loadSqlFiles(loadInput, shadowPool, {
@@ -695,6 +705,8 @@ export async function planSchemaFiles(
         : {}),
     });
   } catch (error) {
+    // a target extract failure wins over the load's
+    await targetExtract;
     if (error instanceof ShadowLoadError && orderedFiles) {
       if (options.onShadowLoadError !== undefined) {
         throw options.onShadowLoadError(error, {
@@ -706,6 +718,8 @@ export async function planSchemaFiles(
     }
     throw error;
   }
+  const targetResult = await targetExtract;
+  const assumedTargetRoles = rolesOf(targetResult);
 
   // Pre-flight guard for the delivery model (docs/architecture/custom-folder.md
   // §7). Raw SQL — `_custom/` included — runs only in the disposable shadow, so
