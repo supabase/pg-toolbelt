@@ -91,6 +91,12 @@ export type AttributeRule =
         view: FactView,
         sourceView: FactView,
       ) => ActionSpec | ActionSpec[];
+      /** The alter re-states the fact's whole definition, so it drops any
+       *  dependency the desired definition no longer references: a dependency
+       *  this plan removes is released by the alter (ordered before the drop)
+       *  instead of force-rebuilding the fact. Leave unset for an alter that
+       *  only touches part of the fact (ALTER POLICY … TO keeps USING). */
+      restatesDefinition?: boolean;
       /** When this transition force-rebuilds surviving dependents (drop +
        *  recreate around the alter):
        *   - `true`  → every rebuildable dependent (enum value-set migration:

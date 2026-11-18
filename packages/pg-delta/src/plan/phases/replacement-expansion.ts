@@ -44,6 +44,18 @@ export interface ReplacementExpansion {
  * rebuild, then compute drop-root suppression + redirect. Behavior-preserving
  * extraction of `plan()`'s replacement/suppression block.
  */
+function restatesDefinition(
+  fact: Fact,
+  sets: readonly Extract<Delta, { verb: "set" }>[] | undefined,
+  rulesForId: RulesForId,
+): boolean {
+  const attributes = rulesForId(fact.id).attributes;
+  return (sets ?? []).some((s) => {
+    const rule = attributes[s.attr];
+    return typeof rule === "object" && rule.restatesDefinition === true;
+  });
+}
+
 export function expandReplacements(
   input: ReplacementExpansionInput,
 ): ReplacementExpansion {
@@ -230,6 +242,22 @@ export function expandReplacements(
           continue;
         }
         if (!isRebuildable(dependent.id.kind)) continue;
+        // a dependent whose in-place alter re-states its whole definition, and
+        // whose desired definition no longer references a REMOVED target,
+        // releases it through that alter (a trigger switching to a new
+        // function before the old one is dropped); the action graph orders the
+        // alter before the drop. Any other dependent (a policy whose unchanged
+        // USING now resolves to a new overload, even if its roles change) only
+        // releases it through a rebuild.
+        if (
+          removed.has(toKey) &&
+          restatesDefinition(dependent, setsByFact.get(fromKey), rulesForId) &&
+          !desired
+            .outgoingEdges(dependent.id)
+            .some((e) => encodeId(e.to) === toKey)
+        ) {
+          continue;
+        }
         // reached only via a kind-restricted seed: honor the allowed kinds
         if (!fullDestroy.has(toKey)) {
           const allowed = rebuildSeeds.get(toKey);
