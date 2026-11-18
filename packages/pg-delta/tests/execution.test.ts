@@ -243,6 +243,58 @@ describe("stage 6: execution", () => {
     }
   }, 60_000);
 
+  test("a trigger def change plans CREATE OR REPLACE TRIGGER, except a statement-level trigger on a partitioned parent", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("exec_trg_src");
+    const desired = await cluster.createDb("exec_trg_dst");
+    try {
+      const schema = (events: string, level: string) => `
+        CREATE FUNCTION public.audit() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RETURN NEW; END; $$;
+        CREATE TABLE public.t (id integer);
+        CREATE TRIGGER t_trg BEFORE ${events} ON public.t
+          FOR EACH ROW EXECUTE FUNCTION public.audit();
+        CREATE TABLE public.p (id integer NOT NULL) PARTITION BY RANGE (id);
+        CREATE TABLE public.p1 PARTITION OF public.p FOR VALUES FROM (0) TO (100);
+        CREATE TRIGGER p_trg AFTER INSERT ON public.p
+          FOR EACH ${level} EXECUTE FUNCTION public.audit();
+      `;
+      await source.pool.query(schema("INSERT", "ROW"));
+      await desired.pool.query(schema("INSERT OR UPDATE", "STATEMENT"));
+      const [sourceState, desiredState] = [
+        await extract(source.pool),
+        await extract(desired.pool),
+      ];
+      const thePlan = plan(sourceState.factBase, desiredState.factBase);
+      const sqlFor = (trigger: string) =>
+        thePlan.actions.map((a) => a.sql).filter((s) => s.includes(trigger));
+      expect(sqlFor("t_trg")).toMatchInlineSnapshot(`
+        [
+          "CREATE OR REPLACE TRIGGER t_trg BEFORE INSERT OR UPDATE ON public.t FOR EACH ROW EXECUTE FUNCTION public.audit()",
+        ]
+      `);
+      // CREATE OR REPLACE updates only the parent, so the row-level clone on
+      // p1 would stay and keep firing: a level flip there must drop+create.
+      expect(sqlFor("p_trg")).toMatchInlineSnapshot(`
+        [
+          "DROP TRIGGER "p_trg" ON "public"."p"",
+          "CREATE TRIGGER p_trg AFTER INSERT ON public.p FOR EACH STATEMENT EXECUTE FUNCTION public.audit()",
+        ]
+      `);
+      const report = await apply(thePlan, source.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+      // extraction skips partition clones, so read pg_trigger directly
+      const clones = await source.pool.query(
+        `SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.p1'::regclass AND tgname = 'p_trg'`,
+      );
+      expect(clones.rows).toEqual([]);
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
   test("unknown serialize parameters are a plan-time error", async () => {
     const cluster = await sharedCluster();
     const db = await cluster.createDb("exec_param");
