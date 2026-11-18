@@ -26,8 +26,9 @@
  *
  * The seed is a REPLAYABLE SUBSET of the reference-only facts, not all of them.
  * It replays FIRST, into an empty shadow; the MANAGED objects only come into
- * existence afterwards, when the declarative files load. So a reference-only
- * overlay that DEPENDS on managed state (the field case: a policy on an assumed
+ * existence afterwards, when the declarative files load, and objects pruned
+ * from the view never exist there. So a reference-only overlay that DEPENDS on
+ * managed or pruned state (the field case: a policy on an assumed
  * `storage.objects` whose expression calls a user function in a managed `app`
  * schema) simply cannot replay during the seed phase — PostgreSQL fails the
  * whole seed with `schema "app" does not exist`. Such a candidate is OMITTED
@@ -68,7 +69,7 @@
  * error beats rewritten SQL). `susetGucs` absent ⇒ nothing is skipped for this
  * reason (byte-identical behavior).
  *
- * All omission reasons (managed dependency, suset-GUC routine, ADP, extension
+ * All omission reasons (unseeded dependency, suset-GUC routine, ADP, extension
  * member) feed ONE exclusion closure, so a fact that depends on — or is
  * structurally contained by — an omitted fact is omitted too, whatever the
  * original reason was.
@@ -79,7 +80,7 @@ import { plan } from "../plan/plan.ts";
 import { renderPlanSql } from "../plan/render-sql.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 import { type Policy, resolveView } from "../policy/policy.ts";
-import { extensionMemberReferenceOnly } from "../policy/view.ts";
+import { extensionMemberClosure } from "../policy/view.ts";
 
 export interface AssumedSchemaSeed {
   /** Replayable SQL that creates the assumed-schema objects; `""` when nothing
@@ -176,9 +177,9 @@ export function deriveAssumedSchemaSeed(
   // target so baseline-identical platform objects (auth.users) stay in the view
   // and get seeded. See the module doc (Codex #323 finding 3).
   const view = resolveView(targetFb, opts.policy, opts.capability);
-  const members = extensionMemberReferenceOnly(targetFb);
+  const memberExts = extensionMemberClosure(targetFb);
   const seedIds = new Set(
-    [...view.referenceOnly].filter((id) => !members.has(id)),
+    [...view.referenceOnly].filter((id) => !memberExts.has(id)),
   );
   if (seedIds.size === 0) return EMPTY;
 
@@ -203,10 +204,13 @@ export function deriveAssumedSchemaSeed(
   // therefore NOT a replay requirement: `CREATE PUBLICATION supabase_realtime`
   // with no `FOR TABLE` needs none of its members (#370 seeds it EMPTY on
   // purpose). Computed by walking each NON-candidate view fact up to its
-  // candidate ancestors.
+  // candidate ancestors; a pruned `publicationRel` still counts.
   const shellIds = new Set<string>();
-  for (const fct of view.facts()) {
+  for (const fct of targetFb.facts()) {
     if (candidateIds.has(encodeId(fct.id))) continue;
+    if (fct.id.kind !== "publicationRel" && view.get(fct.id) === undefined) {
+      continue;
+    }
     let ancestor = fct.parent;
     while (ancestor !== undefined) {
       const key = encodeId(ancestor);
@@ -220,24 +224,24 @@ export function deriveAssumedSchemaSeed(
   // cascade logic.
   const excludedIds = new Set<string>();
 
-  // (1) MANAGED dependency: the candidate `depends` on a fact that is in the
-  //     managed view but is neither a seed candidate nor reference-only, i.e. an
-  //     object the declarative files create LATER. The seed replays into an empty
-  //     shadow, so that object does not exist yet and the statement fails (field
-  //     case: `schema "app" does not exist`). Two target classes stay allowed:
-  //       - a reference-only NON-candidate (extension member, ADP) — ambient in
-  //         the co-located shadow (or with no replay meaning), which is the
-  //         existing contract the plan's requirement guard already exempts via
-  //         `assumedSchemas`;
-  //       - anything a SHELL candidate inherited from a non-seeded subsidiary
-  //         (see `shellIds`) — the shell's own DDL does not reference it.
-  for (const e of view.edges) {
+  // (1) UNSEEDED dependency: the candidate `depends` on a fact that is neither a
+  //     seed candidate nor reference-only: managed (created LATER by the files)
+  //     or pruned by policy/capability/`managedBy` (never created). Walk the RAW
+  //     target edges, since the view drops every edge to a pruned fact. Allowed:
+  //     reference-only non-candidates (extension member, ADP: the contract the
+  //     plan's requirement guard exempts via `assumedSchemas`), a pruned
+  //     extension member whose extension the seed creates, and a SHELL's
+  //     inherited membership edges.
+  for (const e of targetFb.edges) {
     if (e.kind !== "depends") continue;
     const from = encodeId(e.from);
     if (!candidateIds.has(from) || excludedIds.has(from)) continue;
     if (shellIds.has(from)) continue;
     const to = encodeId(e.to);
     if (candidateIds.has(to) || view.referenceOnly.has(to)) continue;
+    if (memberExts.get(to)?.some((x) => candidateIds.has(encodeId(x)))) {
+      continue;
+    }
     excludedIds.add(from);
   }
   //     An assumed extension's install schema is the same kind of dependency,
