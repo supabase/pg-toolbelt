@@ -244,7 +244,7 @@ extension (rather than mis-diffing) is already the desired behaviour.
 
 #### Why: shadow and baseline answer different questions
 
-Already doctrine in the code — `src/frontends/seed-assumed-schemas.ts`, from the
+Already doctrine in the code — `src/integrations/seed-assumed-schemas.ts`, from the
 Codex #323 finding:
 
 > The seed is the **SUPERSET** question — "what platform objects must exist for

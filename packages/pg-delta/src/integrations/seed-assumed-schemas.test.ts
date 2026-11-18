@@ -112,6 +112,17 @@ describe("deriveAssumedSchemaSeed", () => {
     });
   });
 
+  test("empty results are not shared between calls", () => {
+    const target = buildFactBase([f(schemaPublic), f(schemaApp)], []);
+    const opts = { assumedSchemas: [], assumedRoles: [] };
+    const first = deriveAssumedSchemaSeed(target, opts);
+    first.schemas.push("leaked");
+    first.seededRoutines.set("function:leaked()", "def");
+    const second = deriveAssumedSchemaSeed(target, opts);
+    expect(second.schemas).toEqual([]);
+    expect(second.seededRoutines.size).toBe(0);
+  });
+
   // Unit C: a seeded routine carrying a superuser-only `SET` clause cannot be
   // CREATEd by a non-superuser applier at all (SQLSTATE 42501 at CREATE time),
   // and platform ADP entries fail the same way. The routine's `SET` clause lives

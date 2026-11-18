@@ -10,7 +10,7 @@
  * so `plan == prove == run` cannot drift by open-coding the composition.
  *
  * Internal only — not re-exported from the package index or the `./policy`
- * public subpath. `ResolvedProfile` remains the public safe-composition surface.
+ * public subpath. `ResolvedProfile.managedView` is its public surface.
  * Bare `resolveView` (without scope) stays legitimate for diff/seed paths.
  */
 import { diff, subjectOf, type Delta } from "../core/diff.ts";
