@@ -2,7 +2,7 @@
 import type { StableId } from "../../core/stable-id.ts";
 import { lit, qid, rel } from "../render.ts";
 import type { ActionSpec, KindRules } from "../rules.ts";
-import { enabledPhrase, p, str } from "./helpers.ts";
+import { dependencyConsumes, enabledPhrase, p, str } from "./helpers.ts";
 
 export const triggerRules: Record<string, KindRules> = {
   trigger: {
@@ -33,9 +33,48 @@ export const triggerRules: Record<string, KindRules> = {
       };
     },
     attributes: {
-      def: "replace",
+      // CREATE OR REPLACE TRIGGER takes SHARE ROW EXCLUSIVE and needs the
+      // TRIGGER privilege, where DROP needs ACCESS EXCLUSIVE and ownership.
+      // Constraint triggers and statement-level triggers on a partitioned
+      // table keep drop + create: OR REPLACE rejects the first and recurses
+      // to partitions only for row-level triggers. A missing marker (a fact
+      // from an older snapshot) means unknown, so drop + create. OR REPLACE
+      // resets tgenabled to 'O', hence the restore; both specs share
+      // `consumes`, so the emission-index tie-break keeps the restore second.
+      def: {
+        replaceWhen: (from, to, fact) =>
+          !str(from).startsWith("CREATE TRIGGER ") ||
+          !str(to).startsWith("CREATE TRIGGER ") ||
+          fact.payload["_statementOnPartitioned"] !== false,
+        alter: (fact, _from, to, view) => {
+          const id = fact.id as { schema: string; table: string; name: string };
+          const consumes = dependencyConsumes(view, fact.id);
+          const specs: ActionSpec[] = [
+            {
+              sql: str(to).replace(
+                /^CREATE TRIGGER /,
+                "CREATE OR REPLACE TRIGGER ",
+              ),
+              consumes,
+            },
+          ];
+          const enabled = p(fact, "enabled");
+          if (enabled != null && enabled !== "O") {
+            specs.push({
+              sql: `ALTER TABLE ${rel(id.schema, id.table)} ${enabledPhrase(str(enabled))} TRIGGER ${qid(id.name)}`,
+              consumes,
+            });
+          }
+          return specs;
+        },
+      },
       enabled: {
-        alter: (fact, _from, to) => {
+        alter: (fact, _from, to, _view, sourceView) => {
+          // a def change's OR REPLACE + restore already sets the firing state
+          const sourceDef = sourceView.get(fact.id)?.payload["def"];
+          if (sourceDef !== undefined && sourceDef !== p(fact, "def")) {
+            return [];
+          }
           const id = fact.id as { schema: string; table: string; name: string };
           return {
             sql: `ALTER TABLE ${rel(id.schema, id.table)} ${enabledPhrase(str(to))} TRIGGER ${qid(id.name)}`,

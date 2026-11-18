@@ -55,7 +55,7 @@ const KIND_VERB_LOCKS: Record<
   },
   trigger: {
     create: "shareRowExclusive",
-    alter: "shareRowExclusive", // ENABLE/DISABLE TRIGGER
+    alter: "shareRowExclusive", // ENABLE/DISABLE TRIGGER, CREATE OR REPLACE TRIGGER
     drop: "accessExclusive",
   },
   policy: {

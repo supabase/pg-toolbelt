@@ -680,6 +680,7 @@ const TRIGGERS_SQL = `
            c.relkind AS table_kind,
            pg_get_triggerdef(t.oid) AS def,
            t.tgenabled AS enabled,
+           (t.tgtype & 1) <> 0 AS row_level,
            obj_description(t.oid, 'pg_trigger') AS comment
     FROM pg_trigger t
     JOIN pg_class c ON c.oid = t.tgrelid
@@ -718,6 +719,7 @@ export const triggersFamily: CatalogFamily = {
           payload: {
             def: deparsedDef(row, "trigger"),
             enabled: String(row["enabled"]),
+            _statementOnPartitioned: relkind === "p" && !row["row_level"],
           },
         },
         row,

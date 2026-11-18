@@ -77,9 +77,13 @@ generic (`src/core/diff.ts`) — there are **no per-object-type change classes**
   paths such as seed and export. If a statement cannot be replayed verbatim in
   some context, skip the fact with a clear diagnostic or source structured data
   from the catalog (e.g. `pg_proc.proconfig`) to decide — never rewrite the DDL.
-  The presentation-only formatter in `src/frontends/sql-format/**` is the sole
-  exception: it may change casing and layout, never meaning, and its output is
-  gated by `load(export(db)) ≡ db` fidelity coverage.
+  The presentation-only formatter in `src/frontends/sql-format/**` is the only
+  presentation exception: it may change casing and layout, never meaning, and
+  its output is gated by `load(export(db)) ≡ db` fidelity coverage. Beyond that
+  formatter, catalog-printed DDL is edited in exactly three ways, each a
+  fixed keyword: `CONCURRENTLY` on indexes, `OR REPLACE` on plain triggers, and
+  `NOT VALID` on unvalidated constraints. This list is closed; a new entry
+  needs a maintainer to add it here first.
 - `@supabase/pg-topo` is an **optional peer** used only by the dev-experience
   frontends (`src/frontends/sql-order.ts`, `schema lint`) — importing the core
   never pulls it in. `canReorder()` probes availability; absence throws
