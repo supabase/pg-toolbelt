@@ -2225,15 +2225,3 @@ than dropped and recreated. These narrower gaps are deferred.
   pass makes an exact rename ambiguous, every counterpart is dropped, including
   ones an earlier pass had landed. Both need several same-shape tables spelled
   differently.
-
-## PR #573 review triage — batched routine re-validation
-
-- **`transaction_timeout` on the shadow role (PG 17+).** Routine re-validation
-  sends up to 200 `CREATE OR REPLACE` statements as one implicit transaction,
-  where each routine used to commit on its own. If the shadow role's
-  `transaction_timeout` is shorter than a chunk but longer than every file
-  load, Postgres ends the session, and the per-routine fallback runs each
-  routine on the dead client. Each one gets a connection error filed as a body
-  diagnostic, and the load fails. The GUC is off by default and pg-delta never
-  sets it. Fix: `SET transaction_timeout = 0` on PG 17+ beside `SET
-  check_function_bodies = on`.

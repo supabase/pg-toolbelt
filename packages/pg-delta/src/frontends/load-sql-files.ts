@@ -1163,6 +1163,7 @@ export async function loadSqlFiles(
   let failuresBeforeReorder: LoadFailure[] = [];
   let client: PoolClient = await connectWithErrorListener(shadow);
   let clientOpen = true;
+  let restoreTransactionTimeout = false;
   const releaseClient = async (discard = false): Promise<void> => {
     if (!clientOpen) return;
     clientOpen = false;
@@ -1171,6 +1172,9 @@ export async function loadSqlFiles(
     await client
       .query(`RESET check_function_bodies; RESET synchronous_commit`)
       .catch(() => {});
+    if (restoreTransactionTimeout) {
+      await client.query(`RESET transaction_timeout`).catch(() => {});
+    }
     if (discard) {
       client.release(new Error("discard poisoned shadow-load session"));
     } else {
@@ -1650,6 +1654,11 @@ export async function loadSqlFiles(
           WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')`);
     await client.query(`COMMIT`);
     await client.query(`SET check_function_bodies = on`);
+    if (pgMajor >= 17) {
+      // each chunk below is one transaction: lift a session transaction_timeout off it
+      await client.query(`SET transaction_timeout = 0`);
+      restoreTransactionTimeout = true;
+    }
     const bodyErrors: Diagnostic[] = [];
     const bodyWarnings: Diagnostic[] = [];
     const rows = defs.rows as {

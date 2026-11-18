@@ -231,6 +231,54 @@ describe("loadSqlFiles — lenient user-routine body validation", () => {
     }
   }, 60_000);
 
+  test("re-validation survives a session transaction_timeout shorter than a batch", async () => {
+    const shadow = await createTestDb("revaltxtimeout");
+    if ((await shadow.cluster.pgMajor()) < 17) {
+      await shadow.drop();
+      return; // transaction_timeout is PG 17+
+    }
+    // The file loads with check_function_bodies off and finishes in time;
+    // only re-validating public.slow_fn (check on) sleeps past the timeout.
+    const sql = `CREATE TABLE public.hits (n int);
+CREATE FUNCTION public.slow_fn() RETURNS int LANGUAGE sql AS 'SELECT 1';
+CREATE FUNCTION public.slow_revalidation() RETURNS event_trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF current_setting('check_function_bodies') = 'on' AND EXISTS (
+    SELECT 1 FROM pg_event_trigger_ddl_commands()
+    WHERE object_identity = 'public.slow_fn()'
+  ) THEN
+    PERFORM pg_sleep(5);
+    INSERT INTO public.hits VALUES (1);
+  END IF;
+END
+$$;
+CREATE EVENT TRIGGER slow_revalidation ON ddl_command_end
+  EXECUTE FUNCTION public.slow_revalidation();`;
+    const loaderPool = new pg.Pool({
+      connectionString: shadow.uri,
+      max: 1,
+      options: "-c transaction_timeout=2s",
+    });
+    loaderPool.on("error", () => {});
+    try {
+      const result = await loadSqlFiles(
+        [{ name: "01_slow.sql", sql }],
+        loaderPool,
+      );
+      // only the row the trigger wrote; no connection or body diagnostics
+      expect(result.diagnostics.map((d) => d.code)).toEqual(["data_statement"]);
+      const hits = await shadow.pool.query(
+        `SELECT count(*)::int AS n FROM public.hits`,
+      );
+      expect(hits.rows[0]).toEqual({ n: 1 });
+      const after = await loaderPool.query(`SHOW transaction_timeout`);
+      expect(after.rows[0]).toEqual({ transaction_timeout: "2s" });
+    } finally {
+      await loaderPool.end();
+      await shadow.drop();
+    }
+  }, 60_000);
+
   test("export → load round-trip of a check-off function succeeds with default (lenient) settings and preserves the def", async () => {
     const cluster = await sharedCluster();
     const src = await cluster.createDb("lenient_rt_src");
