@@ -23,7 +23,7 @@ import { join } from "node:path";
 import { cmdSchemaApply } from "../src/cli/commands/schema.ts";
 import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
-import { deriveAssumedSchemaSeed } from "../src/frontends/seed-assumed-schemas.ts";
+import { deriveAssumedSchemaSeed } from "../src/integrations/seed-assumed-schemas.ts";
 import { plan } from "../src/plan/plan.ts";
 import { flattenPolicy, resolveView } from "../src/policy/policy.ts";
 import { supabasePolicy } from "../src/policy/supabase.ts";

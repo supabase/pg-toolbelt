@@ -243,7 +243,8 @@ function plan(rawSource, rawDesired, options) {
   `policy/reconstruct.ts` → `reconstructManagedView` — which seals the order
   `resolveView` then `projectManagementScope`. Diff and seed paths may still
   call bare `resolveView` (no scope projection). The helper is not on the
-  package index; `ResolvedProfile` remains the public composition surface.
+  package index; `ResolvedProfile.managedView` is its public surface, and
+  `ResolvedProfile.assumedSchemaSeed` returns the co-located shadow's seed.
 
 ## Costs (kept honest)
 

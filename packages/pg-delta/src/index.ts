@@ -224,4 +224,5 @@ export {
   type IntegrationProfile,
   type ResolvedProfile,
   type ResolveProfileOptions,
+  type AssumedSchemaSeed,
 } from "./integrations/index.ts";
