@@ -4,11 +4,7 @@
     "forbid": ["replacement:trigger"]
   },
   "b-to-a": {
-    "forbid": ["replacement:trigger"],
-    "expectedFailure": {
-      "assertion": "forbid:replacement:trigger",
-      "issue": "https://github.com/supabase/pg-toolbelt/issues/570",
-      "reason": "dropping the UPDATE OF column force-rebuilds the trigger instead of altering it first"
-    }
+    "require": ["alter:trigger"],
+    "forbid": ["replacement:trigger"]
   }
 }
