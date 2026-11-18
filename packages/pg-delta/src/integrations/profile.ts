@@ -26,7 +26,7 @@ import type { ExtensionHandler } from "../extract/handler.ts";
 import {
   type AssumedSchemaSeed,
   deriveAssumedSchemaSeed,
-} from "../frontends/seed-assumed-schemas.ts";
+} from "./seed-assumed-schemas.ts";
 import type { PlanOptions } from "../plan/plan.ts";
 import { buildIntentRuleIndex } from "../plan/rules.ts";
 import type { ProveOptions } from "../proof/prove.ts";

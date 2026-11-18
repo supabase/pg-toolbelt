@@ -322,7 +322,7 @@ export const supabasePolicy: Policy = {
   //   bun run scripts/generate-supabase-baseline.ts <db-url> <pg-major>
   //
   // ⚠️ Phase 2b (#41) depends on this being UNSET: the co-located-shadow seed
-  // (frontends/seed-assumed-schemas.ts) materializes assumed-schema objects from
+  // (integrations/seed-assumed-schemas.ts) materializes assumed-schema objects from
   // the target's `resolveView` reference-only set, and subtractBaseline removes
   // baseline-identical facts BEFORE that marking — so a declared baseline empties
   // the seed and quick-mode `schema apply` regresses. When landing the baseline,

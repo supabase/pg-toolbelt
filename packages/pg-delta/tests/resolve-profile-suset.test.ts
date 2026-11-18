@@ -4,7 +4,7 @@
  * Supabase-shaped concerns into the generic command. It belongs in
  * `resolveProfile` as generic profile-runtime context, gated on the applier
  * actually being a NON-superuser (a superuser applier needs no stripping —
- * see `src/frontends/seed-assumed-schemas.ts`'s `susetGucs` option and
+ * see `src/integrations/seed-assumed-schemas.ts`'s `susetGucs` option and
  * `tests/phase2b-seed-nonsuperuser.test.ts` for why the probe exists at all).
  *
  * These cases use a minimal custom `IntegrationProfile` (no Supabase image

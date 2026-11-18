@@ -26,7 +26,7 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import pg from "pg";
-import { deriveAssumedSchemaSeed } from "../src/frontends/seed-assumed-schemas.ts";
+import { deriveAssumedSchemaSeed } from "../src/integrations/seed-assumed-schemas.ts";
 import type { Fact } from "../src/core/fact.ts";
 import { extract } from "../src/extract/extract.ts";
 import type { Policy } from "../src/policy/policy.ts";
