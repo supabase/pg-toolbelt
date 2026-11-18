@@ -6,6 +6,10 @@
  */
 import { describe, expect, test } from "bun:test";
 import { apply } from "../src/apply/apply.ts";
+import {
+  deserializeSnapshot,
+  serializeSnapshot,
+} from "../src/core/snapshot.ts";
 import { extract } from "../src/extract/extract.ts";
 import {
   computePlanId,
@@ -281,6 +285,32 @@ describe("stage 6: execution", () => {
         [
           "DROP TRIGGER "p_trg" ON "public"."p"",
           "CREATE TRIGGER p_trg AFTER INSERT ON public.p FOR EACH STATEMENT EXECUTE FUNCTION public.audit()",
+        ]
+      `);
+      // A snapshot stored before the marker existed loads without it (`_`
+      // keys stay out of the digest), so both triggers fall back to
+      // drop + create.
+      const doc = JSON.parse(
+        serializeSnapshot(desiredState.factBase, { pgVersion: "17" }),
+      );
+      for (const f of doc.facts) delete f.payload._statementOnPartitioned;
+      const legacy = deserializeSnapshot(JSON.stringify(doc)).factBase;
+      const legacySql = plan(sourceState.factBase, legacy).actions.map(
+        (a) => a.sql,
+      );
+      expect(legacySql.filter((s) => s.includes("p_trg")))
+        .toMatchInlineSnapshot(`
+        [
+          "DROP TRIGGER "p_trg" ON "public"."p"",
+          "CREATE TRIGGER p_trg AFTER INSERT ON public.p FOR EACH STATEMENT EXECUTE FUNCTION public.audit()",
+        ]
+      `);
+      expect(legacySql.filter((s) => s.includes("t_trg")))
+        .toMatchInlineSnapshot(`
+        [
+          "DROP TRIGGER "t_trg" ON "public"."t"",
+          "CREATE TRIGGER t_trg BEFORE INSERT OR UPDATE ON public.t FOR EACH ROW EXECUTE FUNCTION public.audit()",
+          "ALTER TABLE "public"."t" DISABLE TRIGGER "t_trg"",
         ]
       `);
       const report = await apply(thePlan, source.pool, {

@@ -37,14 +37,15 @@ export const triggerRules: Record<string, KindRules> = {
       // TRIGGER privilege, where DROP needs ACCESS EXCLUSIVE and ownership.
       // Constraint triggers and statement-level triggers on a partitioned
       // table keep drop + create: OR REPLACE rejects the first and recurses
-      // to partitions only for row-level triggers. It resets tgenabled to 'O',
-      // hence the restore; both specs share `consumes`, so the emission-index
-      // tie-break keeps the restore second.
+      // to partitions only for row-level triggers. A missing marker (a fact
+      // from an older snapshot) means unknown, so drop + create. OR REPLACE
+      // resets tgenabled to 'O', hence the restore; both specs share
+      // `consumes`, so the emission-index tie-break keeps the restore second.
       def: {
         replaceWhen: (from, to, fact) =>
           !str(from).startsWith("CREATE TRIGGER ") ||
           !str(to).startsWith("CREATE TRIGGER ") ||
-          fact.payload["_statementOnPartitioned"] === true,
+          fact.payload["_statementOnPartitioned"] !== false,
         alter: (fact, _from, to, view) => {
           const id = fact.id as { schema: string; table: string; name: string };
           const consumes = dependencyConsumes(view, fact.id);

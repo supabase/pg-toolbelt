@@ -719,9 +719,7 @@ export const triggersFamily: CatalogFamily = {
           payload: {
             def: deparsedDef(row, "trigger"),
             enabled: String(row["enabled"]),
-            ...(relkind === "p" && !row["row_level"]
-              ? { _statementOnPartitioned: true }
-              : {}),
+            _statementOnPartitioned: relkind === "p" && !row["row_level"],
           },
         },
         row,
