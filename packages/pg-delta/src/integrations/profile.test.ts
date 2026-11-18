@@ -10,6 +10,8 @@
 import { describe, expect, test } from "bun:test";
 import type { Pool } from "pg";
 import { buildFactBase } from "../core/fact.ts";
+import type { StableId } from "../core/stable-id.ts";
+import { resolveView } from "../policy/policy.ts";
 import { supabasePolicy } from "../policy/supabase.ts";
 import type { IntegrationProfile } from "./profile.ts";
 import { rawProfile, resolveProfile } from "./profile.ts";
@@ -194,5 +196,123 @@ describe("resolveProfile", () => {
     });
     expect(ctx.baseline).toBeUndefined();
     expect(ctx.planOptions.baseline).toBeUndefined();
+  });
+});
+
+describe("ResolvedProfile.managedView", () => {
+  // A policy owner-exclusion rule reads the `owner` edge. Database-scope
+  // pruning removes role facts but keeps owner edges except the one to
+  // `defaultOwner`, so policy-before-scope order shows only with defaultOwner.
+  const schemaApp: StableId = { kind: "schema", name: "app" };
+  const tableT: StableId = { kind: "table", schema: "app", name: "t" };
+  const platformRole: StableId = { kind: "role", name: "supabase_admin" };
+  const appRole: StableId = { kind: "role", name: "app_owner" };
+  const tableU: StableId = { kind: "table", schema: "app", name: "u" };
+  const target = buildFactBase(
+    [
+      { id: schemaApp, payload: {} },
+      { id: tableT, parent: schemaApp, payload: {} },
+      { id: tableU, parent: schemaApp, payload: {} },
+      { id: platformRole, payload: {} },
+      { id: appRole, payload: {} },
+    ],
+    [
+      { from: tableT, to: platformRole, kind: "owner" },
+      { from: tableU, to: appRole, kind: "owner" },
+    ],
+  );
+  const profile: IntegrationProfile = {
+    id: "owner-exclude",
+    handlers: [],
+    policy: {
+      id: "owner-exclude",
+      filter: [{ match: { owner: "supabase_admin" }, action: "exclude" }],
+    },
+  };
+
+  test("database scope drops the policy-excluded table and the role facts, keeps the schema", async () => {
+    const ctx = await resolveProfile(mockPool({ superuser: true }), profile);
+    const view = ctx.managedView(target, {
+      scope: "database",
+      defaultOwner: "supabase_admin",
+    });
+    expect(view.has(schemaApp)).toBe(true);
+    expect(view.has(tableT)).toBe(false);
+    expect(view.has(appRole)).toBe(false);
+    // bare resolveView has no scope projection, so it keeps the role facts
+    expect(resolveView(target, profile.policy).has(appRole)).toBe(true);
+    // defaultOwner is forwarded: the kept table's owner edge to it is pruned
+    const owned = ctx.managedView(target, {
+      scope: "database",
+      defaultOwner: "app_owner",
+    });
+    expect(owned.edges.filter((e) => e.kind === "owner")).toEqual([]);
+    // only scope/defaultOwner are read: a wider object cannot drop the policy
+    const wide = { ...ctx.planOptions, policy: undefined };
+    expect(ctx.managedView(target, wide).has(tableT)).toBe(false);
+  });
+
+  test("defaults to cluster scope: role facts stay managed", async () => {
+    const ctx = await resolveProfile(mockPool({ superuser: true }), profile);
+    const view = ctx.managedView(target);
+    expect(view.has(tableT)).toBe(false);
+    expect(view.has(appRole)).toBe(true);
+  });
+});
+
+describe("ResolvedProfile.assumedSchemaSeed", () => {
+  // A custom profile that assumes `vendor`: its objects are reference-only, so
+  // they land in the seed. The RLS policy consumes `app_reader`, a role that
+  // exists only on the target (not a policy-assumed role).
+  const schemaVendor: StableId = { kind: "schema", name: "vendor" };
+  const tableT: StableId = { kind: "table", schema: "vendor", name: "t" };
+  const target = buildFactBase(
+    [
+      { id: schemaVendor, payload: {} },
+      { id: { kind: "role", name: "app_reader" }, payload: {} },
+      { id: tableT, parent: schemaVendor, payload: { persistence: "p" } },
+      {
+        id: { kind: "policy", schema: "vendor", table: "t", name: "r" },
+        parent: tableT,
+        payload: {
+          roles: ["app_reader"],
+          cmd: "r",
+          permissive: true,
+          usingExpr: "true",
+        },
+      },
+    ],
+    [],
+  );
+  const profile: IntegrationProfile = {
+    id: "vendor",
+    handlers: [],
+    policy: {
+      id: "vendor",
+      filter: [
+        { match: { schema: "vendor" }, action: "exclude" },
+        { match: { name: "vendor" }, action: "exclude" },
+      ],
+      assumedSchemas: ["vendor"],
+    },
+  };
+
+  test("defaults to database scope: target roles count as present", async () => {
+    const ctx = await resolveProfile(mockPool({ superuser: true }), profile);
+    const seed = ctx.assumedSchemaSeed(target);
+    expect(seed.sql).toContain('TO "app_reader"');
+    expect(seed.schemas).toEqual(["vendor"]);
+  });
+
+  test("cluster scope: a target-only role is a missing requirement", async () => {
+    const ctx = await resolveProfile(mockPool({ superuser: true }), profile);
+    expect(() => ctx.assumedSchemaSeed(target, { scope: "cluster" })).toThrow(
+      /missing requirement/,
+    );
+  });
+
+  test("a profile with no assumed objects seeds nothing", async () => {
+    const ctx = await resolveProfile(mockPool({ superuser: true }), rawProfile);
+    expect(ctx.assumedSchemaSeed(target).sql).toBe("");
   });
 });
