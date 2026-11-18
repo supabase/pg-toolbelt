@@ -199,22 +199,35 @@ export function expandReplacements(
     const worklist = [...targets];
     // Dependents skipped below because their own alter releases the target.
     // Such an alter runs before the drop it releases. If the dependent's
-    // desired definition needs something this plan replaces, or a column whose
-    // type change rebuilds dependents, that work also waits on the drop (the
-    // old helper still references it), so the alter can't go first: rebuild
-    // the dependent after all. Rechecked whenever the worklist drains, since a
-    // later round can replace one of its dependencies.
+    // desired definition needs, directly or through objects it references
+    // (a new predicate calling a retyped function), something this plan
+    // replaces or a column whose type change rebuilds dependents, that work
+    // also waits on the drop (the old helper still references it), so the
+    // alter can't go first: rebuild the dependent after all. Rechecked
+    // whenever the worklist drains, since a later round can replace one of
+    // its dependencies.
     const released = new Map<string, Fact>();
+    const needsRebuiltWork = (id: StableId): boolean => {
+      const seen = new Set<string>();
+      const stack = [id];
+      while (stack.length > 0) {
+        for (const e of desired.outgoingEdges(stack.pop() as StableId)) {
+          const depKey = encodeId(e.to);
+          if (seen.has(depKey)) continue;
+          seen.add(depKey);
+          if (fullDestroy.has(depKey) || rebuildSeeds.has(depKey)) return true;
+          stack.push(e.to);
+        }
+      }
+      return false;
+    };
     const rebuildBlockedReleases = (): boolean => {
       for (const [key, dependent] of released) {
         if (targets.has(key)) {
           released.delete(key);
           continue;
         }
-        const blocked = desired.outgoingEdges(dependent.id).some((e) => {
-          const depKey = encodeId(e.to);
-          return fullDestroy.has(depKey) || rebuildSeeds.has(depKey);
-        });
+        const blocked = needsRebuiltWork(dependent.id);
         if (!blocked) continue;
         released.delete(key);
         replaceIds.add(key);
