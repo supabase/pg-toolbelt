@@ -201,9 +201,10 @@ export function expandReplacements(
     // That alter runs BEFORE the target's drop, ahead of the planner's usual
     // teardown → alter → create order, so it is only safe when nothing else
     // in the plan can sit between the two. `releaseIsSafe` is an allowlist:
-    // every fact the dependent's desired definition reaches (dependencies and
-    // parents, through newly created facts) is either identical on both sides
-    // or newly created. Anything else rebuilds the dependent, exactly as
+    // every fact the dependent's desired definition reaches (dependencies,
+    // parents, and the children of newly created facts, followed through
+    // newly created facts) is either identical on both sides or newly
+    // created. Anything else rebuilds the dependent, exactly as
     // without the skip. Rechecked whenever the worklist drains, since a later
     // round can rebuild one of those facts.
     const released = new Map<string, Fact>();
@@ -234,6 +235,11 @@ export function expandReplacements(
         const needs = desired.outgoingEdges(id).map((e) => e.to);
         const parent = desired.get(id)?.parent;
         if (parent !== undefined) needs.push(parent);
+        // a new fact's children can be created by the same action (a column
+        // and its default), so what they need gates that create too
+        if (added.has(encodeId(id))) {
+          for (const child of desired.childrenOf(id)) needs.push(child.id);
+        }
         for (const need of needs) {
           const needKey = encodeId(need);
           if (seen.has(needKey)) continue;
