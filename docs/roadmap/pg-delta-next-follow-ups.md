@@ -2241,3 +2241,19 @@ case still drops and recreates it, deferred.
   OR REPLACE spec alone cannot help. A fix would skip a dependent in that walk
   when its in-place def alter no longer needs the dropped object, and give the
   alter `releases` of its source-side deps so it runs before the drop.
+
+## PR #586 — `Action.subject` limits
+
+#586 stamps `Action.subject` / `Action.change` at emit time. Deferred:
+
+- **A merged GRANT names one fact.** A `GRANT` to several grantees has the
+  first grantee's grant as its subject. On an object created in the same plan
+  the other grants are listed nowhere, because the leading `REVOKE` that
+  produced them was elided. Making such a `GRANT` the leader would list them
+  in `produces`; it changes ordering edges and was not tried.
+- **A create follow-up does not say which aspect it sets.** `ALTER TABLE …
+  ENABLE ROW LEVEL SECURITY` emitted as part of a create is a `create` with
+  no `change`.
+- **A new emit site can still stamp the wrong subject.** The type forces a
+  stamp; `tests/action-stamps.ts` catches a wrong one only if a corpus
+  scenario reaches that site.

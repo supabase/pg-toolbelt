@@ -176,26 +176,21 @@ describe("schema-scoped ADP export routing", () => {
     grantee: "anon",
   };
 
-  test("grouped: a table's default-grant cleanup stays ahead of its OWNER TO", () => {
-    // once the table belongs to someone else, a loader that is not a member
-    // of the new owner can no longer revoke the grant it received at create
-    const sql = ownedTableUnderOverlay([anonOnAppTables])
+  test("grouped: an assumed default grant is wiped once, ahead of the table's OWNER TO", () => {
+    // listed twice on purpose. Once the table belongs to someone else, a
+    // loader that is not a member of the new owner can no longer revoke the
+    // grant it received at create.
+    const sql = ownedTableUnderOverlay([anonOnAppTables, anonOnAppTables])
       .map((file) => file.sql)
       .join("\n");
-    const revokeAt = sql.indexOf('REVOKE ALL ON TABLE "app"."t" FROM "anon"');
-    const ownerAt = sql.indexOf('ALTER TABLE "app"."t" OWNER TO "alice"');
-    expect(revokeAt).toBeGreaterThanOrEqual(0);
-    expect(ownerAt).toBeGreaterThanOrEqual(0);
-    expect(revokeAt).toBeLessThan(ownerAt);
-  });
-
-  test("an assumed default grant listed twice is wiped once", () => {
-    const wipes = ownedTableUnderOverlay([anonOnAppTables, anonOnAppTables])
-      .map((file) => file.sql)
-      .join("\n")
+    const wipes = sql
       .split("\n")
       .filter((line) => line.startsWith("ALTER DEFAULT PRIVILEGES"));
     expect(wipes).toHaveLength(1);
+    const revokeAt = sql.indexOf('REVOKE ALL ON TABLE "app"."t" FROM "anon"');
+    const ownerAt = sql.indexOf('ALTER TABLE "app"."t" OWNER TO "alice"');
+    expect(revokeAt).toBeGreaterThanOrEqual(0);
+    expect(revokeAt).toBeLessThan(ownerAt);
   });
 
   test("positive GRANT ADP is not hoisted before a predating table", () => {

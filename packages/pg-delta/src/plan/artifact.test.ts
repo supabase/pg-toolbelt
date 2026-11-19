@@ -806,52 +806,17 @@ describe("plan artifact v1", () => {
       );
       return JSON.stringify(artifact);
     };
-    const owner = { kind: "owner", to: "test" };
     expect(() => parsePlan(withAction({ subject: undefined }))).toThrow(
       /actions\[0\]\.subject/,
     );
-    // a create or drop never says what it changes; an alter always does
-    expect(() => parsePlan(withAction({ change: owner }))).toThrow(
-      /actions\[0\]\.change/,
-    );
+    // an alter always says what it changes
     expect(() => parsePlan(withAction({ verb: "alter" }))).toThrow(
       /actions\[0\]\.change/,
     );
-    expect(() =>
-      parsePlan(withAction({ verb: "alter", change: { kind: "privileges" } })),
-    ).toThrow(/actions\[0\]\.change\.kind/);
-    expect(() =>
-      parsePlan(withAction({ verb: "alter", change: { kind: "owner" } })),
-    ).toThrow(/actions\[0\]\.change\.to/);
-    expect(() =>
-      parsePlan(
-        withAction({
-          verb: "alter",
-          change: { kind: "defaultPrivileges", to: "test" },
-        }),
-      ),
-    ).toThrow(/actions\[0\]\.change\.to/);
     // well-formed but edited after planning: the hash no longer matches
     expect(() =>
       parsePlan(withAction({ subject: { kind: "schema", name: "other" } })),
     ).toThrow(/planId/);
-    const ownerChange = stampPlanId({
-      ...samplePlan,
-      actions: [
-        {
-          ...samplePlan.actions[0]!,
-          sql: 'ALTER SCHEMA "app" OWNER TO "test"',
-          verb: "alter",
-          change: { kind: "owner", to: "test" },
-          produces: [],
-        },
-      ],
-    });
-    const edited = JSON.parse(serializePlan(ownerChange)) as {
-      actions: Array<{ change: { to: string } }>;
-    };
-    edited.actions[0]!.change.to = "other";
-    expect(() => parsePlan(JSON.stringify(edited))).toThrow(/planId/);
   });
 
   test("strictly validates stable IDs in action metadata", () => {

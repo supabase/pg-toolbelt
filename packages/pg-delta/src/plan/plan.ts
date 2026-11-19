@@ -83,11 +83,14 @@ export type { AssumedDefaultGrant } from "../policy/policy.ts";
  *  payload attribute can never be mistaken for an owner change or a rename.
  *  The kinds mirror what caused the statement (`Delta` in `core/diff.ts`). */
 export type ActionChange =
-  /** a payload attribute, named as in the `set` delta that caused it */
+  /** a payload attribute, named as in the `set` delta that caused it. The
+   *  names are payload keys, so renaming one is a breaking change. */
   | { kind: "attribute"; name: string }
   /** the owner edge (`link` delta); `to` names the new owner role */
   | { kind: "owner"; to: string }
-  /** an accepted rename: the subject is the new id, `from` the old one */
+  /** an accepted rename: the subject is the new id, `from` the old one. A
+   *  child renamed after its parent (`t1_pkey` → `t2_pkey`) starts from its
+   *  old name under the parent's new name, an id in neither state. */
   | { kind: "rename"; from: StableId }
   /** no delta: revokes what PostgreSQL granted by default when the grant's
    *  target was created. The subject is a grant present in neither state. */
@@ -100,7 +103,9 @@ interface ActionBase {
    *  `produces` / `consumes` / `destroys` (those are ordering edges and
    *  carry side-effect ids). Fact grain: a column, grant or comment names
    *  itself, not its table. It is an identity, not a lookup key: a drop's
-   *  subject exists only in the source, a cleanup REVOKE's in neither. */
+   *  subject exists only in the source, a cleanup REVOKE's in neither. A
+   *  statement merged across facts (one GRANT to several grantees) names
+   *  the first. */
   subject: StableId;
   produces: StableId[];
   consumes: StableId[];
