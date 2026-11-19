@@ -2228,13 +2228,29 @@ than dropped and recreated. These narrower gaps are deferred.
 
 ## PR #580 review triage — trigger def change after a dependency drop
 
-Resolved in the follow-up to #580. A trigger whose `CREATE OR REPLACE` def
-alter no longer references a function or column this plan drops now alters
-in place before that drop. The rule-table flag `restatesDefinition` (set on
-the trigger `def` rule) lets the forced-rebuild walk in
-`src/plan/phases/replacement-expansion.ts` skip it; the existing
-"desired state no longer carries this dependency" edge in
-`src/plan/internal.ts` orders the alter before the drop. Only full-definition
-alters qualify: a policy whose unchanged `USING` resolves to a new overload is
-still rebuilt even when its roles change, since `ALTER POLICY … TO` leaves
-`USING` alone (corpus `function-ops--signature-change-referenced-by-policy-roles-change`).
+Partly resolved in #583. A trigger whose `CREATE OR REPLACE` def alter no
+longer references a **function or procedure** this plan drops now alters in
+place before that drop. The rule-table flag `restatesDefinition` (set on the
+trigger `def` rule) lets the forced-rebuild walk in
+`src/plan/phases/replacement-expansion.ts` skip it.
+
+The alter then runs ahead of the planner's usual teardown → alter → create
+order, so the skip is an allowlist. Anything outside it keeps drop + create:
+
+- **Something the new definition relies on changes in the same plan.** Every
+  fact the desired trigger reaches (dependencies and parents, through newly
+  created facts) must be identical on both sides or newly created. A schema
+  owner change, a replaced or altered helper, an enum gaining a value, or a
+  retyped column all fall back.
+- **The dropped routine's name is reused.** An overload sharing its
+  schema-qualified name makes the trigger's definition text ambiguous, or
+  bind to the wrong overload, while both exist.
+- **The dropped object is not a routine.** A dropped `UPDATE OF` / `WHEN`
+  column gains nothing in place: `DROP COLUMN` takes ACCESS EXCLUSIVE and
+  table ownership anyway.
+- **Only a partial alter exists.** A policy whose unchanged `USING` resolves
+  to a new overload is rebuilt even when its roles change, since
+  `ALTER POLICY … TO` leaves `USING` alone.
+
+Lifting these would mean sinking the released object's drop to the end of the
+plan instead of raising the alter, a change to core action ordering.

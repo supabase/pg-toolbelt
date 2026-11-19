@@ -4,7 +4,6 @@
     "forbid": ["replacement:trigger"]
   },
   "b-to-a": {
-    "require": ["alter:trigger"],
-    "forbid": ["replacement:trigger"]
+    "require": ["replacement:trigger"]
   }
 }

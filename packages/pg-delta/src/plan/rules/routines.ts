@@ -29,6 +29,7 @@ const routineKeyword = (fact: Fact): "FUNCTION" | "PROCEDURE" =>
 // the id kind. Registered under both `function` and `procedure` keys below.
 const routineRule: KindRules = {
   weight: 8,
+  releasedByDependentAlter: true,
   cascadesToChildren: true,
   rebuildable: true,
   defaclObjtype: "f",

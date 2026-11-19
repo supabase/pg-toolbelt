@@ -198,28 +198,70 @@ export function expandReplacements(
     // target so its own subtree rebuilds.
     const worklist = [...targets];
     // Dependents skipped below because their own alter releases the target.
-    // Such an alter runs before the drop it releases. If the dependent's
-    // desired definition needs, directly or through objects it references
-    // (a new predicate calling a retyped function), something this plan
-    // replaces or a column whose type change rebuilds dependents, that work
-    // also waits on the drop (the old helper still references it), so the
-    // alter can't go first: rebuild the dependent after all. Rechecked
-    // whenever the worklist drains, since a later round can replace one of
-    // its dependencies.
+    // That alter runs BEFORE the target's drop, ahead of the planner's usual
+    // teardown → alter → create order, so it is only safe when nothing else
+    // in the plan can sit between the two. `releaseIsSafe` is an allowlist:
+    // every fact the dependent's desired definition reaches (dependencies and
+    // parents, through newly created facts) is either identical on both sides
+    // or newly created. Anything else rebuilds the dependent, exactly as
+    // without the skip. Rechecked whenever the worklist drains, since a later
+    // round can rebuild one of those facts.
     const released = new Map<string, Fact>();
-    const needsRebuiltWork = (id: StableId): boolean => {
+    const unchangedMemo = new Map<string, boolean>();
+    const edgeKeys = (base: FactBase, id: StableId): string =>
+      base
+        .outgoingEdges(id)
+        .map((e) => `${e.kind}\0${encodeId(e.to)}`)
+        .sort()
+        .join("\n");
+    const isUnchanged = (key: string, id: StableId): boolean => {
+      let result = unchangedMemo.get(key);
+      if (result === undefined) {
+        result =
+          source.has(id) &&
+          desired.has(id) &&
+          !setsByFact.has(key) &&
+          edgeKeys(source, id) === edgeKeys(desired, id);
+        unchangedMemo.set(key, result);
+      }
+      return result;
+    };
+    const releaseIsSafe = (dependent: Fact): boolean => {
       const seen = new Set<string>();
-      const stack = [id];
+      const stack = [dependent.id];
       while (stack.length > 0) {
-        for (const e of desired.outgoingEdges(stack.pop() as StableId)) {
-          const depKey = encodeId(e.to);
-          if (seen.has(depKey)) continue;
-          seen.add(depKey);
-          if (fullDestroy.has(depKey) || rebuildSeeds.has(depKey)) return true;
-          stack.push(e.to);
+        const id = stack.pop() as StableId;
+        const needs = desired.outgoingEdges(id).map((e) => e.to);
+        const parent = desired.get(id)?.parent;
+        if (parent !== undefined) needs.push(parent);
+        for (const need of needs) {
+          const needKey = encodeId(need);
+          if (seen.has(needKey)) continue;
+          seen.add(needKey);
+          if (targets.has(needKey)) return false;
+          if (added.has(needKey)) stack.push(need);
+          else if (!isUnchanged(needKey, need)) return false;
         }
       }
-      return false;
+      return true;
+    };
+    // A routine sharing the removed routine's schema-qualified name makes the
+    // dependent's definition text ambiguous (or bind to the wrong overload)
+    // while both exist, so such a target is never released.
+    let desiredRoutineNames: Set<string> | undefined;
+    const routineName = (id: StableId): string | undefined =>
+      "args" in id ? `${id.schema}\0${id.name}` : undefined;
+    const nameIsReused = (id: StableId): boolean => {
+      const name = routineName(id);
+      if (name === undefined) return false;
+      if (desiredRoutineNames === undefined) {
+        desiredRoutineNames = new Set();
+        for (const fact of desired.facts()) {
+          const other = routineName(fact.id);
+          if (other !== undefined) desiredRoutineNames.add(other);
+        }
+      }
+      return desiredRoutineNames.has(name);
     };
     const rebuildBlockedReleases = (): boolean => {
       for (const [key, dependent] of released) {
@@ -227,8 +269,7 @@ export function expandReplacements(
           released.delete(key);
           continue;
         }
-        const blocked = needsRebuiltWork(dependent.id);
-        if (!blocked) continue;
+        if (releaseIsSafe(dependent)) continue;
         released.delete(key);
         replaceIds.add(key);
         fullDestroy.add(key);
@@ -282,12 +323,15 @@ export function expandReplacements(
           continue;
         }
         if (!isRebuildable(dependent.id.kind)) continue;
-        // a dependent whose alter re-states its whole definition without the
-        // REMOVED target releases it through that alter (a trigger switching
-        // functions); any other change (a policy's roles, while its unchanged
-        // USING resolves to a new overload) still needs the rebuild
+        // a dependent whose alter re-states its whole definition without a
+        // REMOVED releasable target (`releasedByDependentAlter`) releases it
+        // through that alter (a trigger switching functions); any other
+        // change (a policy's roles, while its unchanged USING resolves to a
+        // new overload) still needs the rebuild
         if (
           removed.has(toKey) &&
+          rulesForId(edge.to).releasedByDependentAlter === true &&
+          !nameIsReused(edge.to) &&
           restatesDefinition(dependent, setsByFact.get(fromKey), rulesForId) &&
           !desired
             .outgoingEdges(dependent.id)

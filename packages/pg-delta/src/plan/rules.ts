@@ -219,6 +219,12 @@ export interface KindRules {
    *  `{ schema, name }`, which PostgreSQL holds by OID, so they follow an
    *  accepted rename of that fact (a child table's `parentTable`) */
   followsRenames?: Readonly<Record<string, string>>;
+  /** a removed fact of this kind may be released by a surviving dependent's
+   *  definition-restating alter (`restatesDefinition`), ordered before this
+   *  drop, instead of rebuilding the dependent. Set on functions and
+   *  procedures only: releasing a column gains nothing, since its drop takes
+   *  ACCESS EXCLUSIVE and table ownership anyway. */
+  releasedByDependentAlter?: boolean;
   /** whether a fact of this kind MAY be folded into a parent's cascading
    *  drop. Default true. FK constraints return false: an explicit
    *  DROP CONSTRAINT first makes mutual-FK teardown cycles unconstructible. */

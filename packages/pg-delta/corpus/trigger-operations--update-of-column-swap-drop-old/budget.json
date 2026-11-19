@@ -1,4 +1,4 @@
 {
-  "a-to-b": { "require": ["alter:trigger"], "forbid": ["replacement:trigger"] },
+  "a-to-b": { "require": ["replacement:trigger"] },
   "b-to-a": { "require": ["alter:trigger"], "forbid": ["replacement:trigger"] }
 }
