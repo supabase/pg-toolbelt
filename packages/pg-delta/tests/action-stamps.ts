@@ -178,7 +178,14 @@ function stampViolations(action: Action, ctx: PlanContext): string[] {
         const parentRename =
           parent === undefined ? undefined : ctx.renameOf.get(encodeId(parent));
         if (parentRename?.change?.kind === "rename" && !inSource(change.from)) {
+          // the subject's own id with the old child name: same qualifier
           const fromName = "name" in change.from ? change.from.name : undefined;
+          expect(
+            "name" in subject &&
+              encodeId(change.from) ===
+                encodeId({ ...subject, name: fromName } as StableId),
+            "child rename source is not the subject under its old name",
+          );
           expect(
             source
               .childrenOf(parentRename.change.from)
