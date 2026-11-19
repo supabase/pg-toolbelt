@@ -105,7 +105,7 @@ interface ActionBase {
    *  itself, not its table. It is an identity, not a lookup key: a drop's
    *  subject exists only in the source, a cleanup REVOKE's in neither. A
    *  statement merged across facts (one GRANT to several grantees) names
-   *  the first. */
+   *  the first and lists every one in `produces`. */
   subject: StableId;
   produces: StableId[];
   consumes: StableId[];

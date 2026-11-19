@@ -370,43 +370,41 @@ export function buildActionGraph(
     // edge that would close an action-graph cycle is dropped (the remaining
     // path is the runnable order). A mutual pair of altered facts is skipped
     // here so both directions do not force an order; either apply works.
-    if (action.verb === "alter") {
+    if (action.verb === "alter" && desired.has(action.subject)) {
       const subject = action.subject;
-      if (desired.has(subject)) {
-        const subjectKey = encodeId(subject);
-        const seen = new Set<string>([subjectKey]);
-        const queue: StableId[] = [subject];
-        while (queue.length > 0) {
-          const current = queue.shift() as StableId;
-          const fromSubject = encodeId(current) === subjectKey;
-          for (const edge of desired.outgoingEdges(current)) {
-            const targetKey = remember(edge.to);
-            if (seen.has(targetKey)) continue;
-            seen.add(targetKey);
-            if (producerOf.has(targetKey)) continue;
-            const alterers = alterersOf.get(targetKey) ?? [];
-            if (alterers.length > 0) {
-              if (
-                fromSubject &&
-                desired
-                  .outgoingEdges(edge.to)
-                  .some((back) => encodeId(back.to) === subjectKey)
-              ) {
-                continue;
-              }
-              for (const alterer of alterers) {
-                if (alterer === index) continue;
-                const altererConsumesSubject = (
-                  actions[alterer] as Action
-                ).consumes.some((c) => encodeId(c) === subjectKey);
-                if (!altererConsumesSubject) {
-                  alterAfterDep.push([alterer, index]);
-                }
-              }
+      const subjectKey = encodeId(subject);
+      const seen = new Set<string>([subjectKey]);
+      const queue: StableId[] = [subject];
+      while (queue.length > 0) {
+        const current = queue.shift() as StableId;
+        const fromSubject = encodeId(current) === subjectKey;
+        for (const edge of desired.outgoingEdges(current)) {
+          const targetKey = remember(edge.to);
+          if (seen.has(targetKey)) continue;
+          seen.add(targetKey);
+          if (producerOf.has(targetKey)) continue;
+          const alterers = alterersOf.get(targetKey) ?? [];
+          if (alterers.length > 0) {
+            if (
+              fromSubject &&
+              desired
+                .outgoingEdges(edge.to)
+                .some((back) => encodeId(back.to) === subjectKey)
+            ) {
               continue;
             }
-            queue.push(edge.to);
+            for (const alterer of alterers) {
+              if (alterer === index) continue;
+              const altererConsumesSubject = (
+                actions[alterer] as Action
+              ).consumes.some((c) => encodeId(c) === subjectKey);
+              if (!altererConsumesSubject) {
+                alterAfterDep.push([alterer, index]);
+              }
+            }
+            continue;
           }
+          queue.push(edge.to);
         }
       }
     }
@@ -1727,7 +1725,9 @@ export function mergeCoTargetGrants(
     }
     // merge at the first member's position: sql re-rendered with the grantee
     // list, consumes = union (roles, target, acl ids) so the artifact's
-    // dependency metadata still names every input.
+    // dependency metadata still names every input. The subject names the
+    // first grant only, so produces lists every grant the statement creates;
+    // the elided REVOKE leaders that produced them are gone.
     const consumes: StableId[] = [];
     const seen = new Set<string>();
     for (let k = i; k < j; k++) {
@@ -1745,6 +1745,7 @@ export function mergeCoTargetGrants(
         first.privileges,
         run.map((c) => c.aclId.grantee),
       ),
+      produces: run.map((c) => c.aclId),
       consumes,
     });
     i = j;
