@@ -1,5 +1,17 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.62
+
+### Minor Changes
+
+- da7aae1: `ResolvedProfile` gains `managedView(factBase, { scope, defaultOwner })`, the view `plan()` diffs under this profile, and `assumedSchemaSeed(targetFactBase, { scope })`, the SQL `planSchemaFiles({ seedAssumedSchemas: true })` replays into a co-located shadow. `AssumedSchemaSeed` is now exported, and hand-built `ResolvedProfile` implementations must add both members.
+
+### Patch Changes
+
+- 4091241: Stop `provisionCoLocatedShadow().cleanup()` from hiding a failed `DROP DATABASE`. A new `onCleanupError` option receives the error when the throwaway `pgdelta_shadow_*` database cannot be dropped; `cleanup()` still resolves. `schema apply` without `--shadow` now prints a warning naming the database to drop manually.
+- 735e44f: Speed up declarative `schema apply`: routine bodies are re-validated in a few round trips instead of one per routine, and the target is extracted while the shadow loads unless the shadow is on the target's server or on a clone of its data directory.
+- aae8fa0: A changed trigger definition is now planned as `CREATE OR REPLACE TRIGGER` instead of `DROP TRIGGER` + `CREATE TRIGGER`. It takes a SHARE ROW EXCLUSIVE lock instead of ACCESS EXCLUSIVE, and for a trigger in the default `ENABLE` state it needs the TRIGGER privilege instead of table ownership. A disabled, replica, or always trigger gets its firing state restored after the replace. Constraint triggers, which `OR REPLACE` does not support, and a statement-level trigger on a partitioned table are still dropped and recreated, as is a trigger whose old definition used a function or column the same plan drops, or one planned from a snapshot saved before this release. A column type change now also rebuilds the triggers that depend on that column.
+
 ## 1.0.0-alpha.61
 
 ### Patch Changes
