@@ -51,6 +51,131 @@ function restatesDefinition(
   });
 }
 
+/** What a fact needs in place to exist: its dependencies and its parent. */
+function requirements(base: FactBase, id: StableId): StableId[] {
+  const needs = base.outgoingEdges(id).map((e) => e.to);
+  const parent = base.get(id)?.parent;
+  if (parent !== undefined) needs.push(parent);
+  return needs;
+}
+
+function dependencyKeys(base: FactBase, id: StableId): string {
+  return base
+    .outgoingEdges(id)
+    .map((e) => `${e.kind}\0${encodeId(e.to)}`)
+    .sort()
+    .join("\n");
+}
+
+/** Present on both sides with the same attributes and dependencies. */
+function isUnchanged(id: StableId, input: ReplacementExpansionInput): boolean {
+  const { source, desired, setsByFact } = input;
+  return (
+    source.has(id) &&
+    desired.has(id) &&
+    !setsByFact.has(encodeId(id)) &&
+    dependencyKeys(source, id) === dependencyKeys(desired, id)
+  );
+}
+
+function routineName(id: StableId): string | undefined {
+  return "args" in id ? `${id.schema}\0${id.name}` : undefined;
+}
+
+function routineNames(base: FactBase): Set<string> {
+  const names = new Set<string>();
+  for (const fact of base.facts()) {
+    const name = routineName(fact.id);
+    if (name !== undefined) names.add(name);
+  }
+  return names;
+}
+
+/**
+ * Whether `dependent` RELEASES the removed `routine`: its own alter re-states
+ * its definition without the routine (a trigger switching functions), so the
+ * routine's drop can follow that alter instead of forcing the dependent's
+ * rebuild. Any other change (a policy's roles, while its unchanged USING
+ * resolves to a new overload) still needs the rebuild.
+ */
+function releasesRoutine(
+  dependent: Fact,
+  routine: StableId,
+  input: ReplacementExpansionInput,
+): boolean {
+  const { setsByFact, desired, rulesForId } = input;
+  const routineKey = encodeId(routine);
+  return (
+    rulesForId(routine).releasedByDependentAlter === true &&
+    restatesDefinition(
+      dependent,
+      setsByFact.get(encodeId(dependent.id)),
+      rulesForId,
+    ) &&
+    !desired
+      .outgoingEdges(dependent.id)
+      .some((e) => encodeId(e.to) === routineKey)
+  );
+}
+
+/**
+ * Whether every fact `start`'s desired definition reaches is newly created or
+ * `settled`. Followed through newly created facts, since what they need gates
+ * their create.
+ */
+function reachesOnlySettled(
+  start: StableId,
+  input: ReplacementExpansionInput,
+  settled: (id: StableId) => boolean,
+): boolean {
+  const { desired, added } = input;
+  const seen = new Set<string>();
+  const stack = [start];
+  while (stack.length > 0) {
+    const id = stack.pop() as StableId;
+    const needs = requirements(desired, id);
+    // a new fact's children can be created by the same action (a column and
+    // its default), so what they need gates that create too
+    if (added.has(encodeId(id))) {
+      for (const child of desired.childrenOf(id)) needs.push(child.id);
+    }
+    for (const need of needs) {
+      const needKey = encodeId(need);
+      if (seen.has(needKey)) continue;
+      seen.add(needKey);
+      if (added.has(needKey)) stack.push(need);
+      else if (!settled(need)) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * A release runs the dependent's alter BEFORE the released routines' drops,
+ * ahead of the planner's usual teardown → alter → create order. It holds only
+ * while no other change in the plan is tied to either end:
+ *  - the alter waits on no other change: everything the dependent's desired
+ *    definition reaches is new or settled, so nothing it needs waits on a drop;
+ *  - the delayed drops hold no other change back: what each routine itself
+ *    requires is settled.
+ * Settled means unchanged and not in `touched`, the rebuild walk's targets.
+ */
+function releaseHolds(
+  dependent: Fact,
+  routines: readonly StableId[],
+  input: ReplacementExpansionInput,
+  touched: ReadonlySet<string>,
+): boolean {
+  const settled = (id: StableId): boolean =>
+    !touched.has(encodeId(id)) && isUnchanged(id, input);
+  return (
+    reachesOnlySettled(dependent.id, input, settled) &&
+    routines.every((routine) =>
+      requirements(input.source, routine).every(settled),
+    )
+  );
+}
+
 /**
  * Classify set-deltas (in-place alter vs replace), expand the forced dependent
  * rebuild, then compute drop-root suppression + redirect. Behavior-preserving
@@ -197,110 +322,43 @@ export function expandReplacements(
     // and survives in `desired` is replaced, and itself becomes a full-destroy
     // target so its own subtree rebuilds.
     const worklist = [...targets];
-    // Dependents skipped below because their own alter releases the target.
-    // That alter runs BEFORE the target's drop, ahead of the planner's usual
-    // teardown → alter → create order, which is only safe when nothing else
-    // in the plan is tied to either end. The release is an allowlist:
-    //  - create side (`releaseIsSafe`): every fact the dependent's desired
-    //    definition reaches (dependencies, parents, and the children of newly
-    //    created facts, followed through newly created facts) is identical on
-    //    both sides or newly created, so nothing it waits for waits on the
-    //    drop;
-    //  - drop side (`dropHoldsNothingBack`): the target's own dependencies
-    //    and parent are identical on both sides, so delaying its drop delays
-    //    no other teardown or alter.
-    // Anything else rebuilds the dependent, exactly as without the skip.
-    // Rechecked whenever the worklist drains, since a later round can rebuild
-    // one of those facts.
-    const released = new Map<string, { dependent: Fact; drops: StableId[] }>();
-    const unchangedMemo = new Map<string, boolean>();
-    const edgeKeys = (base: FactBase, id: StableId): string =>
-      base
-        .outgoingEdges(id)
-        .map((e) => `${e.kind}\0${encodeId(e.to)}`)
-        .sort()
-        .join("\n");
-    const isUnchanged = (key: string, id: StableId): boolean => {
-      let result = unchangedMemo.get(key);
-      if (result === undefined) {
-        result =
-          source.has(id) &&
-          desired.has(id) &&
-          !setsByFact.has(key) &&
-          edgeKeys(source, id) === edgeKeys(desired, id);
-        unchangedMemo.set(key, result);
-      }
-      return result;
+    const rebuild = (key: string): void => {
+      replaceIds.add(key);
+      fullDestroy.add(key);
+      targets.add(key);
+      worklist.push(key);
     };
-    const releaseIsSafe = (dependent: Fact): boolean => {
-      const seen = new Set<string>();
-      const stack = [dependent.id];
-      while (stack.length > 0) {
-        const id = stack.pop() as StableId;
-        const needs = desired.outgoingEdges(id).map((e) => e.to);
-        const parent = desired.get(id)?.parent;
-        if (parent !== undefined) needs.push(parent);
-        // a new fact's children can be created by the same action (a column
-        // and its default), so what they need gates that create too
-        if (added.has(encodeId(id))) {
-          for (const child of desired.childrenOf(id)) needs.push(child.id);
-        }
-        for (const need of needs) {
-          const needKey = encodeId(need);
-          if (seen.has(needKey)) continue;
-          seen.add(needKey);
-          if (targets.has(needKey)) return false;
-          if (added.has(needKey)) stack.push(need);
-          else if (!isUnchanged(needKey, need)) return false;
-        }
-      }
-      return true;
-    };
-    const dropHoldsNothingBack = (target: StableId): boolean => {
-      const needs = source.outgoingEdges(target).map((e) => e.to);
-      const parent = source.get(target)?.parent;
-      if (parent !== undefined) needs.push(parent);
-      return needs.every((need) => {
-        const needKey = encodeId(need);
-        return !targets.has(needKey) && isUnchanged(needKey, need);
-      });
-    };
+    // dependents the walk skips because they release the routines it reached
+    // them from (`releasesRoutine`), keyed by encoded id
+    const released = new Map<
+      string,
+      { dependent: Fact; routines: StableId[] }
+    >();
     // A routine sharing the removed routine's schema-qualified name makes the
     // dependent's definition text ambiguous (or bind to the wrong overload)
-    // while both exist, so such a target is never released.
+    // while both exist, so such a routine is never released.
     let desiredRoutineNames: Set<string> | undefined;
-    const routineName = (id: StableId): string | undefined =>
-      "args" in id ? `${id.schema}\0${id.name}` : undefined;
     const nameIsReused = (id: StableId): boolean => {
       const name = routineName(id);
       if (name === undefined) return false;
-      if (desiredRoutineNames === undefined) {
-        desiredRoutineNames = new Set();
-        for (const fact of desired.facts()) {
-          const other = routineName(fact.id);
-          if (other !== undefined) desiredRoutineNames.add(other);
-        }
-      }
+      desiredRoutineNames ??= routineNames(desired);
       return desiredRoutineNames.has(name);
     };
-    const rebuildBlockedReleases = (): boolean => {
-      for (const [key, { dependent, drops }] of released) {
+    // The walk can rebuild something a release relies on after recording it,
+    // so each time the worklist drains, the releases that no longer hold are
+    // rebuilt after all. True when that queued more work.
+    const requeueBrokenReleases = (): boolean => {
+      for (const [key, { dependent, routines }] of released) {
         if (targets.has(key)) {
           released.delete(key);
-          continue;
+        } else if (!releaseHolds(dependent, routines, input, targets)) {
+          released.delete(key);
+          rebuild(key);
         }
-        if (releaseIsSafe(dependent) && drops.every(dropHoldsNothingBack)) {
-          continue;
-        }
-        released.delete(key);
-        replaceIds.add(key);
-        fullDestroy.add(key);
-        targets.add(key);
-        worklist.push(key);
       }
       return worklist.length > 0;
     };
-    while (worklist.length > 0 || rebuildBlockedReleases()) {
+    while (worklist.length > 0 || requeueBrokenReleases()) {
       const toKey = worklist.pop() as string;
       // Scan childrenOf as well as incoming `depends`. Views/policies often
       // depend on columns, not the table; partitions hang off the schema and
@@ -345,23 +403,14 @@ export function expandReplacements(
           continue;
         }
         if (!isRebuildable(dependent.id.kind)) continue;
-        // a dependent whose alter re-states its whole definition without a
-        // REMOVED releasable target (`releasedByDependentAlter`) releases it
-        // through that alter (a trigger switching functions); any other
-        // change (a policy's roles, while its unchanged USING resolves to a
-        // new overload) still needs the rebuild
         if (
           removed.has(toKey) &&
-          rulesForId(edge.to).releasedByDependentAlter === true &&
-          !nameIsReused(edge.to) &&
-          restatesDefinition(dependent, setsByFact.get(fromKey), rulesForId) &&
-          !desired
-            .outgoingEdges(dependent.id)
-            .some((e) => encodeId(e.to) === toKey)
+          releasesRoutine(dependent, edge.to, input) &&
+          !nameIsReused(edge.to)
         ) {
-          const entry = released.get(fromKey) ?? { dependent, drops: [] };
-          entry.drops.push(edge.to);
-          released.set(fromKey, entry);
+          const release = released.get(fromKey) ?? { dependent, routines: [] };
+          release.routines.push(edge.to);
+          released.set(fromKey, release);
           continue;
         }
         // reached only via a kind-restricted seed: honor the allowed kinds
@@ -369,10 +418,7 @@ export function expandReplacements(
           const allowed = rebuildSeeds.get(toKey);
           if (allowed && !allowed.has(dependent.id.kind)) continue;
         }
-        replaceIds.add(fromKey);
-        fullDestroy.add(fromKey);
-        targets.add(fromKey);
-        worklist.push(fromKey);
+        rebuild(fromKey);
       }
     }
     // ── survivors wiped as a side effect of a create / drop of this plan ───
