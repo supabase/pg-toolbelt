@@ -957,11 +957,6 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
 
   const shadow = makePool(shadowUrl);
   const tgt = makePool(targetUrl);
-  // Close the pools and drop the co-located throwaway database. Called by the
-  // `finally` below, which always runs — the early-exit paths inside the try now
-  // THROW (CliExit / SchemaFrontendError / UsageError) instead of calling
-  // process.exit, so cleanup happens on every exit (`--keep-shadow` keeps it); a
-  // failed DROP is reported on stderr.
   const releaseResources = async (): Promise<void> => {
     await Promise.all([shadow.end(), tgt.end()]);
     if (coLocated !== undefined) {
