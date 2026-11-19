@@ -199,15 +199,20 @@ export function expandReplacements(
     const worklist = [...targets];
     // Dependents skipped below because their own alter releases the target.
     // That alter runs BEFORE the target's drop, ahead of the planner's usual
-    // teardown → alter → create order, so it is only safe when nothing else
-    // in the plan can sit between the two. `releaseIsSafe` is an allowlist:
-    // every fact the dependent's desired definition reaches (dependencies,
-    // parents, and the children of newly created facts, followed through
-    // newly created facts) is either identical on both sides or newly
-    // created. Anything else rebuilds the dependent, exactly as
-    // without the skip. Rechecked whenever the worklist drains, since a later
-    // round can rebuild one of those facts.
-    const released = new Map<string, Fact>();
+    // teardown → alter → create order, which is only safe when nothing else
+    // in the plan is tied to either end. The release is an allowlist:
+    //  - create side (`releaseIsSafe`): every fact the dependent's desired
+    //    definition reaches (dependencies, parents, and the children of newly
+    //    created facts, followed through newly created facts) is identical on
+    //    both sides or newly created, so nothing it waits for waits on the
+    //    drop;
+    //  - drop side (`dropHoldsNothingBack`): the target's own dependencies
+    //    and parent are identical on both sides, so delaying its drop delays
+    //    no other teardown or alter.
+    // Anything else rebuilds the dependent, exactly as without the skip.
+    // Rechecked whenever the worklist drains, since a later round can rebuild
+    // one of those facts.
+    const released = new Map<string, { dependent: Fact; drops: StableId[] }>();
     const unchangedMemo = new Map<string, boolean>();
     const edgeKeys = (base: FactBase, id: StableId): string =>
       base
@@ -251,6 +256,15 @@ export function expandReplacements(
       }
       return true;
     };
+    const dropHoldsNothingBack = (target: StableId): boolean => {
+      const needs = source.outgoingEdges(target).map((e) => e.to);
+      const parent = source.get(target)?.parent;
+      if (parent !== undefined) needs.push(parent);
+      return needs.every((need) => {
+        const needKey = encodeId(need);
+        return !targets.has(needKey) && isUnchanged(needKey, need);
+      });
+    };
     // A routine sharing the removed routine's schema-qualified name makes the
     // dependent's definition text ambiguous (or bind to the wrong overload)
     // while both exist, so such a target is never released.
@@ -270,12 +284,14 @@ export function expandReplacements(
       return desiredRoutineNames.has(name);
     };
     const rebuildBlockedReleases = (): boolean => {
-      for (const [key, dependent] of released) {
+      for (const [key, { dependent, drops }] of released) {
         if (targets.has(key)) {
           released.delete(key);
           continue;
         }
-        if (releaseIsSafe(dependent)) continue;
+        if (releaseIsSafe(dependent) && drops.every(dropHoldsNothingBack)) {
+          continue;
+        }
         released.delete(key);
         replaceIds.add(key);
         fullDestroy.add(key);
@@ -343,7 +359,9 @@ export function expandReplacements(
             .outgoingEdges(dependent.id)
             .some((e) => encodeId(e.to) === toKey)
         ) {
-          released.set(fromKey, dependent);
+          const entry = released.get(fromKey) ?? { dependent, drops: [] };
+          entry.drops.push(edge.to);
+          released.set(fromKey, entry);
           continue;
         }
         // reached only via a kind-restricted seed: honor the allowed kinds

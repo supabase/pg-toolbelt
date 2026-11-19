@@ -2238,10 +2238,14 @@ The alter then runs ahead of the planner's usual teardown → alter → create
 order, so the skip is an allowlist. Anything outside it keeps drop + create:
 
 - **Something the new definition relies on changes in the same plan.** Every
-  fact the desired trigger reaches (dependencies and parents, through newly
-  created facts) must be identical on both sides or newly created. A schema
+  fact the desired trigger reaches (dependencies, parents, and the children
+  of newly created facts, followed through newly created facts) must be
+  identical on both sides or newly created. A schema
   owner change, a replaced or altered helper, an enum gaining a value, or a
   retyped column all fall back.
+- **Something the dropped routine itself relies on changes.** Its own
+  dependencies and schema must be identical on both sides: delaying its drop
+  delays their teardown too (a table it read becoming a same-name view).
 - **The dropped routine's name is reused.** An overload sharing its
   schema-qualified name makes the trigger's definition text ambiguous, or
   bind to the wrong overload, while both exist.
