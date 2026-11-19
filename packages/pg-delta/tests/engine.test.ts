@@ -18,6 +18,7 @@ import { rel } from "../src/plan/render.ts";
 import { planSettled } from "../src/frontends/settle-desired.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import { enforceActionShapeBudgetForMode } from "./action-shape-budgets.ts";
+import { enforceActionStamps } from "./action-stamps.ts";
 import { enforceSeedCoverage, runPinnedDirection } from "./seed-coverage.ts";
 import { loadCorpus, type Scenario } from "./corpus.ts";
 import { mustRunSerially } from "./corpus-scheduling.ts";
@@ -179,6 +180,12 @@ async function proveOn(
       actionShapeBudget,
       scenarioName,
       direction,
+    );
+    enforceActionStamps(
+      name,
+      thePlan,
+      sourceState.factBase,
+      desiredState.factBase,
     );
 
     // TEMPLATE clone requires zero extra connections on the source.
