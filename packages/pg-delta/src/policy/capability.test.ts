@@ -15,6 +15,7 @@ import { plan } from "../plan/plan.ts";
 import {
   CAPABILITY_CREATEROLE_SELF_ADMIN,
   CAPABILITY_FDW_ACL,
+  CapabilityError,
   capabilityExcludedRoots,
   type ApplierCapability,
 } from "./capability.ts";
@@ -187,5 +188,99 @@ describe("ApplierCapability — owner residue fail-fast (follow-up 1)", () => {
 
   test("no capability → no owner restriction (corpus path)", () => {
     expect(() => plan(source(r2), desiredOwnedBy(r2))).not.toThrow();
+  });
+  // #563 review: a membership the desired state keeps must not be revoked by
+  // the bracket, and a schema CREATE the new owner loses must be revoked only
+  // after the owner change that needs it.
+  test("a desired applier membership is reused, not bracketed", () => {
+    const keep: StableId = { kind: "membership", role: "r2", member: "app" };
+    const app: StableId = { kind: "role", name: "app" };
+    const desired = buildFactBase(
+      [f(schemaApp), f(r2), f(app), { id: keep, payload: { admin: false } }],
+      [ownerEdge(r2)],
+    );
+    const sql = plan(buildFactBase([f(r2), f(app)], []), desired, {
+      capability: { ...memberOfR1, pgMajor: 15, createRole: true },
+    }).actions.map((a) => a.sql);
+    expect(sql.filter((s) => /"r2"/.test(s))).toEqual([
+      'GRANT "r2" TO "app"',
+      'ALTER SCHEMA "app" OWNER TO "r2"',
+    ]);
+  });
+
+  test("schema CREATE revoked from the new owner after the owner change", () => {
+    const pub: StableId = { kind: "schema", name: "public" };
+    const t: StableId = { kind: "table", schema: "public", name: "t" };
+    const acl: StableId = { kind: "acl", target: pub, grantee: "r1" };
+    const base = (privileges: string[], owner: StableId) =>
+      buildFactBase(
+        [
+          f(pub),
+          f(r1),
+          f({ kind: "role", name: "app" }),
+          { id: t, payload: {} },
+          { id: acl, payload: { privileges, grantable: [] } },
+        ],
+        [{ from: t, to: owner, kind: "owner" }],
+      );
+    const sql = plan(
+      base(["CREATE", "USAGE"], { kind: "role", name: "app" }),
+      base(["USAGE"], r1),
+      { capability: memberOfR1 },
+    ).actions.map((a) => a.sql);
+    const owner = sql.findIndex((s) => s.includes("OWNER TO"));
+    const revoke = sql.findIndex((s) => /REVOKE .*ON SCHEMA/.test(s));
+    expect(owner).toBeGreaterThanOrEqual(0);
+    expect(revoke).toBeGreaterThan(owner);
+  });
+
+  // #563: an owner the applier cannot SET ROLE to is bridged with a temporary
+  // self-grant when Postgres lets the applier grant it; otherwise it is a
+  // typed error callers can report as a privilege problem.
+  test("self-grant bracket follows the version rules, else CapabilityError", () => {
+    const cap = (extra: Partial<ApplierCapability>): ApplierCapability => ({
+      role: "app",
+      isSuperuser: false,
+      memberOf: [],
+      createRole: true,
+      ...extra,
+    });
+    const sqlOf = (src: ReturnType<typeof source>, c: ApplierCapability) =>
+      plan(src, desiredOwnedBy(r2), { capability: c })
+        .actions.map((a) => a.sql)
+        .filter((sql) => /"r2"/.test(sql) && !sql.startsWith("CREATE ROLE"));
+    const bracket = (grant: string) => [
+      grant,
+      'ALTER SCHEMA "app" OWNER TO "r2"',
+      'REVOKE "r2" FROM "app"',
+    ];
+    const bracketed = bracket(
+      'GRANT "r2" TO "app" WITH INHERIT TRUE, SET TRUE',
+    );
+    const noRole = buildFactBase([], []);
+
+    expect(sqlOf(source(r2), cap({ pgMajor: 15 }))).toEqual(
+      bracket('GRANT "r2" TO "app"'),
+    );
+    expect(sqlOf(noRole, cap({ pgMajor: 17 }))).toEqual(bracketed);
+    // SET without INHERIT passes OWNER TO but not a later COMMENT/ACL change
+    expect(
+      sqlOf(noRole, cap({ pgMajor: 17, createroleSelfGrant: "set" })),
+    ).toEqual(bracketed);
+    expect(sqlOf(source(r2), cap({ pgMajor: 17, adminOf: ["r2"] }))).toEqual(
+      bracketed,
+    );
+    expect(
+      sqlOf(noRole, cap({ pgMajor: 17, createroleSelfGrant: "set, inherit" })),
+    ).toEqual(['ALTER SCHEMA "app" OWNER TO "r2"']);
+
+    for (const unbridgeable of [
+      cap({ pgMajor: 17 }), // existing role, no ADMIN on it
+      cap({ pgMajor: 15, reservedMemberships: ["r2"] }), // supautils
+      cap({ pgMajor: 15, createRole: false }),
+    ])
+      expect(() =>
+        plan(source(r2), desiredOwnedBy(r2), { capability: unbridgeable }),
+      ).toThrow(CapabilityError);
   });
 });
