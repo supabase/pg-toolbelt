@@ -324,13 +324,21 @@ describe("column grants survive a same-grantee object-level REVOKE", () => {
     );
     // the hygiene REVOKE is load-bearing (the default would grant ALL), so it
     // survives compaction and must precede the re-granted column privilege
-    const list = sqls(plan(source, desired));
+    const p = plan(source, desired);
+    const list = sqls(p);
     expectAfter(
       list,
       `CREATE VIEW "app"."v" AS  SELECT 10 AS a, 20 AS b;`,
       OBJ_REVOKE_V,
     );
     expectAfter(list, OBJ_REVOKE_V, COL_GRANT_V);
+    // each action names the fact it changes: the view on its DROP and owner
+    // restore, the object acl on the REVOKE (not the column acl it wipes)
+    const subject = (sql: string) =>
+      p.actions.find((a) => a.sql === sql)?.subject;
+    expect(subject(`DROP VIEW "app"."v"`)).toEqual(viewV);
+    expect(subject(`ALTER VIEW "app"."v" OWNER TO "postgres"`)).toEqual(viewV);
+    expect(subject(OBJ_REVOKE_V)).toEqual(acl(viewV, "r"));
   });
 
   test("no column grants: an object-level privilege change stays a bare REVOKE + GRANT", () => {

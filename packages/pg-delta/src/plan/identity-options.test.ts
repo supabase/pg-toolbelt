@@ -247,26 +247,31 @@ describe("identity / generated columns through a type change", () => {
     // `type`, so `ADD … AS IDENTITY` executes first; a DROP DEFAULT gated on the
     // SOURCE side would then hit an identity column and PostgreSQL rejects it
     // ("column \"id\" of relation \"t\" is an identity column").
-    const sql = plan(
+    const { actions } = plan(
       base([bareCol("integer", {})]),
       base([colFact({ maxValue: "9223372036854775807" }, "bigint")]),
-    ).actions.map((a) => a.sql);
+    );
+    const sql = actions.map((a) => a.sql);
+    // it names the column, not the backing sequence it creates
     expect(
-      sql.some((s) => s.includes("ADD GENERATED ALWAYS AS IDENTITY")),
-    ).toBe(true);
+      actions.find((a) => a.sql.includes("ADD GENERATED ALWAYS AS IDENTITY"))
+        ?.subject,
+    ).toEqual(colId);
     expect(sql.some((s) => s.includes("DROP DEFAULT"))).toBe(false);
   });
 
   test("gate quadrant identity→plain: DROP DEFAULT is emitted (harmless no-op)", () => {
     // DROP IDENTITY runs first (identity < type), so by the time the type action
     // executes the column is plain and DROP DEFAULT is a valid no-op.
-    const sql = plan(
+    const { actions } = plan(
       base([colFact({})]),
       base([bareCol("bigint", {})]),
-    ).actions.map((a) => a.sql);
+    );
+    const sql = actions.map((a) => a.sql);
     const dropIdentityAt = sql.indexOf(
       `ALTER TABLE "app"."t" ALTER COLUMN "id" DROP IDENTITY`,
     );
+    expect(actions[dropIdentityAt]?.subject).toEqual(colId);
     const dropDefaultAt = sql.indexOf(
       `ALTER TABLE "app"."t" ALTER COLUMN "id" DROP DEFAULT`,
     );

@@ -810,4 +810,22 @@ describe("plan artifact v1", () => {
       );
     }
   });
+
+  test("round-trips an action subject and rejects a malformed one", () => {
+    const subject = { kind: "schema", name: "subj" } as const;
+    const withSubject = stampPlanId({
+      ...samplePlan,
+      actions: samplePlan.actions.map((action) => ({ ...action, subject })),
+    });
+    expect(parsePlan(serializePlan(withSubject))).toEqual(withSubject);
+    for (const bad of [null, "schema:app", { kind: "table", name: "t" }]) {
+      const artifact = JSON.parse(serializePlan(withSubject)) as {
+        actions: Array<Record<string, unknown>>;
+      };
+      artifact.actions[0]!["subject"] = bad;
+      expect(() => parsePlan(JSON.stringify(artifact))).toThrow(
+        /actions\[0\]\.subject/,
+      );
+    }
+  });
 });

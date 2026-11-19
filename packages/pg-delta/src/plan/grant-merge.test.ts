@@ -79,6 +79,8 @@ describe("compaction merges co-created same-privilege grants", () => {
       ).toBe(true);
     }
     expect(merged.consumes.some((c) => c.kind === "acl")).toBe(false);
+    // its subject is still its leading member's acl
+    expect(merged.subject).toEqual(acl("anon"));
   });
 
   test("uncompacted plan keeps one GRANT per grantee", () => {
@@ -92,7 +94,9 @@ describe("compaction merges co-created same-privilege grants", () => {
       [],
     );
     const decomposed = plan(source, desired, { compact: false });
-    expect(grants(decomposed)).toHaveLength(3);
+    expect(grants(decomposed).map((a) => a.subject)).toEqual(
+      ROLES.map((r) => acl(r)),
+    );
   });
 
   test("a differing privilege set splits the run", () => {

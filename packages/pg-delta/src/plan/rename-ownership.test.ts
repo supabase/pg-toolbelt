@@ -290,6 +290,7 @@ describe("canonical filtering vetoes partial subtree renames", () => {
     expect(p.actions.map((action) => action.sql)).toEqual([
       'ALTER TABLE "app"."old_t" RENAME TO "new_t"',
     ]);
+    expect(p.actions[0]?.subject).toEqual(newTable);
     expect(p.acceptedRenames).toEqual([{ from: oldTable, to: newTable }]);
   });
 });
