@@ -60,12 +60,6 @@ export function buildActionGraph(
   destroyerOf: ReadonlyMap<string, number>,
   source: FactBase,
   desired: FactBase,
-  // actions that rename a subtree in place. A rename changes IDENTITY, not
-  // ownership: PostgreSQL preserves the owner OID across `ALTER … RENAME`, and a
-  // separate owner action handles any real change. So `owner` edges on a
-  // renamed subtree must NOT drive ordering through the rename — otherwise a
-  // table rename + owner-role rename deadlock each other (review P1 #2).
-  renameActionIndices: ReadonlySet<number> = new Set(),
   // role names the active policy assumes exist at apply time but does not manage
   // (e.g. Supabase anon/authenticated). Treated like pg_*/PUBLIC by the
   // missing-requirement guard: a kept `GRANT … TO <role>` whose role object is
@@ -270,17 +264,11 @@ export function buildActionGraph(
     );
   };
 
-  // alter actions indexed by their primary fact (opts.consumes[0])
+  // alter actions indexed by the fact they alter
   const alterersOf = new Map<string, number[]>();
   actions.forEach((action, index) => {
     if (action.verb !== "alter") return;
-    // a rename's consumes[0] is its PARENT container, not an in-place-altered
-    // subject: indexing it would make every same-schema rename an "alterer" of
-    // the schema, and two renames would each order before the other (cycle)
-    if (renameActionIndices.has(index)) return;
-    const primary = action.consumes[0];
-    if (primary === undefined) return;
-    const key = encodeId(primary);
+    const key = encodeId(action.subject);
     const list = alterersOf.get(key) ?? [];
     list.push(index);
     alterersOf.set(key, list);
@@ -383,8 +371,8 @@ export function buildActionGraph(
     // path is the runnable order). A mutual pair of altered facts is skipped
     // here so both directions do not force an order; either apply works.
     if (action.verb === "alter") {
-      const subject = action.consumes[0];
-      if (subject !== undefined && desired.has(subject)) {
+      const subject = action.subject;
+      if (desired.has(subject)) {
         const subjectKey = encodeId(subject);
         const seen = new Set<string>([subjectKey]);
         const queue: StableId[] = [subject];
@@ -437,6 +425,11 @@ export function buildActionGraph(
         }
       }
     }
+    // PostgreSQL keeps the owner across a rename: the rename neither creates
+    // nor tears down the owner edge. So an owner edge on a renamed subtree must
+    // not order anything through the rename, on the build side or the teardown
+    // side, or a table rename and an owner-role rename deadlock each other.
+    const isRename = action.change?.kind === "rename";
     // build order from the DESIRED state's dependency edges
     const producesKeys = new Set(action.produces.map((id) => encodeId(id)));
     for (const id of action.produces) {
@@ -454,10 +447,7 @@ export function buildActionGraph(
         evaluatorActions.add(index);
       }
       for (const edge of desired.outgoingEdges(id)) {
-        // a rename does not CREATE the owner edge (PG carries the owner across
-        // RENAME); ordering the new owner's producer before the rename would,
-        // paired with the source-side teardown edge below, form a cycle (P1 #2)
-        if (edge.kind === "owner" && renameActionIndices.has(index)) continue;
+        if (edge.kind === "owner" && isRename) continue;
         const targetKey = remember(edge.to);
         const producer = producerOf.get(targetKey);
         if (producer !== undefined && producer !== index) {
@@ -515,10 +505,7 @@ export function buildActionGraph(
       // order as `source.edges`. Scanning every edge per (action × destroyed id)
       // made this O(actions × destroys × |edges|).
       for (const edge of source.incomingEdgesByEncoded(key)) {
-        // symmetric to the produces side: a rename does not TEAR DOWN the owner
-        // edge, so an owner edge into the renamed subtree must not order the
-        // owner's dependent teardown before the rename (P1 #2 cycle)
-        if (edge.kind === "owner" && renameActionIndices.has(index)) continue;
+        if (edge.kind === "owner" && isRename) continue;
         const dependentKey = remember(edge.from);
         const dependentDestroyer = destroyerOf.get(dependentKey);
         if (dependentDestroyer !== undefined && dependentDestroyer !== index) {
@@ -640,16 +627,14 @@ export function actionTieKey(
   // plannable via the existing default-split machinery.
   evaluatorActions?: ReadonlySet<number>,
   // Overlay wipe CREATEs (export-only). Indexed on the pre-topo action list,
-  // same shape as evaluatorActions. Key off produces[0], never consumes[0]:
-  // wipe-then-grant's GRANT shares the ADP id via consumes and must stay late.
+  // same shape as evaluatorActions. Only the wipe's leading statement: the
+  // GRANT of a wipe-then-grant has the same subject and must stay late.
   overlayWipeActions?: ReadonlySet<number>,
 ): string {
   const action = actions[i] as Action;
-  const subject =
-    action.produces[0] ?? action.destroys[0] ?? action.consumes[0];
+  const subject = placementOf(action);
   const weight = (() => {
     if (overlayWipeActions?.has(i) === true) return OVERLAY_WIPE_WEIGHT;
-    if (subject === undefined) return 99;
     try {
       return rulesForId(subject).weight;
     } catch {
@@ -662,10 +647,23 @@ export function actionTieKey(
   // definition stratum and stays byte-identical to a stratum-free key.
   const stratum =
     action.verb !== "drop" && evaluatorActions?.has(i) === true ? "1" : "0";
-  const subjectKey =
-    (subject !== undefined ? subjectKeyOf?.(subject, action) : undefined) ??
-    (subject ? encodeId(subject) : "");
+  const subjectKey = subjectKeyOf?.(subject, action) ?? encodeId(subject);
   return `${phase}|${stratum}|${String(w).padStart(2, "0")}|${subjectKey}|${String(i).padStart(6, "0")}`;
+}
+
+/**
+ * The object a statement is placed with, in the plan's tie-break and in the
+ * export's in-file order: its subject, except that a default-privilege cleanup
+ * goes with the object it cleans. It then lands straight after that object's
+ * create — before the object's GRANTs, which would otherwise be split by it
+ * and stop merging, and before any OWNER TO, after which an applier that is
+ * not a member of the new owner can no longer revoke.
+ */
+export function placementOf(action: Action): StableId {
+  const { subject } = action;
+  return action.change?.kind === "defaultPrivileges" && isAclId(subject)
+    ? subject.target
+    : subject;
 }
 
 /**
@@ -731,12 +729,12 @@ export function compactColumnFolds(
     //    PK/UNIQUE/CHECK), under the STRICT column-style crossing veto. An FK
     //    folded into a CREATE TABLE that precedes the referenced table's
     //    CREATE would fail, so FK hints stay inert here.
-    const isConstraintFold = action.produces[0]?.kind === "constraint";
+    const isConstraintFold = action.subject.kind === "constraint";
     let uniqueSigToOccupy: string | undefined;
     if (isConstraintFold) {
       if (foldConstraints === undefined) {
         if (hint.executorSafe !== true) continue;
-      } else if (foldConstraints.exclude?.has(encodeId(action.produces[0]!))) {
+      } else if (foldConstraints.exclude?.has(encodeId(action.subject))) {
         continue;
       }
       if (hint.constraintType === "u") {
@@ -893,7 +891,7 @@ export function elideRedundantDrops(
   const remove = new Set<number>();
   actions.forEach((action, index) => {
     if (action.verb !== "drop" || action.destroys.length === 0) return;
-    const id = action.destroys[0] as StableId;
+    const id = action.subject;
     const key = encodeId(id);
     const producer = producerOf.get(key);
     if (producer === undefined || producer.index === index) return;
@@ -952,7 +950,7 @@ export function elideCascadeSubsumedPolicyDrops(
   const remove = new Set<number>();
   actions.forEach((action, index) => {
     if (action.verb !== "drop" || action.destroys.length !== 1) return;
-    const id = action.destroys[0] as StableId;
+    const id = action.subject;
     if (id.kind !== "policy") return;
     const table = source.get(id)?.parent;
     if (table === undefined) return;
@@ -1328,17 +1326,13 @@ export function foldCoCreateOwnership(
 
   const drop = new Set<number>();
   actions.forEach((action, index) => {
-    if (action.verb !== "alter") return;
-    if (action.produces.length > 0 || action.destroys.length > 0) return;
+    if (action.change?.kind !== "owner") return;
     if (action.releases.length > 0) return; // owner CHANGE, not a fresh-create set
     if (action.newSegmentBefore || action.transactionality !== "transactional")
       return;
-    // structural owner-ALTER shape: exactly one object consume + one role consume
-    const roleConsumes = action.consumes.filter((id) => id.kind === "role");
-    const objConsumes = action.consumes.filter((id) => id.kind !== "role");
-    if (roleConsumes.length !== 1 || objConsumes.length !== 1) return;
-    const objId = objConsumes[0] as StableId;
-    const owner = roleConsumes[0] as { kind: "role"; name: string };
+    const objId = action.subject;
+    const ownerName = action.change.to;
+    const owner: StableId = { kind: "role", name: ownerName };
     const createAction = createActionOf.get(encodeId(objId));
     if (createAction === undefined) return; // not co-created → real owner change
     if (ruleFlag(objId.kind, "ownerAlterPrefix") === undefined) return;
@@ -1346,16 +1340,13 @@ export function foldCoCreateOwnership(
       .outgoingEdges(objId)
       .some(
         (e) =>
-          e.kind === "owner" &&
-          e.to.kind === "role" &&
-          e.to.name === owner.name,
+          e.kind === "owner" && e.to.kind === "role" && e.to.name === ownerName,
       );
     if (!hasOwnerEdge) return;
     // local appliability check (#2): never collapse an owner ALTER the known
     // applier could not execute. Capability-undefined keeps the unrestricted
     // (superuser/CI) behavior — fold regardless.
-    if (capability !== undefined && !canSetOwner(capability, owner.name))
-      return;
+    if (capability !== undefined && !canSetOwner(capability, ownerName)) return;
 
     if (objId.kind === "schema") {
       // Rule 1 — syntactic fold into CREATE SCHEMA … AUTHORIZATION. Compare the
@@ -1367,7 +1358,7 @@ export function foldCoCreateOwnership(
         return;
       const schemaName = (objId as { kind: "schema"; name: string }).name;
       if (createAction.sql !== schemaCreateSql(schemaName)) return;
-      createAction.sql = schemaCreateSql(schemaName, owner.name);
+      createAction.sql = schemaCreateSql(schemaName, ownerName);
       if (!createAction.consumes.some((c) => encodeId(c) === encodeId(owner)))
         createAction.consumes.push(owner);
       drop.add(index);
@@ -1375,7 +1366,7 @@ export function foldCoCreateOwnership(
     }
 
     // Rule 2 — no-op elision only when the applier IS the owner.
-    if (capability !== undefined && capability.role === owner.name)
+    if (capability !== undefined && capability.role === ownerName)
       drop.add(index);
   });
 
@@ -1549,25 +1540,20 @@ export function mergeCoTargetRevokes(actions: readonly Action[]): Action[] {
         return undefined;
       return { target: aclId.target, grantee: aclId.grantee };
     }
-    if (action.verb !== "alter") return undefined;
-    if (action.produces.length > 0 || action.destroys.length > 0)
+    // default-privilege cleanup: its subject is the grant being wiped
+    const subject = action.subject;
+    if (action.change?.kind !== "defaultPrivileges" || !isAclId(subject))
       return undefined;
-    // Hygiene REVOKEs start with REVOKE ALL; skip other ALTERs (e.g. COLUMN).
-    if (!action.sql.startsWith("REVOKE ALL")) return undefined;
-    // A hygiene REVOKE consumes the fact whose CREATE materialized the revoked
-    // object. That is the object itself, except for an identity column's
-    // backing sequence, whose hygiene consumes the column: a column is not a
-    // grant target, so it cannot be the leader and the action stays as is.
-    const obj = action.consumes.find(
-      (id) => id.kind !== "role" && id.kind !== "column",
-    );
-    if (obj === undefined) return undefined;
-    const role = action.consumes.find((id) => id.kind === "role") as
-      | { kind: "role"; name: string }
-      | undefined;
-    const grantee = role?.name ?? "PUBLIC";
-    if (action.sql !== renderRevokeAllSql(obj, [grantee])) return undefined;
-    return { target: obj, grantee };
+    // one that also wipes column grants keeps its own destroy edges
+    if (action.destroys.length > 0) return undefined;
+    // The cleanup of an identity column's backing sequence is ordered after
+    // the column, not the sequence, so it cannot join a group led by the
+    // sequence's own REVOKE: leave it as is.
+    if (!action.consumes.some((c) => encodeId(c) === encodeId(subject.target)))
+      return undefined;
+    if (action.sql !== renderRevokeAllSql(subject.target, [subject.grantee]))
+      return undefined;
+    return { target: subject.target, grantee: subject.grantee };
   };
 
   let segment = 0;
@@ -1690,9 +1676,9 @@ export function mergeCoTargetGrants(
     }
     if (action.releases.length > 0) return undefined;
     if (action.transactionality !== "transactional") return undefined;
-    const aclIds = action.consumes.filter(isAclId);
-    if (aclIds.length !== 1) return undefined;
-    const aclId = aclIds[0] as AclId;
+    // a GRANT is the follow-up statement of its grant's create
+    const aclId = action.subject;
+    if (!isAclId(aclId)) return undefined;
     if (aclId.column !== undefined) return undefined; // column grants stay verbatim
     if (producedAcl.has(encodeId(aclId))) return undefined; // REVOKE leader kept
     const fact = desired.get(aclId);

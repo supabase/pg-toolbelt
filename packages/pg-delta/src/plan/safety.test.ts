@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
-import { plan, type Action, type Plan } from "./plan.ts";
+import { plan, type Action, type ActionChange, type Plan } from "./plan.ts";
 import { findDestructionMetadataViolations } from "./safety.ts";
 
 const relation = (
@@ -23,20 +23,30 @@ const typeAttribute = (name = "old_attribute"): StableId => ({
   name,
 });
 
-const action = (overrides: Partial<Action> = {}): Action => ({
-  sql: 'DROP TABLE "app"."old"',
-  verb: "drop",
-  produces: [],
-  consumes: [],
-  destroys: [relation("table")],
-  releases: [],
-  transactionality: "transactional",
-  lockClass: "accessExclusive",
-  newSegmentBefore: false,
-  dataLoss: "none",
-  rewriteRisk: false,
-  ...overrides,
-});
+type ActionOverrides = Partial<Omit<Action, "verb" | "change">> &
+  (
+    | { verb?: "create" | "drop"; change?: undefined }
+    | { verb: "alter"; change: ActionChange }
+  );
+
+const rename = (from: StableId): ActionChange => ({ kind: "rename", from });
+
+const action = (overrides: ActionOverrides = {}): Action =>
+  ({
+    sql: 'DROP TABLE "app"."old"',
+    subject: relation("table"),
+    verb: "drop",
+    produces: [],
+    consumes: [],
+    destroys: [relation("table")],
+    releases: [],
+    transactionality: "transactional",
+    lockClass: "accessExclusive",
+    newSegmentBefore: false,
+    dataLoss: "none",
+    rewriteRisk: false,
+    ...overrides,
+  }) as Action;
 
 function generatedRenamePlan(sourceFacts: Fact[], desiredFacts: Fact[]): Plan {
   return plan(buildFactBase(sourceFacts, []), buildFactBase(desiredFacts, []), {
@@ -79,9 +89,12 @@ describe("destruction metadata integrity", () => {
     expect(
       findDestructionMetadataViolations([
         action(),
-        action({ destroys: [relation("materializedView", "mv")] }),
-        action({ destroys: [column()] }),
-        action({ destroys: [typeAttribute()] }),
+        action({
+          subject: relation("materializedView", "mv"),
+          destroys: [relation("materializedView", "mv")],
+        }),
+        action({ subject: column(), destroys: [column()] }),
+        action({ subject: typeAttribute(), destroys: [typeAttribute()] }),
       ]),
     ).toEqual([
       {
@@ -126,7 +139,15 @@ describe("destruction metadata integrity", () => {
     const to = relation("materializedView", "new");
     expect(
       findDestructionMetadataViolations(
-        [action({ verb: "alter", destroys: [from], produces: [to] })],
+        [
+          action({
+            subject: to,
+            verb: "alter",
+            change: rename(from),
+            destroys: [from],
+            produces: [to],
+          }),
+        ],
         [{ from, to }],
       ),
     ).toEqual([]);
@@ -139,12 +160,16 @@ describe("destruction metadata integrity", () => {
       findDestructionMetadataViolations(
         [
           action({
+            subject: newColumn,
             verb: "alter",
+            change: rename(oldColumn),
             destroys: [oldColumn],
             produces: [newColumn],
           }),
           action({
+            subject: newAttribute,
             verb: "alter",
+            change: rename(oldAttribute),
             destroys: [oldAttribute],
             produces: [newAttribute],
           }),
@@ -162,7 +187,16 @@ describe("destruction metadata integrity", () => {
     const to = relation("table", "new");
     expect(
       findDestructionMetadataViolations(
-        [action(), action({ verb: "alter", destroys: [], produces: [to] })],
+        [
+          action(),
+          action({
+            subject: to,
+            verb: "alter",
+            change: { kind: "attribute", name: "unspecified" },
+            destroys: [],
+            produces: [to],
+          }),
+        ],
         [{ from, to }],
       ),
     ).toHaveLength(1);
@@ -170,7 +204,9 @@ describe("destruction metadata integrity", () => {
       findDestructionMetadataViolations(
         [
           action({
+            subject: relation("materializedView", "new"),
             verb: "alter",
+            change: { kind: "attribute", name: "unspecified" },
             produces: [relation("materializedView", "new")],
           }),
         ],
@@ -189,7 +225,15 @@ describe("destruction metadata integrity", () => {
     const to = typeAttribute();
     expect(
       findDestructionMetadataViolations(
-        [action({ verb: "alter", destroys: [from], produces: [to] })],
+        [
+          action({
+            subject: to,
+            verb: "alter",
+            change: rename(from),
+            destroys: [from],
+            produces: [to],
+          }),
+        ],
         [{ from, to }],
       ),
     ).toHaveLength(1);
@@ -209,12 +253,16 @@ describe("destruction metadata integrity", () => {
       findDestructionMetadataViolations(
         [
           action({
+            subject: newSchema,
             verb: "alter",
+            change: rename(oldSchema),
             destroys: [oldSchema],
             produces: [newSchema],
           }),
           action({
+            subject: newTable,
             verb: "alter",
+            change: rename(oldTable),
             destroys: [oldTable],
             produces: [newTable],
           }),
@@ -228,6 +276,7 @@ describe("destruction metadata integrity", () => {
     expect(
       findDestructionMetadataViolations([
         action({
+          subject: { kind: "sequence", schema: "app", name: "seq" },
           destroys: [
             { kind: "sequence", schema: "app", name: "seq" },
             { kind: "constraint", schema: "app", table: "t", name: "t_pkey" },

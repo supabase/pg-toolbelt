@@ -45,8 +45,10 @@ import { stampPlanId } from "./artifact.ts";
  *  from an engine it does not understand (stage 6 deliverable 1).
  *  0.3.0: required `planId` digest — bumped so a pre-planId executor
  *  fails closed on stamped artifacts (it would otherwise parse them and
- *  apply without verifying the digest), keeping fail-closed symmetric. */
-export const ENGINE_VERSION = "0.3.0";
+ *  apply without verifying the digest), keeping fail-closed symmetric.
+ *  0.4.0: every action carries a required `subject` (and an alter its
+ *  `change`), both hashed into `planId` — an older plan has neither. */
+export const ENGINE_VERSION = "0.4.0";
 
 // The plan-artifact (JSON serialize/parse) helpers live in ./artifact.ts but are
 // part of this module's public surface: docs/getting-started.md imports them from
@@ -77,9 +79,29 @@ export type {
 } from "../policy/view.ts";
 export type { AssumedDefaultGrant } from "../policy/policy.ts";
 
-export interface Action {
+/** What an `alter` changes about its subject. One kind per cause, so a
+ *  payload attribute can never be mistaken for an owner change or a rename.
+ *  The kinds mirror what caused the statement (`Delta` in `core/diff.ts`). */
+export type ActionChange =
+  /** a payload attribute, named as in the `set` delta that caused it */
+  | { kind: "attribute"; name: string }
+  /** the owner edge (`link` delta); `to` names the new owner role */
+  | { kind: "owner"; to: string }
+  /** an accepted rename: the subject is the new id, `from` the old one */
+  | { kind: "rename"; from: StableId }
+  /** no delta: revokes what PostgreSQL granted by default when the grant's
+   *  target was created. The subject is a grant present in neither state. */
+  | { kind: "defaultPrivileges" };
+
+interface ActionBase {
   sql: string;
-  verb: "create" | "alter" | "drop";
+  /** The fact this statement creates, changes or drops. Stamped by the
+   *  emitter, which is the only place that knows; never derive it from
+   *  `produces` / `consumes` / `destroys` (those are ordering edges and
+   *  carry side-effect ids). Fact grain: a column, grant or comment names
+   *  itself, not its table. It is an identity, not a lookup key: a drop's
+   *  subject exists only in the source, a cleanup REVOKE's in neither. */
+  subject: StableId;
   produces: StableId[];
   consumes: StableId[];
   destroys: StableId[];
@@ -102,6 +124,17 @@ export interface Action {
   dataLoss: "none" | "destructive";
   rewriteRisk: boolean;
 }
+
+/** `verb` describes the FACT, not the SQL keyword: `ADD COLUMN` is a
+ *  `create` of the column, and a follow-up statement of a multi-statement
+ *  create (`ALTER TABLE … ENABLE ROW LEVEL SECURITY`) is a `create` too.
+ *  Every `alter` says what it changes; a create or drop never does. */
+export type Action = ActionBase &
+  (
+    | { verb: "create"; change?: undefined }
+    | { verb: "drop"; change?: undefined }
+    | { verb: "alter"; change: ActionChange }
+  );
 
 /** Aggregated per-action safety metadata (§3.7). Lock classes and
  *  rewrite/data-loss counts; the proof loop turns dataLoss into a
@@ -684,7 +717,10 @@ export function plan(
   // the load dest is an auto-expose baseline. Policy-only DB-to-DB only
   // REVOKEs roles the apply target already has: assumedRoles skip the
   // requirement guard, and alpine/stock Postgres has no `anon`.
-  const exportOverlay = (options?.assumedDefaultGrants ?? []).length > 0;
+  const overlayAdpWipes = uniqueAssumedDefaultGrants(
+    options?.assumedDefaultGrants ?? [],
+  );
+  const exportOverlay = overlayAdpWipes.length > 0;
   const overlayHygieneGrantees = new Set<string>();
   for (const tuple of assumedDefaultGrants) {
     if (
@@ -754,7 +790,6 @@ export function plan(
     destroyerOf,
     foldHints,
     acceptsFolds,
-    renameActionIndices,
     implicitDestroys,
   } = emitActions({
     source,
@@ -773,7 +808,7 @@ export function plan(
     capability: options?.capability,
     rulesForId,
     assumedDefaultGrants,
-    overlayAdpWipes: options?.assumedDefaultGrants ?? [],
+    overlayAdpWipes,
     overlayHygieneGrantees,
     ...(options?.defaultOwner !== undefined
       ? { defaultOwner: options.defaultOwner }
@@ -791,7 +826,6 @@ export function plan(
     destroyerOf,
     source,
     desired,
-    renameActionIndices,
     implicitDestroys,
     foldHints,
     acceptsFolds,
@@ -799,7 +833,7 @@ export function plan(
     assumedSchemaNames,
     assumedPresentIds,
     assumedDefaultGrants,
-    overlayAdpWipes: options?.assumedDefaultGrants ?? [],
+    overlayAdpWipes,
     capability: options?.capability,
     compact: options?.compact !== false,
     foldConstraints: options?.foldConstraints,

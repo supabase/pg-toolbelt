@@ -15,9 +15,19 @@ import {
   mergeCoTargetRevokes,
 } from "./internal.ts";
 import { renderRevokeAllSql } from "./rules/helpers.ts";
-import type { Action } from "./plan.ts";
+import type { Action, ActionChange } from "./plan.ts";
 
-function mkAction(partial: Partial<Action> & { sql: string }): Action {
+type MkActionInput = Partial<
+  Omit<Action, "sql" | "subject" | "verb" | "change">
+> & {
+  sql: string;
+  subject: StableId;
+} & (
+    | { verb?: "create" | "drop"; change?: undefined }
+    | { verb: "alter"; change: ActionChange }
+  );
+
+function mkAction(partial: MkActionInput): Action {
   return {
     verb: "create",
     produces: [],
@@ -62,11 +72,13 @@ function aclActions(target: StableId, grantee: string): Action[] {
   return [
     mkAction({
       sql: `REVOKE ALL ... FROM ${grantee}`,
+      subject: id,
       produces: [id],
       consumes: [target],
     }),
     mkAction({
       sql: `GRANT ... TO ${grantee}`,
+      subject: id,
       produces: [],
       consumes: [id, target],
     }),
@@ -112,10 +124,16 @@ describe("elideDefaultAclCreates", () => {
     const desired = buildFactBase(facts, edges);
 
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "CREATE TYPE app.mood ...",
+        subject: mood,
+        produces: [mood],
+      }),
       mkAction({
         sql: "ALTER TYPE app.mood OWNER TO test",
         verb: "alter",
+        subject: mood,
+        change: { kind: "owner", to: "test" },
         consumes: [mood, { kind: "role", name: "test" }],
       }),
       ...aclActions(mood, "PUBLIC"),
@@ -153,7 +171,7 @@ describe("elideDefaultAclCreates", () => {
       { from: t, to: { kind: "role", name: "test" }, kind: "owner" },
     ]);
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      mkAction({ sql: "CREATE TABLE app.t ...", subject: t, produces: [t] }),
       ...aclActions(t, "test"),
     ];
     const kept = elideDefaultAclCreates(actions, desired);
@@ -196,7 +214,7 @@ describe("elideDefaultAclCreates", () => {
       { from: t, to: { kind: "role", name: "test" }, kind: "owner" },
     ]);
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      mkAction({ sql: "CREATE TABLE app.t ...", subject: t, produces: [t] }),
       ...aclActions(t, "test"),
     ];
     // capability's role is the ADP's defaclrole (the applier creates the object)
@@ -217,7 +235,11 @@ describe("elideDefaultAclCreates", () => {
       { from: mood, to: { kind: "role", name: "test" }, kind: "owner" },
     ]);
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "CREATE TYPE app.mood ...",
+        subject: mood,
+        produces: [mood],
+      }),
       ...aclActions(mood, "app_user"),
     ];
     const kept = elideDefaultAclCreates(actions, desired);
@@ -236,7 +258,7 @@ describe("elideDefaultAclCreates", () => {
       { from: t, to: { kind: "role", name: "test" }, kind: "owner" },
     ]);
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      mkAction({ sql: "CREATE TABLE app.t ...", subject: t, produces: [t] }),
       ...aclActions(t, "PUBLIC"),
     ];
     const kept = elideDefaultAclCreates(actions, desired);
@@ -255,7 +277,11 @@ describe("elideDefaultAclCreates", () => {
       { from: mood, to: { kind: "role", name: "test" }, kind: "owner" },
     ]);
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "CREATE TYPE app.mood ...",
+        subject: mood,
+        produces: [mood],
+      }),
       ...aclActions(mood, "PUBLIC"),
     ];
     const kept = elideDefaultAclCreates(actions, desired);
@@ -282,7 +308,7 @@ describe("elideDefaultAclCreates", () => {
     const t = tableId("t");
     const desired = buildFactBase([{ id: t, payload: {} }], []);
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      mkAction({ sql: "CREATE TABLE app.t ...", subject: t, produces: [t] }),
     ];
     expect(elideDefaultAclCreates(actions, desired).map((a) => a.sql)).toEqual([
       "CREATE TABLE app.t ...",
@@ -326,7 +352,11 @@ describe("elideDefaultAclCreates", () => {
         { from: mood, to: roleId("test"), kind: "owner" },
       ];
       const actions: Action[] = [
-        mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+        mkAction({
+          sql: "CREATE TYPE app.mood ...",
+          subject: mood,
+          produces: [mood],
+        }),
         ...aclActions(mood, "PUBLIC"),
       ];
       const kept = elideDefaultAclCreates(
@@ -432,7 +462,7 @@ describe("elideDefaultAclCreates", () => {
         },
       ];
       const actions: Action[] = [
-        mkAction({ sql: `CREATE SCHEMA "s"`, produces: [s] }),
+        mkAction({ sql: `CREATE SCHEMA "s"`, subject: s, produces: [s] }),
         ...aclActions(s, "test"),
       ];
       const kept = elideDefaultAclCreates(
@@ -464,10 +494,12 @@ describe("foldCoCreateOwnership", () => {
       [{ from: s, to: roleId("bob"), kind: "owner" }],
     );
     const actions: Action[] = [
-      mkAction({ sql: `CREATE SCHEMA "myschema"`, produces: [s] }),
+      mkAction({ sql: `CREATE SCHEMA "myschema"`, subject: s, produces: [s] }),
       mkAction({
         sql: `ALTER SCHEMA "myschema" OWNER TO "bob"`,
         verb: "alter",
+        subject: s,
+        change: { kind: "owner", to: "bob" },
         consumes: [s, roleId("bob")],
       }),
     ];
@@ -490,10 +522,12 @@ describe("foldCoCreateOwnership", () => {
       [{ from: s, to: roleId("bob"), kind: "owner" }],
     );
     const actions: Action[] = [
-      mkAction({ sql: `CREATE SCHEMA "myschema"`, produces: [s] }),
+      mkAction({ sql: `CREATE SCHEMA "myschema"`, subject: s, produces: [s] }),
       mkAction({
         sql: `ALTER SCHEMA "myschema" OWNER TO "bob"`,
         verb: "alter",
+        subject: s,
+        change: { kind: "owner", to: "bob" },
         consumes: [s, roleId("bob")],
       }),
     ];
@@ -511,10 +545,16 @@ describe("foldCoCreateOwnership", () => {
       [{ from: mood, to: roleId("test"), kind: "owner" }],
     );
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "CREATE TYPE app.mood ...",
+        subject: mood,
+        produces: [mood],
+      }),
       mkAction({
         sql: "ALTER TYPE app.mood OWNER TO test",
         verb: "alter",
+        subject: mood,
+        change: { kind: "owner", to: "test" },
         consumes: [mood, roleId("test")],
       }),
     ];
@@ -529,10 +569,16 @@ describe("foldCoCreateOwnership", () => {
       [{ from: mood, to: roleId("type_owner"), kind: "owner" }],
     );
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "CREATE TYPE app.mood ...",
+        subject: mood,
+        produces: [mood],
+      }),
       mkAction({
         sql: "ALTER TYPE app.mood OWNER TO type_owner",
         verb: "alter",
+        subject: mood,
+        change: { kind: "owner", to: "type_owner" },
         consumes: [mood, roleId("type_owner")],
       }),
     ];
@@ -558,11 +604,17 @@ describe("foldCoCreateOwnership", () => {
     // — this exercises the genuine not-co-created branch for `mood`, not the
     // empty-map early return.
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TYPE app.fresh ...", produces: [fresh] }),
+      mkAction({
+        sql: "CREATE TYPE app.fresh ...",
+        subject: fresh,
+        produces: [fresh],
+      }),
       // no CREATE for `mood` → target not co-created; this is a real owner change
       mkAction({
         sql: "ALTER TYPE app.mood OWNER TO test",
         verb: "alter",
+        subject: mood,
+        change: { kind: "owner", to: "test" },
         consumes: [mood, roleId("test")],
         releases: [roleId("old_owner")],
       }),
@@ -581,10 +633,16 @@ describe("foldCoCreateOwnership", () => {
       [{ from: mood, to: roleId("test"), kind: "owner" }],
     );
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "CREATE TYPE app.mood ...",
+        subject: mood,
+        produces: [mood],
+      }),
       mkAction({
         sql: "ALTER TYPE app.mood OWNER TO test",
         verb: "alter",
+        subject: mood,
+        change: { kind: "owner", to: "test" },
         consumes: [mood, roleId("test")],
       }),
     ];
@@ -623,7 +681,11 @@ describe("elideCoCreateRevokeBeforeGrant", () => {
       [],
     );
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "CREATE TYPE app.mood ...",
+        subject: mood,
+        produces: [mood],
+      }),
       ...aclActions(mood, "app_user"),
     ];
     const kept = elideCoCreateRevokeBeforeGrant(actions, desired);
@@ -641,9 +703,14 @@ describe("elideCoCreateRevokeBeforeGrant", () => {
       [],
     );
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TYPE app.mood ...", produces: [mood] }),
+      mkAction({
+        sql: "CREATE TYPE app.mood ...",
+        subject: mood,
+        produces: [mood],
+      }),
       mkAction({
         sql: "REVOKE ALL ... FROM PUBLIC",
+        subject: id,
         produces: [id],
         consumes: [mood],
       }),
@@ -666,7 +733,7 @@ describe("elideCoCreateRevokeBeforeGrant", () => {
       [],
     );
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      mkAction({ sql: "CREATE TABLE app.t ...", subject: t, produces: [t] }),
       ...aclActions(t, "anon"),
     ];
     const kept = elideCoCreateRevokeBeforeGrant(actions, desired, cap("test"));
@@ -687,7 +754,7 @@ describe("elideCoCreateRevokeBeforeGrant", () => {
       [],
     );
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      mkAction({ sql: "CREATE TABLE app.t ...", subject: t, produces: [t] }),
       ...aclActions(t, "anon"),
     ];
     const kept = elideCoCreateRevokeBeforeGrant(actions, desired, cap("test"));
@@ -708,7 +775,7 @@ describe("elideCoCreateRevokeBeforeGrant", () => {
       [],
     );
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TABLE app.t ...", produces: [t] }),
+      mkAction({ sql: "CREATE TABLE app.t ...", subject: t, produces: [t] }),
       ...aclActions(t, "anon"),
     ];
     const kept = elideCoCreateRevokeBeforeGrant(actions, desired, cap("test"));
@@ -777,7 +844,11 @@ describe("elideCoCreateRevokeBeforeGrant", () => {
       ],
     );
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TABLE public.t ...", produces: [publicTable] }),
+      mkAction({
+        sql: "CREATE TABLE public.t ...",
+        subject: publicTable,
+        produces: [publicTable],
+      }),
       ...aclActions(publicTable, "anon"),
     ];
     const kept = elideCoCreateRevokeBeforeGrant(actions, desired, undefined, [
@@ -810,7 +881,11 @@ describe("elideCoCreateRevokeBeforeGrant", () => {
       ],
     );
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TABLE public.t ...", produces: [publicTable] }),
+      mkAction({
+        sql: "CREATE TABLE public.t ...",
+        subject: publicTable,
+        produces: [publicTable],
+      }),
       ...aclActions(publicTable, "anon"),
     ];
     const kept = elideCoCreateRevokeBeforeGrant(actions, desired, undefined, [
@@ -830,7 +905,11 @@ describe("elideCoCreateRevokeBeforeGrant", () => {
       [],
     );
     const actions: Action[] = [
-      mkAction({ sql: "CREATE TABLE public.t ...", produces: [publicTable] }),
+      mkAction({
+        sql: "CREATE TABLE public.t ...",
+        subject: publicTable,
+        produces: [publicTable],
+      }),
       ...aclActions(publicTable, "anon"),
     ];
     const kept = elideCoCreateRevokeBeforeGrant(actions, desired);
@@ -846,6 +925,7 @@ describe("mergeCoTargetGrants", () => {
   const grantAction = (grantee: string): Action =>
     mkAction({
       sql: grantSql(grantee),
+      subject: aclId(t, grantee),
       produces: [],
       consumes: [aclId(t, grantee), t, roleId(grantee)],
     });
@@ -893,6 +973,8 @@ describe("mergeCoTargetGrants", () => {
     const between = mkAction({
       sql: "ALTER TABLE app.t ENABLE ROW LEVEL SECURITY",
       verb: "alter",
+      subject: t,
+      change: { kind: "attribute", name: "rowSecurity" },
       consumes: [t],
     });
     const merged = mergeCoTargetGrants(
@@ -912,6 +994,7 @@ describe("mergeCoTargetGrants", () => {
     // so anon's GRANT is excluded from merging (pg_dump pairing kept).
     const revoke = mkAction({
       sql: `REVOKE ALL ON TABLE "app"."t" FROM "anon"`,
+      subject: aclId(t, "anon"),
       produces: [aclId(t, "anon")],
       consumes: [t],
     });
@@ -944,12 +1027,15 @@ describe("mergeCoTargetRevokes", () => {
   const revokeCreate = (grantee: string): Action =>
     mkAction({
       sql: renderRevokeAllSql(t, [grantee]),
+      subject: aclId(t, grantee),
       produces: [aclId(t, grantee)],
       consumes: grantee === "PUBLIC" ? [t] : [t, roleId(grantee)],
     });
   const revokeHygiene = (grantee: string): Action =>
     mkAction({
       verb: "alter",
+      subject: aclId(t, grantee),
+      change: { kind: "defaultPrivileges" },
       sql: renderRevokeAllSql(t, [grantee]),
       produces: [],
       consumes: grantee === "PUBLIC" ? [t] : [t, roleId(grantee)],
@@ -960,6 +1046,7 @@ describe("mergeCoTargetRevokes", () => {
       revokeCreate("PUBLIC"),
       mkAction({
         sql: `GRANT SELECT ON TABLE "public"."t" TO "authenticated"`,
+        subject: aclId(t, "authenticated"),
         consumes: [aclId(t, "authenticated"), t, roleId("authenticated")],
       }),
       revokeHygiene("anon"),
@@ -980,6 +1067,8 @@ describe("mergeCoTargetRevokes", () => {
     const alter = mkAction({
       verb: "alter",
       sql: `ALTER TABLE "public"."t" ALTER COLUMN "id" SET GENERATED BY DEFAULT`,
+      subject: col,
+      change: { kind: "attribute", name: "identity" },
       consumes: [col],
     });
     expect(mergeCoTargetRevokes([alter]).map((a) => a.sql)).toEqual([
@@ -991,6 +1080,7 @@ describe("mergeCoTargetRevokes", () => {
     const subsetRevoke = revokeCreate("authenticated");
     const subsetGrant = mkAction({
       sql: `GRANT SELECT ON TABLE "public"."t" TO "authenticated"`,
+      subject: aclId(t, "authenticated"),
       consumes: [aclId(t, "authenticated"), t, roleId("authenticated")],
     });
     const merged = mergeCoTargetRevokes([

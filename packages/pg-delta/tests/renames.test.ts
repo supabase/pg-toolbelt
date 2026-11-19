@@ -431,7 +431,9 @@ describe("stage 9: renames", () => {
       // covered (before the fix it was skipped as "dropped by the plan").
       thePlan.actions.push({
         sql: `TRUNCATE app.new_name`,
+        subject: { kind: "table", schema: "app", name: "new_name" },
         verb: "alter",
+        change: { kind: "attribute", name: "unspecified" },
         produces: [],
         consumes: [{ kind: "table", schema: "app", name: "new_name" }],
         destroys: [],

@@ -16,6 +16,7 @@ function action(
 ): Action {
   return {
     sql: "SELECT 1",
+    subject: { kind: "schema", name: "public" },
     verb: "create",
     produces: [],
     consumes: [],
