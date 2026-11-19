@@ -948,6 +948,12 @@ describe("mergeCoTargetGrants", () => {
     expect(merged.map((a) => a.sql)).toEqual([
       `GRANT SELECT ON TABLE "app"."t" TO "anon", "authenticated"`,
     ]);
+    // the subject names one grant; produces names every grant it creates
+    expect(merged[0]!.subject).toEqual(aclId(t, "anon"));
+    expect(merged[0]!.produces).toEqual([
+      aclId(t, "anon"),
+      aclId(t, "authenticated"),
+    ]);
     const consumes = merged[0]!.consumes;
     expect(consumes.some((c) => c.kind === "acl")).toBe(false);
     for (const g of ["anon", "authenticated"]) {
