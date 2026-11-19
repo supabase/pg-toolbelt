@@ -1511,7 +1511,7 @@ export function elideCoCreateRevokeBeforeGrant(
 }
 
 type AclId = Extract<StableId, { kind: "acl" }>;
-const isAclId = (id: StableId): id is AclId => id.kind === "acl";
+export const isAclId = (id: StableId): id is AclId => id.kind === "acl";
 
 /**
  * Compaction (§3.6), same-object REVOKE ALL merge: hygiene and REVOKE-only
@@ -1549,7 +1549,8 @@ export function mergeCoTargetRevokes(actions: readonly Action[]): Action[] {
     // The cleanup of an identity column's backing sequence is ordered after
     // the column, not the sequence, so it cannot join a group led by the
     // sequence's own REVOKE: leave it as is.
-    if (!action.consumes.some((c) => encodeId(c) === encodeId(subject.target)))
+    const targetKey = encodeId(subject.target);
+    if (!action.consumes.some((c) => encodeId(c) === targetKey))
       return undefined;
     if (action.sql !== renderRevokeAllSql(subject.target, [subject.grantee]))
       return undefined;

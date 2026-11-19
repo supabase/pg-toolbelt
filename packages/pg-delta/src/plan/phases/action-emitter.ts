@@ -98,6 +98,13 @@ export interface ActionEmitterOutput {
  * Emit the atomic action list from the change set + replacement expansion.
  * Behavior-preserving extraction of `plan()`'s emission block.
  */
+/** `ALTER DEFAULT PRIVILEGES … REVOKE ALL` for one default-privilege entry. */
+const wipeSpecsOf = (id: StableId) =>
+  defaultPrivilegeCreateActions({
+    id,
+    payload: { privileges: [], grantable: [] },
+  });
+
 export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const {
     source,
@@ -169,6 +176,8 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       newSegmentBefore: false,
       dataLoss: spec.dataLoss ?? "none",
       rewriteRisk: spec.rewriteRisk ?? false,
+      // `opts` already ties `change` to the verb; TypeScript cannot narrow
+      // the generic `V` to one union member here
     } as Action);
     foldHints[index] = spec.compaction;
     acceptsFolds[index] = spec.acceptsColumnFolds ?? false;
@@ -243,13 +252,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       ((fact.payload["privileges"] as string[] | undefined) ?? []).length > 0 &&
       isOverlayDefaultPrivilege(overlayAdpWipes, fact.id)
     ) {
-      specs = [
-        ...defaultPrivilegeCreateActions({
-          id: fact.id,
-          payload: { privileges: [], grantable: [] },
-        }),
-        ...specs,
-      ];
+      specs = [...wipeSpecsOf(fact.id), ...specs];
     }
     const wiped = implicitlyDestroyed(fact);
     specs.forEach((spec, i) => {
@@ -505,10 +508,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // not a create.
     const parent: StableId[] =
       tuple.schema != null ? [{ kind: "schema", name: tuple.schema }] : [];
-    for (const spec of defaultPrivilegeCreateActions({
-      id,
-      payload: { privileges: [], grantable: [] },
-    })) {
+    for (const spec of wipeSpecsOf(id)) {
       pushAction("alter", spec, {
         subject: id,
         change: { kind: "defaultPrivileges" },

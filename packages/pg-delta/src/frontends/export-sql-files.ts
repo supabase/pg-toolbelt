@@ -21,7 +21,7 @@ import { createHash } from "node:crypto";
 import { buildFactBase, type Fact, type FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { stronglyConnectedComponents } from "../plan/graph.ts";
-import { placementOf } from "../plan/internal.ts";
+import { isAclId, placementOf } from "../plan/internal.ts";
 import { plan, type Action, type AssumedDefaultGrant } from "../plan/plan.ts";
 import type { IntentRuleIndex } from "../plan/rules.ts";
 import { isOverlayWipeAction } from "../policy/policy.ts";
@@ -161,14 +161,15 @@ function ownedTableOfSequence(
 function fileSubject(action: Action, fb: FactBase): StableId {
   const { subject } = action;
   const column = action.consumes.find((id) => id.kind === "column");
-  if (column !== undefined) {
-    // OWNED BY: a follow-up of the sequence's create that names the column
-    if (subject.kind === "sequence") return column;
-    // a grant on an identity column's backing sequence: the sequence has no
-    // file of its own
-    if (subject.kind === "acl" && subject.target.kind === "sequence") {
-      return column;
-    }
+  // OWNED BY (a follow-up of the sequence's create that names the column), or
+  // a grant on an identity column's backing sequence, which has no file of
+  // its own
+  if (
+    column !== undefined &&
+    (subject.kind === "sequence" ||
+      (isAclId(subject) && subject.target.kind === "sequence"))
+  ) {
+    return column;
   }
   if (subject.kind === "sequence" && action.change?.kind === "owner") {
     const table = ownedTableOfSequence(fb, subject);
@@ -177,21 +178,35 @@ function fileSubject(action: Action, fb: FactBase): StableId {
   return placementOf(action);
 }
 
+/** The file an action goes to: the export-only wipe of a platform default
+ *  grant has its own file; everything else follows the layout's `pathOf`. */
+function actionPath(
+  action: Action,
+  fb: FactBase,
+  options: ExportOptions,
+  pathContext: PathContext,
+  pathOf: (subject: StableId) => string,
+): string {
+  const subject = fileSubject(action, fb);
+  if (
+    subject.kind === "defaultPrivilege" &&
+    isOverlayWipeAction(options.assumedDefaultGrants ?? [], action)
+  ) {
+    return adpWipePath(subject, pathContext);
+  }
+  return pathOf(subject);
+}
+
 /** After OWNED BY, ALTER SEQUENCE OWNER TO must follow ALTER TABLE OWNER TO
  *  (or the owners diverge and PostgreSQL rejects the owned sequence). */
 function placeOwnedSequenceOwner(statements: Action[]): string[] {
-  const setsOwnerOf =
-    (kind: StableId["kind"]) =>
-    (a: Action): boolean =>
-      a.change?.kind === "owner" && a.subject.kind === kind;
-  const seqOwner = statements.filter(setsOwnerOf("sequence"));
-  const rest =
-    seqOwner.length === 0
-      ? statements
-      : statements.filter((a) => !setsOwnerOf("sequence")(a));
-  const tableOwnerAt = rest.findLastIndex(setsOwnerOf("table"));
+  const setsOwnerOf = (a: Action, kind: StableId["kind"]): boolean =>
+    a.change?.kind === "owner" && a.subject.kind === kind;
+  const seqOwner = statements.filter((a) => setsOwnerOf(a, "sequence"));
+  const rest = statements.filter((a) => !setsOwnerOf(a, "sequence"));
+  const tableOwnerAt = rest.findLastIndex((a) => setsOwnerOf(a, "table"));
   const placed =
-    seqOwner.length === 0 || tableOwnerAt === -1
+    tableOwnerAt === -1
       ? statements
       : [
           ...rest.slice(0, tableOwnerAt + 1),
@@ -1017,16 +1032,11 @@ export function exportSqlFiles(
   }
 
   // Each action's file path, in plan order (shared by both layouts below).
-  const actionPaths = rendered.actions.map((action) => {
-    const subject = fileSubject(action, fb);
-    if (
-      subject.kind === "defaultPrivilege" &&
-      isOverlayWipeAction(options.assumedDefaultGrants ?? [], action)
-    ) {
-      return adpWipePath(subject, pathContext);
-    }
-    return pathFor(subject, pathContext);
-  });
+  const actionPaths = rendered.actions.map((action) =>
+    actionPath(action, fb, options, pathContext, (subject) =>
+      pathFor(subject, pathContext),
+    ),
+  );
 
   if (layout === "ordered") {
     // statement-true splitting: runs of CONSECUTIVE same-object actions
@@ -1227,17 +1237,9 @@ function exportGrouped(
   // Case-twin paths fold to one shared file, exactly like the by-object
   // layout (issue #365) — regrouping cannot re-split them because the fold is
   // computed on the final grouped paths.
-  const overlay = options.assumedDefaultGrants;
-  const actionPaths = actions.map((action) => {
-    const subject = fileSubject(action, fb);
-    if (
-      subject.kind === "defaultPrivilege" &&
-      isOverlayWipeAction(overlay ?? [], action)
-    ) {
-      return adpWipePath(subject, pathContext);
-    }
-    return groupedPath(subject);
-  });
+  const actionPaths = actions.map((action) =>
+    actionPath(action, fb, options, pathContext, groupedPath),
+  );
   const folds = foldCaseCollidingPaths(actionPaths, options.onWarning);
   const foldedPaths = actionPaths.map((p) => folds.get(p) ?? p);
   // a dependency cycle the fold created collapses into ONE file, exactly as

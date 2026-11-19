@@ -8,6 +8,7 @@ import type { FactBase } from "../src/core/fact.ts";
 import { encodeId, type StableId } from "../src/core/stable-id.ts";
 import { relabelRoleNames } from "../src/plan/identity-normalize.ts";
 import type { Action, Plan } from "../src/plan/plan.ts";
+import { lit, qid } from "../src/plan/render.ts";
 
 /** Every name the id carries that a statement about it must spell out. The
  *  schema is left out: `search_path`-relative definitions omit it. */
@@ -47,8 +48,7 @@ function namesOf(id: StableId): string[] {
 const REPLACED_MARKER = "__pgdelta_replaced";
 
 function mentions(sql: string, name: string): boolean {
-  if (sql.includes(`"${name.replaceAll('"', '""')}"`)) return true;
-  if (sql.includes(`'${name.replaceAll("'", "''")}'`)) return true;
+  if (sql.includes(qid(name)) || sql.includes(lit(name))) return true;
   // unquoted, as PostgreSQL's own deparsers (pg_get_functiondef, …) print it
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^A-Za-z0-9_])${escaped}([^A-Za-z0-9_]|$)`).test(sql);
@@ -57,17 +57,21 @@ function mentions(sql: string, name: string): boolean {
 const has = (ids: readonly StableId[], id: StableId): boolean =>
   ids.some((other) => encodeId(other) === encodeId(id));
 
-function stampViolations(
-  action: Action,
+interface PlanContext {
+  source: FactBase;
+  desired: FactBase;
+  inSource: (id: StableId) => boolean;
+  /** encoded id + attribute of every `set` delta */
+  setDeltas: Set<string>;
+  /** rename actions by encoded subject */
+  renameOf: Map<string, Action>;
+}
+
+function planContext(
   thePlan: Plan,
   source: FactBase,
   desired: FactBase,
-): string[] {
-  const out: string[] = [];
-  const { subject } = action;
-  const expect = (ok: boolean, what: string): void => {
-    if (!ok) out.push(what);
-  };
+): PlanContext {
   // After an accepted role rename every id that embeds the role is written
   // with the NEW name, the one its statement uses. The source state still
   // spells it the old way.
@@ -78,8 +82,31 @@ function stampViolations(
         : [],
     ),
   );
-  const inSource = (id: StableId): boolean =>
-    source.has(id) || source.has(relabelRoleNames(id, oldRoleNames));
+  return {
+    source,
+    desired,
+    inSource: (id) =>
+      source.has(id) || source.has(relabelRoleNames(id, oldRoleNames)),
+    setDeltas: new Set(
+      thePlan.deltas.flatMap((d) =>
+        d.verb === "set" ? [`${encodeId(d.id)}\x00${d.attr}`] : [],
+      ),
+    ),
+    renameOf: new Map(
+      thePlan.actions.flatMap((a) =>
+        a.change?.kind === "rename" ? [[encodeId(a.subject), a] as const] : [],
+      ),
+    ),
+  };
+}
+
+function stampViolations(action: Action, ctx: PlanContext): string[] {
+  const out: string[] = [];
+  const { subject } = action;
+  const { source, desired, inSource } = ctx;
+  const expect = (ok: boolean, what: string): void => {
+    if (!ok) out.push(what);
+  };
 
   const namesRebuiltEnum =
     subject.kind === "type" && action.sql.includes(REPLACED_MARKER);
@@ -122,12 +149,7 @@ function stampViolations(
           "altered subject must exist in both states",
         );
         expect(
-          thePlan.deltas.some(
-            (d) =>
-              d.verb === "set" &&
-              d.attr === change.name &&
-              encodeId(d.id) === encodeId(subject),
-          ),
+          ctx.setDeltas.has(`${encodeId(subject)}\x00${change.name}`),
           `no set delta for attribute "${change.name}"`,
         );
         break;
@@ -154,13 +176,7 @@ function stampViolations(
         // the id the statement starts from, in neither state.
         const parent = desired.get(subject)?.parent;
         const parentRename =
-          parent === undefined
-            ? undefined
-            : thePlan.actions.find(
-                (other) =>
-                  other.change?.kind === "rename" &&
-                  encodeId(other.subject) === encodeId(parent),
-              );
+          parent === undefined ? undefined : ctx.renameOf.get(encodeId(parent));
         if (parentRename?.change?.kind === "rename" && !inSource(change.from)) {
           const fromName = "name" in change.from ? change.from.name : undefined;
           expect(
@@ -204,8 +220,9 @@ export function enforceActionStamps(
   source: FactBase,
   desired: FactBase,
 ): void {
+  const ctx = planContext(thePlan, source, desired);
   const problems = thePlan.actions.flatMap((action, index) =>
-    stampViolations(action, thePlan, source, desired).map(
+    stampViolations(action, ctx).map(
       (what) =>
         `  ${index}: ${what}\n     subject ${encodeId(action.subject)}\n     ${action.sql.slice(0, 160)}`,
     ),
