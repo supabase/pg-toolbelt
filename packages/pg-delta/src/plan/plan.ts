@@ -83,6 +83,12 @@ export interface Action {
   produces: StableId[];
   consumes: StableId[];
   destroys: StableId[];
+  /** the fact this statement changes, fixed at emission: a rename names the
+   *  new id, an identity alter its column, a hygiene REVOKE the object acl; a
+   *  compaction-merged action keeps its leading member's. A stable contract,
+   *  unlike the order of produces/consumes/destroys. Absent on artifacts from
+   *  earlier engines. */
+  subject?: StableId;
   /** ids this action stops referencing — must run before their destroyer */
   releases: StableId[];
   /** three-valued transactionality (§3.8) */

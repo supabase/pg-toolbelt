@@ -136,6 +136,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     verb: Action["verb"],
     spec: ActionSpec,
     opts: {
+      subject: StableId;
       produces?: StableId[];
       consumes?: StableId[];
       destroys?: StableId[];
@@ -160,6 +161,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       produces,
       consumes,
       destroys,
+      subject: opts.subject,
       releases: spec.releases ?? [],
       transactionality: spec.transactionality ?? "transactional",
       lockClass:
@@ -253,6 +255,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     const wiped = implicitlyDestroyed(fact);
     specs.forEach((spec, i) => {
       pushAction("create", spec, {
+        subject: fact.id,
         produces: i === 0 ? [fact.id] : [],
         consumes: [
           ...(i === 0 ? [] : [fact.id]),
@@ -293,6 +296,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     renamed.add(renamedOn(from, to, from.parent));
     renameActionIndices.add(
       pushAction("alter", renameRuleOf(from.id)(from, to.id), {
+        subject: to.id,
         produces: desiredSubtree,
         destroys: sourceSubtree,
         consumes: to.parent !== undefined ? [to.parent] : [],
@@ -323,7 +327,10 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         pushAction(
           "alter",
           renameRuleOf(child.from.id)(child.from, child.to.id),
-          { produces: subtreeIds(desired, child.to.id) },
+          {
+            subject: child.to.id,
+            produces: subtreeIds(desired, child.to.id),
+          },
         ),
       );
     }
@@ -425,6 +432,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       // comes from the child-teardown rule (source parent → parentDestroyer).
       const isRoot = encodeId(rootFact.id) === key;
       pushAction("drop", rulesForId(rootFact.id).drop(rootFact, source), {
+        subject: rootFact.id,
         consumes:
           isRoot && rootFact.parent !== undefined ? [rootFact.parent] : [],
         destroys,
@@ -617,6 +625,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
               : [{ kind: "role", name: grantee } as StableId],
         },
         {
+          subject: aclId,
           consumes: [after],
           // the wipe also revokes this grantee's desired column grants
           wipes: columnAclIdsFor(aclId, projectedDesired),
@@ -748,8 +757,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       destroyList.push(id);
     }
     pushAction("drop", spec, {
+      subject: fact.id,
       consumes: fact.parent !== undefined ? [fact.parent] : [],
-      // the root fact leads: it is the action's subject (tie-break, locks)
+      // the root fact leads destroys: tie-break and lock class key on it
       destroys: destroyList,
       wipes: implicitlyDestroyed(fact),
     });
@@ -781,7 +791,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         source,
       );
       for (const spec of Array.isArray(specs) ? specs : [specs]) {
-        pushAction("alter", spec, { consumes: [fact.id] });
+        pushAction("alter", spec, { subject: fact.id, consumes: [fact.id] });
       }
     }
   }
@@ -873,7 +883,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           consumes: [newRoleId],
           ...(oldRoleId !== undefined ? { releases: [oldRoleId] } : {}),
         },
-        { consumes: [objId] },
+        { subject: objId, consumes: [objId] },
       );
       ownerEmitted.add(objKey);
     }
@@ -910,7 +920,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           sql: `${ownerAlterPrefix(fact)} OWNER TO ${qid(roleName)}`,
           consumes: [ownerEdge.to],
         },
-        { consumes: [fact.id] },
+        { subject: fact.id, consumes: [fact.id] },
       );
     }
   }

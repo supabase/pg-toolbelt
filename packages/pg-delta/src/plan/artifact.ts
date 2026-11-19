@@ -215,6 +215,9 @@ function assertAction(value: unknown, index: number): asserts value is Action {
   for (const field of ["produces", "consumes", "destroys", "releases"]) {
     assertIdArray(value[field], `${path}.${field}`);
   }
+  if (value["subject"] !== undefined) {
+    assertStableId(value["subject"], `${path}.subject`);
+  }
   const transactionality = stringField(value, "transactionality", path);
   if (!TRANSACTIONALITY.has(transactionality)) {
     fail(`${path}.transactionality`, "a recognized transactionality value");
@@ -259,6 +262,8 @@ function reviver(_key: string, value: unknown): unknown {
  * with invented strings. Absent `acceptedRenames` hashes as `[]`.
  * The preamble is hashed because apply executes it per segment — it is
  * run content, exactly like the action list, not reporting metadata.
+ * An action's `subject` is left out: apply never reads it, and engines that
+ * predate it must still accept these artifacts.
  */
 export function computePlanId(plan: Omit<Plan, "planId">): string {
   const payload: Payload = {

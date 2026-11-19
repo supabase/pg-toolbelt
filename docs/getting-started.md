@@ -363,6 +363,12 @@ const { factBase } = loadSnapshot("prod.snapshot");
 - **`Plan`** — `{ actions, deltas, filteredDeltas, safetyReport, source, target,
   renameCandidates, … }`. `Action` carries `sql`, `verb`, `transactionality`,
   `lockClass`, `dataLoss`, `rewriteRisk`, and produces/consumes/destroys edges.
+  Its optional `subject` is the fact the statement changes, fixed when the
+  action is emitted: a rename's new id, an object GRANT/REVOKE's acl (the
+  object is in `.target`). Unlike the order of those edges, it is a stable
+  contract. A compaction-merged GRANT/REVOKE keeps its leading member's; plan
+  with `compact: false` for one per grantee. Absent on plans from earlier
+  engines.
 - **`ApplyReport`** — `{ status, appliedActions, actionStatuses, error? }`.
 - **`ProofVerdict`** — the compatibility shape. Its additive
   `projectionAudit?` and `projectionAuditStatus?` fields remain optional so

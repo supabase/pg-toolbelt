@@ -30,7 +30,8 @@ This guide maps the old surface onto the new one.
 - `source.fingerprint` / `target.fingerprint` are fact-base rollup
   digests. Apply gates on the source fingerprint by default.
 - Every action carries `produces` / `consumes` / `destroys` /
-  `releases` fact ids, a vetted `lockClass` (reported, not certified),
+  `releases` fact ids, a stable `subject` (the fact it changes), a
+  vetted `lockClass` (reported, not certified),
   three-valued `transactionality`, `dataLoss`, and `rewriteRisk`. The
   plan-level `safetyReport` aggregates them.
 - `filteredDeltas` lists what the policy hid — drift you chose not to
