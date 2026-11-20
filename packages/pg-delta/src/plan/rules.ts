@@ -91,6 +91,21 @@ export type AttributeRule =
         view: FactView,
         sourceView: FactView,
       ) => ActionSpec | ActionSpec[];
+      /** The alter re-states the fact's whole definition, so it drops any
+       *  dependency the desired definition no longer references: a dependency
+       *  this plan removes is released by the alter (ordered before the drop)
+       *  instead of force-rebuilding the fact. Leave unset for an alter that
+       *  only touches part of the fact (ALTER POLICY … TO keeps USING). */
+      restatesDefinition?: boolean;
+      /** Whether the fact's OLD definition (the source fact is passed) still
+       *  executes on data changes until this alter runs: an enabled trigger.
+       *  An earlier action that runs a user expression (a DEFAULT backfill
+       *  calling a function that writes) could fire it, so when the alter is
+       *  ordered after such an action the planner replaces the fact instead:
+       *  its drop comes first, and nothing stale fires in between. Only the
+       *  alter's first spec is tracked, so it must be the one that swaps the
+       *  definition. */
+      firesUntilAltered?: (source: Fact) => boolean;
       /** When this transition force-rebuilds surviving dependents (drop +
        *  recreate around the alter):
        *   - `true`  → every rebuildable dependent (enum value-set migration:
@@ -213,6 +228,12 @@ export interface KindRules {
    *  `{ schema, name }`, which PostgreSQL holds by OID, so they follow an
    *  accepted rename of that fact (a child table's `parentTable`) */
   followsRenames?: Readonly<Record<string, string>>;
+  /** a removed fact of this kind may be released by a surviving dependent's
+   *  definition-restating alter (`restatesDefinition`), ordered before this
+   *  drop, instead of rebuilding the dependent. Set on functions and
+   *  procedures only: releasing a column gains nothing, since its drop takes
+   *  ACCESS EXCLUSIVE and table ownership anyway. */
+  releasedByDependentAlter?: boolean;
   /** whether a fact of this kind MAY be folded into a parent's cascading
    *  drop. Default true. FK constraints return false: an explicit
    *  DROP CONSTRAINT first makes mutual-FK teardown cycles unconstructible. */

@@ -1,0 +1,3 @@
+{
+  "a-to-b": { "require": ["replacement:trigger"] }
+}
