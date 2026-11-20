@@ -20,6 +20,7 @@ import {
 import type { FoldHint, RulesForId } from "../rules.ts";
 import {
   actionTieKey,
+  addAcyclicEdges,
   buildActionGraph,
   compactColumnFolds,
   computeSafetyReport,
@@ -158,6 +159,8 @@ export interface FinalizeInput {
   /** action index → encoded `destroys` ids that are side-effect wipes (see
    *  ActionEmitterOutput.implicitDestroys). */
   implicitDestroys: ReadonlyMap<number, ReadonlySet<string>>;
+  /** action index → encoded `ActionSpec.after` ids (cycle-guarded soft order). */
+  softAfter: ReadonlyMap<number, ReadonlySet<string>>;
   /** per-action compaction metadata captured during emission (never persisted). */
   foldHints: ReadonlyArray<FoldHint | undefined>;
   acceptsFolds: readonly boolean[];
@@ -219,6 +222,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     desired,
     renameActionIndices,
     implicitDestroys,
+    softAfter,
     foldHints,
     acceptsFolds,
     assumedRoleNames,
@@ -249,6 +253,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
       }
     });
   }
+  const softEdges: Array<[number, number]> = [];
   const edges = buildActionGraph(
     actions,
     producerOf,
@@ -261,6 +266,8 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     assumedPresentIds,
     evaluatorActions,
     implicitDestroys,
+    softAfter,
+    softEdges,
   );
   chainColumnCreatesByPosition(
     actions,
@@ -269,6 +276,8 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     evaluatorActions,
     edges,
   );
+  // cosmetic `ActionSpec.after` order, last so it never displaces an edge above
+  addAcyclicEdges(edges, softEdges);
 
   // Order a table's ADD COLUMN creates by declared column position
   // (pg_attribute.attnum, carried as the non-semantic `_position` field) instead

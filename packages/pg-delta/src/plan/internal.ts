@@ -126,6 +126,12 @@ export function buildActionGraph(
   // the relation being rebuilt must not be pinned before that relation's DROP
   // (it consumes the re-CREATE, so DROP → CREATE → leader → DROP would cycle).
   implicitDestroys: ReadonlyMap<number, ReadonlySet<string>> = new Map(),
+  // action index → encoded ids it should follow (`ActionSpec.after`). Lifts
+  // this alterer's "alter before dependent create" and alter-after-dependency
+  // edges for those ids; the reverse soft edges go to `softEdges`, for the
+  // caller to add last with `addAcyclicEdges`.
+  softAfter: ReadonlyMap<number, ReadonlySet<string>> = new Map(),
+  softEdges: Array<[before: number, after: number]> = [],
 ): Array<[number, number]> {
   const edges: Array<[number, number]> = [];
 
@@ -411,7 +417,9 @@ export function buildActionGraph(
                 const altererConsumesSubject = (
                   actions[alterer] as Action
                 ).consumes.some((c) => encodeId(c) === subjectKey);
-                if (!altererConsumesSubject) {
+                const altererFollowsSubject =
+                  softAfter.get(alterer)?.has(subjectKey) === true;
+                if (!altererConsumesSubject && !altererFollowsSubject) {
                   alterAfterDep.push([alterer, index]);
                 }
               }
@@ -473,7 +481,12 @@ export function buildActionGraph(
             const altererConsumesProduct = (
               actions[alterer] as Action
             ).consumes.some((c) => producesKeys.has(encodeId(c)));
-            if (!altererConsumesProduct) edges.push([alterer, index]);
+            const follows = softAfter.get(alterer);
+            const altererFollowsProduct =
+              follows !== undefined &&
+              [...producesKeys].some((k) => follows.has(k));
+            if (!altererConsumesProduct && !altererFollowsProduct)
+              edges.push([alterer, index]);
           }
           // A produced fact's DEPENDS edge must resolve to something this plan
           // produces or the target already has — "it's in the desired view" is
@@ -581,6 +594,15 @@ export function buildActionGraph(
     }
   });
 
+  for (const [index, keys] of softAfter) {
+    for (const key of keys) {
+      const producer = producerOf.get(key);
+      if (producer !== undefined) softEdges.push([producer, index]);
+      for (const alterer of alterersOf.get(key) ?? []) {
+        if (alterer !== index) softEdges.push([alterer, index]);
+      }
+    }
+  }
   for (const [before, after] of alterAfterDep) {
     if (!actionReaches(edges, after, before)) edges.push([before, after]);
   }
@@ -593,13 +615,42 @@ function actionReaches(
   from: number,
   to: number,
 ): boolean {
-  if (from === to) return true;
   const adj = new Map<number, number[]>();
   for (const [u, v] of edges) {
     const list = adj.get(u) ?? [];
     list.push(v);
     adj.set(u, list);
   }
+  return reachesIn(adj, from, to);
+}
+
+/** Push each candidate `[before, after]` that closes no cycle, in order,
+ *  keeping one adjacency map across them. */
+export function addAcyclicEdges(
+  edges: Array<[before: number, after: number]>,
+  candidates: readonly [before: number, after: number][],
+): void {
+  if (candidates.length === 0) return;
+  const adj = new Map<number, number[]>();
+  const link = (u: number, v: number): void => {
+    const list = adj.get(u) ?? [];
+    list.push(v);
+    adj.set(u, list);
+  };
+  for (const [u, v] of edges) link(u, v);
+  for (const [before, after] of candidates) {
+    if (reachesIn(adj, after, before)) continue;
+    edges.push([before, after]);
+    link(before, after);
+  }
+}
+
+function reachesIn(
+  adj: ReadonlyMap<number, readonly number[]>,
+  from: number,
+  to: number,
+): boolean {
+  if (from === to) return true;
   const seen = new Set<number>([from]);
   const queue = [from];
   while (queue.length > 0) {

@@ -54,6 +54,12 @@ export interface ActionSpec {
   /** ids this statement stops referencing (e.g. the OLD owner of an
    *  ALTER … OWNER TO) — the action must run before their destroyer */
   releases?: StableId[];
+  /** ids whose create/alter in this plan should run first when that closes
+   *  no cycle. Cosmetic order only: never an evaluator input, and dropped
+   *  instead of failing the plan. On an alter it also lifts the edges that
+   *  would run this alter before those ids' create/alter, so declare only ids
+   *  whose statements never need this alter's effect */
+  after?: StableId[];
   dataLoss?: "none" | "destructive";
   rewriteRisk?: boolean;
   /** lock-class override for this specific DDL form (defaults come from
