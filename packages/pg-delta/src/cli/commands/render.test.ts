@@ -23,6 +23,7 @@ function action(overrides: Partial<Action>): Action {
   return {
     sql: "SELECT 1",
     verb: "create",
+    subject: { kind: "schema", name: "spike" },
     produces: [],
     consumes: [],
     destroys: [],
