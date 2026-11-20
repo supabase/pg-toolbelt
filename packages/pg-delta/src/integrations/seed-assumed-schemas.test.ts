@@ -671,9 +671,8 @@ describe("deriveAssumedSchemaSeed", () => {
   });
 
   test("omits an assumed extension whose install schema is managed", () => {
-    // Extraction records no extension -> schema edge, so the managed-dependency
-    // rule cannot see that `app` is created later by the user files; a bare
-    // CREATE EXTENSION would land in the wrong schema.
+    // `app` is created later by the user files; a bare CREATE EXTENSION would
+    // land in the wrong schema.
     const ext: StableId = { kind: "extension", name: "platform_ext" };
     const extOnlyPolicy: Policy = {
       id: "test-ext-only",
@@ -696,6 +695,36 @@ describe("deriveAssumedSchemaSeed", () => {
       assumedExtensions: ["platform_ext"],
     });
     expect(seed.sql).toBe("");
+  });
+
+  test("an assumed extension installed in a POLICY-PRUNED schema is still seeded", () => {
+    // Extract folds member objects onto the extension, so it `depends` on its
+    // own install schema; a pruned `public` exists in the template0 shadow.
+    const ext: StableId = { kind: "extension", name: "platform_ext" };
+    const target = buildFactBase(
+      [f(schemaPublic), f(ext, extensionPayload("public", true))],
+      [{ from: ext, to: schemaPublic, kind: "depends" }],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: {
+        id: "test-ext-in-pruned-public",
+        filter: [
+          {
+            match: { any: [{ schema: "public" }, { name: "public" }] },
+            action: "exclude",
+          },
+          {
+            match: { all: [{ kind: "extension" }, { name: "platform_ext" }] },
+            action: "exclude",
+          },
+        ],
+        assumedExtensions: ["platform_ext"],
+      },
+      assumedSchemas: [],
+      assumedRoles: [],
+      assumedExtensions: ["platform_ext"],
+    });
+    expect(seed.sql).toContain('CREATE EXTENSION "platform_ext"');
   });
 
   // An assumed publication with one membership on `public.t`; extract folds

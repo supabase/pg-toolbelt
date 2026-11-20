@@ -240,11 +240,18 @@ export function deriveAssumedSchemaSeed(
     if (memberExts.get(to)?.some((x) => candidateIds.has(encodeId(x)))) {
       continue;
     }
+    if (
+      e.from.kind === "extension" &&
+      e.to.kind === "schema" &&
+      e.to.name === view.get(e.from)?.payload["schema"]
+    ) {
+      continue;
+    }
     excludedIds.add(from);
   }
-  //     An assumed extension's install schema is the same kind of dependency,
-  //     but extraction carries it only as the structured `schema` payload (no
-  //     extension -> schema edge), so the edge pass above cannot see it.
+  //     An assumed extension's install schema is the same kind of dependency.
+  //     Its edge exists only when a member object folds onto the extension, so
+  //     the edge pass above skips it and this check decides from the payload.
   for (const fct of candidateFacts) {
     if (fct.id.kind !== "extension") continue;
     const schema = fct.payload["schema"];

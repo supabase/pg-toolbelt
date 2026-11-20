@@ -2263,3 +2263,9 @@ behave the same on `main` before #584.
   replayed. Narrowing shells to `publicationRel` is not enough: the omitted
   candidate's managed ACL then plans a spurious `REVOKE`. A fix needs the diff to
   treat satellites of a seed-omitted candidate as reference-only too.
+- **Assumed extension installed in a pruned custom schema.** The install-schema
+  pass treats a schema absent from the view as ambient, which holds only for
+  `public` and `pg_catalog` in the template0 shadow. A policy-pruned custom
+  install schema (e.g. an excluded `extensions`) is never created there, so the
+  seed's `CREATE EXTENSION … SCHEMA extensions` fails at replay. A fix treats a
+  pruned install schema as ambient only when the shadow template ships it.
