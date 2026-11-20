@@ -51,14 +51,6 @@ function restatesDefinition(
   });
 }
 
-/** What a fact needs in place to exist: its dependencies and its parent. */
-function requirements(base: FactBase, id: StableId): StableId[] {
-  const needs = base.outgoingEdges(id).map((e) => e.to);
-  const parent = base.get(id)?.parent;
-  if (parent !== undefined) needs.push(parent);
-  return needs;
-}
-
 function dependencyKeys(base: FactBase, id: StableId): string {
   return base
     .outgoingEdges(id)
@@ -119,60 +111,23 @@ function releasesRoutine(
 }
 
 /**
- * Whether every fact `start`'s desired definition reaches is newly created or
- * `settled`. Followed through newly created facts, since what they need gates
- * their create.
+ * A released routine's drop waits for the dependent's alter instead of running
+ * with the other teardowns. A change to anything the routine itself requires
+ * (its dependencies, its parent) would have to wait behind that drop too (a
+ * table it read becoming a same-name view), so the drop can wait only while
+ * each of them is unchanged and not in `touched`, the rebuild walk's targets.
  */
-function reachesOnlySettled(
-  start: StableId,
-  input: ReplacementExpansionInput,
-  settled: (id: StableId) => boolean,
-): boolean {
-  const { desired, added } = input;
-  const seen = new Set<string>();
-  const stack = [start];
-  while (stack.length > 0) {
-    const id = stack.pop() as StableId;
-    const needs = requirements(desired, id);
-    // a new fact's children can be created by the same action (a column and
-    // its default), so what they need gates that create too
-    if (added.has(encodeId(id))) {
-      for (const child of desired.childrenOf(id)) needs.push(child.id);
-    }
-    for (const need of needs) {
-      const needKey = encodeId(need);
-      if (seen.has(needKey)) continue;
-      seen.add(needKey);
-      if (added.has(needKey)) stack.push(need);
-      else if (!settled(need)) return false;
-    }
-  }
-  return true;
-}
-
-/**
- * A release runs the dependent's alter BEFORE the released routines' drops,
- * ahead of the planner's usual teardown → alter → create order. It holds only
- * while no other change in the plan is tied to either end:
- *  - the alter waits on no other change: everything the dependent's desired
- *    definition reaches is new or settled, so nothing it needs waits on a drop;
- *  - the delayed drops hold no other change back: what each routine itself
- *    requires is settled.
- * Settled means unchanged and not in `touched`, the rebuild walk's targets.
- */
-function releaseHolds(
-  dependent: Fact,
-  routines: readonly StableId[],
+function dropCanWait(
+  routine: StableId,
   input: ReplacementExpansionInput,
   touched: ReadonlySet<string>,
 ): boolean {
-  const settled = (id: StableId): boolean =>
-    !touched.has(encodeId(id)) && isUnchanged(id, input);
-  return (
-    reachesOnlySettled(dependent.id, input, settled) &&
-    routines.every((routine) =>
-      requirements(input.source, routine).every(settled),
-    )
+  const { source } = input;
+  const requires = source.outgoingEdges(routine).map((e) => e.to);
+  const parent = source.get(routine)?.parent;
+  if (parent !== undefined) requires.push(parent);
+  return requires.every(
+    (id) => !touched.has(encodeId(id)) && isUnchanged(id, input),
   );
 }
 
@@ -329,11 +284,8 @@ export function expandReplacements(
       worklist.push(key);
     };
     // dependents the walk skips because they release the routines it reached
-    // them from (`releasesRoutine`), keyed by encoded id
-    const released = new Map<
-      string,
-      { dependent: Fact; routines: StableId[] }
-    >();
+    // them from (`releasesRoutine`): encoded dependent id → those routines
+    const released = new Map<string, StableId[]>();
     // A routine sharing the removed routine's schema-qualified name makes the
     // dependent's definition text ambiguous (or bind to the wrong overload)
     // while both exist, so such a routine is never released.
@@ -344,14 +296,15 @@ export function expandReplacements(
       desiredRoutineNames ??= routineNames(desired);
       return desiredRoutineNames.has(name);
     };
-    // The walk can rebuild something a release relies on after recording it,
-    // so each time the worklist drains, the releases that no longer hold are
-    // rebuilt after all. True when that queued more work.
+    // The walk can reach something a released routine requires after the
+    // release is recorded, so each time the worklist drains, the dependents
+    // whose routines' drops can no longer wait are rebuilt after all. True
+    // when that queued more work.
     const requeueBrokenReleases = (): boolean => {
-      for (const [key, { dependent, routines }] of released) {
+      for (const [key, routines] of released) {
         if (targets.has(key)) {
           released.delete(key);
-        } else if (!releaseHolds(dependent, routines, input, targets)) {
+        } else if (!routines.every((r) => dropCanWait(r, input, targets))) {
           released.delete(key);
           rebuild(key);
         }
@@ -408,9 +361,9 @@ export function expandReplacements(
           releasesRoutine(dependent, edge.to, input) &&
           !nameIsReused(edge.to)
         ) {
-          const release = released.get(fromKey) ?? { dependent, routines: [] };
-          release.routines.push(edge.to);
-          released.set(fromKey, release);
+          const routines = released.get(fromKey) ?? [];
+          routines.push(edge.to);
+          released.set(fromKey, routines);
           continue;
         }
         // reached only via a kind-restricted seed: honor the allowed kinds

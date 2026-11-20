@@ -2234,18 +2234,16 @@ place before that drop. The rule-table flag `restatesDefinition` (set on the
 trigger `def` rule) lets the forced-rebuild walk in
 `src/plan/phases/replacement-expansion.ts` skip it.
 
-The alter then runs ahead of the planner's usual teardown → alter → create
-order, so the skip is an allowlist. Anything outside it keeps drop + create:
+The released routine's drop then waits for the trigger's alter instead of
+running with the other teardowns. Everything else in the plan keeps its usual
+order, so the trigger's alter sits where it would if the routine were kept.
+The skip applies unless one of these holds, which keeps drop + create:
 
-- **Something the new definition relies on changes in the same plan.** Every
-  fact the desired trigger reaches (dependencies, parents, and the children
-  of newly created facts, followed through newly created facts) must be
-  identical on both sides or newly created. A schema
-  owner change, a replaced or altered helper, an enum gaining a value, or a
-  retyped column all fall back.
 - **Something the dropped routine itself relies on changes.** Its own
-  dependencies and schema must be identical on both sides: delaying its drop
-  delays their teardown too (a table it read becoming a same-name view).
+  dependencies and schema must be identical on both sides and not rebuilt:
+  their change would have to wait behind the delayed drop (a helper it calls
+  being replaced, an enum it takes gaining a value, a schema owner change, a
+  table it read becoming a same-name view).
 - **The dropped routine's name is reused.** An overload sharing its
   schema-qualified name makes the trigger's definition text ambiguous, or
   bind to the wrong overload, while both exist.
@@ -2256,5 +2254,6 @@ order, so the skip is an allowlist. Anything outside it keeps drop + create:
   to a new overload is rebuilt even when its roles change, since
   `ALTER POLICY … TO` leaves `USING` alone.
 
-Lifting these would mean sinking the released object's drop to the end of the
-plan instead of raising the alter, a change to core action ordering.
+The first condition is conservative: such a change only conflicts when the
+trigger's new definition, or a same-name object, waits on it. Narrowing it
+would mean reasoning about both ends of the action order at once.
