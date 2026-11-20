@@ -108,6 +108,97 @@ describe("stage 6: execution", () => {
     }
   }, 60_000);
 
+  test("a backfill fits between SET DEFAULT and SET NOT NULL", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("exec_backfill_src");
+    const desired = await cluster.createDb("exec_backfill_dst");
+    try {
+      await source.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (status text);
+        INSERT INTO app.t VALUES (NULL);
+      `);
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (status text NOT NULL DEFAULT 'new');
+      `);
+      const [sourceState, desiredState] = [
+        await extract(source.pool),
+        await extract(desired.pool),
+      ];
+      const sql = plan(sourceState.factBase, desiredState.factBase).actions.map(
+        (a) => a.sql,
+      );
+      await source.pool.query("BEGIN");
+      for (const statement of sql) {
+        await source.pool.query(statement);
+        if (statement.includes("SET DEFAULT")) {
+          await source.pool.query(
+            "UPDATE app.t SET status = DEFAULT WHERE status IS NULL",
+          );
+        }
+      }
+      await source.pool.query("COMMIT");
+      const { rows } = await source.pool.query("SELECT status FROM app.t");
+      expect(rows).toEqual([{ status: "new" }]);
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
+  test("a failed SET NOT NULL is not pushed past an enum ADD VALUE commit", async () => {
+    // the NULL row fails SET NOT NULL; it must fail before the commit, so the
+    // whole apply rolls back. The default reaches the new enum value in the
+    // first case; in the second only the tie-break puts ADD VALUE first.
+    const cases = [
+      {
+        source: `
+          CREATE TYPE app.mood AS ENUM ('busy');
+          CREATE FUNCTION app.old_status() RETURNS text LANGUAGE sql AS 'SELECT 1::text';
+          CREATE TABLE app.t (status text DEFAULT app.old_status());`,
+        desired: `
+          CREATE TYPE app.mood AS ENUM ('busy', 'calm');
+          CREATE TABLE app.t (status text NOT NULL DEFAULT 'calm'::app.mood);`,
+      },
+      {
+        source: `
+          CREATE TYPE app.mood AS ENUM ('busy');
+          CREATE TABLE app.t (status text);`,
+        desired: `
+          CREATE TYPE app.mood AS ENUM ('busy', 'calm');
+          CREATE FUNCTION app.f() RETURNS text LANGUAGE sql AS 'SELECT 1::text';
+          CREATE TABLE app.t (status text NOT NULL DEFAULT app.f());`,
+      },
+    ];
+    const cluster = await sharedCluster();
+    for (const c of cases) {
+      const source = await cluster.createDb("exec_notnull_src");
+      const desired = await cluster.createDb("exec_notnull_dst");
+      try {
+        await source.pool.query(
+          `CREATE SCHEMA app; ${c.source} INSERT INTO app.t VALUES (NULL);`,
+        );
+        await desired.pool.query(`CREATE SCHEMA app; ${c.desired}`);
+        const [sourceState, desiredState] = [
+          await extract(source.pool),
+          await extract(desired.pool),
+        ];
+        const thePlan = plan(sourceState.factBase, desiredState.factBase);
+        const report = await apply(thePlan, source.pool, {
+          fingerprintGate: false,
+        });
+        expect(report.status).toBe("failed");
+        // the persisted schema is exactly the source's
+        expect((await extract(source.pool)).factBase.rootHash).toBe(
+          sourceState.factBase.rootHash,
+        );
+        expect(report.appliedActions).toBe(0);
+      } finally {
+        await Promise.all([source.drop(), desired.drop()]);
+      }
+    }
+  }, 60_000);
+
   test("fingerprint gate refuses a stale plan", async () => {
     const cluster = await sharedCluster();
     const source = await cluster.createDb("exec_gate_src");
