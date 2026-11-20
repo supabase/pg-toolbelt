@@ -188,6 +188,10 @@ describe("stage 6: execution", () => {
           fingerprintGate: false,
         });
         expect(report.status).toBe("failed");
+        // the persisted schema is exactly the source's
+        expect((await extract(source.pool)).factBase.rootHash).toBe(
+          sourceState.factBase.rootHash,
+        );
         expect(report.appliedActions).toBe(0);
       } finally {
         await Promise.all([source.drop(), desired.drop()]);
