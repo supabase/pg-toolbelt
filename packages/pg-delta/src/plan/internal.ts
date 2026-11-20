@@ -1725,9 +1725,8 @@ export function mergeCoTargetGrants(
     }
     // merge at the first member's position: sql re-rendered with the grantee
     // list, consumes = union (roles, target, acl ids) so the artifact's
-    // dependency metadata still names every input. The subject names the
-    // first grant only, so produces lists every grant the statement creates;
-    // the elided REVOKE leaders that produced them are gone.
+    // dependency metadata still names every input. The subject names only
+    // the first grant, so produces lists them all.
     const consumes: StableId[] = [];
     const seen = new Set<string>();
     for (let k = i; k < j; k++) {
