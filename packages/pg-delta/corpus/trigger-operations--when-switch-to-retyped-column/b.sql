@@ -10,8 +10,8 @@ BEGIN
 END;
 $$;
 -- old_predicate is dropped and the new WHEN reads qty, which is retyped in
--- the same plan: the trigger must be rebuilt around ALTER COLUMN TYPE, not
--- altered before the old_predicate drop
+-- the same plan. old_predicate depends on nothing that changes, so the
+-- trigger alters in place: after ALTER COLUMN TYPE, before the drop
 CREATE TRIGGER items_touch BEFORE UPDATE ON test_schema.items
   FOR EACH ROW WHEN (NEW.qty > 0)
   EXECUTE FUNCTION test_schema.touch();
