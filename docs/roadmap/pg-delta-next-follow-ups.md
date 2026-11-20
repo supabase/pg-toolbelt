@@ -2280,3 +2280,15 @@ would send most trigger changes back to drop + create:
 
 A function body change behaves the same way and has no drop + create
 fallback: the old body runs until its `CREATE OR REPLACE`.
+
+The guard is as precise as the evaluator classification, and a review found
+three edges, deferred as too unusual to justify more machinery:
+
+- **Over-counted.** An alter that only touches an evaluated fact counts as
+  evaluating it: `SET NOT NULL` on a stored generated column that calls a
+  routine sends a trigger reading that column back to drop + create, which
+  needs table ownership where the in-place alter did not.
+- **Not counted.** `ALTER COLUMN TYPE` running a function-backed user cast.
+- **Disabled exemption.** A trigger disabled on a partitioned parent with
+  `ALTER TABLE ONLY` can leave its partition clones enabled. Clones are not
+  extracted, so the parent's `D` state exempts a trigger that can still fire.

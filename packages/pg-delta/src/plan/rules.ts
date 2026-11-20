@@ -102,7 +102,9 @@ export type AttributeRule =
        *  An earlier action that runs a user expression (a DEFAULT backfill
        *  calling a function that writes) could fire it, so when the alter is
        *  ordered after such an action the planner replaces the fact instead:
-       *  its drop comes first, and nothing stale fires in between. */
+       *  its drop comes first, and nothing stale fires in between. Only the
+       *  alter's first spec is tracked, so it must be the one that swaps the
+       *  definition. */
       firesUntilAltered?: (source: Fact) => boolean;
       /** When this transition force-rebuilds surviving dependents (drop +
        *  recreate around the alter):

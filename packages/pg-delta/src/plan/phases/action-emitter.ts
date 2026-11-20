@@ -786,7 +786,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         source,
       );
       const sourceFact = source.get(fact.id);
-      // the first spec is the one that swaps the definition
       let swapsFiringDefinition =
         sourceFact !== undefined &&
         attrRule.firesUntilAltered?.(sourceFact) === true;

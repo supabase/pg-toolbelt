@@ -729,12 +729,10 @@ export function plan(
     }
   }
 
-  // An in-place alter of a trigger leaves its OLD definition firing until the
-  // alter runs (`firesUntilAltered`). Whether an action that runs a user
-  // expression lands before it is only known once the plan is ordered, so
-  // phases 2-4 repeat with such a trigger replaced instead: its drop then
-  // comes first and nothing stale fires. Each round forces at least one more
-  // fact, so this ends within one round per such alter.
+  // Whether a `firesUntilAltered` alter lands after an evaluated expression is
+  // only known once the plan is ordered, so phases 2-4 repeat with those facts
+  // replaced. Each round forces at least one more, so this ends within one
+  // round per such alter.
   const forcedReplace = new Set<string>();
   let finalized: ReturnType<typeof finalizeActions>;
   for (;;) {
