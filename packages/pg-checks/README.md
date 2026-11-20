@@ -85,6 +85,9 @@ const result = parseInTransactionWarnRead(responseRows, policy); // { findings }
 ## Vendored splinter
 
 `src/vendor/splinter.sql` is splinter `2026.09.1`, byte for byte.
+The daily `Sync splinter` workflow (`.github/workflows/sync-splinter.yml`)
+vendors the latest splinter release with `bun run sync-splinter --remote --tag latest`,
+runs the package tests, and opens one PR per new release.
 `src/vendor/splinter.ts` is generated from it: `RULE_SQL`, one entry per checked
 rule, each the rule's `(…)` branch of the release's `(<rule>) union all (<rule>) …`
 query, verbatim. The sync cuts the file at its structural boundaries (header

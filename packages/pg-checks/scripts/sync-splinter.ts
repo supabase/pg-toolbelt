@@ -3,6 +3,7 @@
  *
  *   bun scripts/sync-splinter.ts [--tag 2026.09.1] [--repo <splinter checkout>]
  *   bun scripts/sync-splinter.ts --tag 2026.09.1 --remote
+ *   bun scripts/sync-splinter.ts --tag latest --remote   # newest GitHub release
  *
  * Local mode reads `git show <tag>:splinter.sql` from a splinter checkout
  * (`--repo`, else `SPLINTER_REPO`, else ~/Documents/Programming/Supa/splinter).
@@ -32,14 +33,33 @@ const { values } = parseArgs({
     remote: { type: "boolean", default: false },
   },
 });
-const tag = values.tag;
-if (!/^[0-9A-Za-z._-]+$/.test(tag)) throw new Error(`invalid tag ${tag}`);
-
 const get = async (url: string) => {
-  const response = await fetch(url);
+  // A token (CI) avoids the anonymous GitHub API rate limit.
+  const token = process.env["GITHUB_TOKEN"];
+  const response = await fetch(
+    url,
+    token === undefined
+      ? {}
+      : { headers: { authorization: `Bearer ${token}` } },
+  );
   if (!response.ok) throw new Error(`GET ${url}: ${response.status}`);
   return response;
 };
+
+if (values.tag === "latest" && !values.remote) {
+  throw new Error("--tag latest needs --remote");
+}
+const tag =
+  values.tag === "latest"
+    ? (
+        (await (
+          await get(
+            "https://api.github.com/repos/supabase/splinter/releases/latest",
+          )
+        ).json()) as { tag_name: string }
+      ).tag_name
+    : values.tag;
+if (!/^[0-9A-Za-z._-]+$/.test(tag)) throw new Error(`invalid tag ${tag}`);
 
 let sql: string;
 let lints: LintSource[];
