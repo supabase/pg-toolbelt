@@ -158,6 +158,9 @@ export interface FinalizeInput {
   /** action index → encoded `destroys` ids that are side-effect wipes (see
    *  ActionEmitterOutput.implicitDestroys). */
   implicitDestroys: ReadonlyMap<number, ReadonlySet<string>>;
+  /** action index → encoded fact id of the `firesUntilAltered` alters (see
+   *  ActionEmitterOutput.firingAlters). */
+  firingAlters: ReadonlyMap<number, string>;
   /** per-action compaction metadata captured during emission (never persisted). */
   foldHints: ReadonlyArray<FoldHint | undefined>;
   acceptsFolds: readonly boolean[];
@@ -203,6 +206,10 @@ export interface FinalizeInput {
 export interface FinalizeOutput {
   actions: Action[];
   safetyReport: SafetyReport;
+  /** encoded ids of facts whose `firesUntilAltered` alter is ordered after an
+   *  action that runs a user expression: their old definition could fire
+   *  during it. plan() replans with these replaced instead. */
+  mayFireBeforeAlter: string[];
 }
 
 /**
@@ -219,6 +226,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     desired,
     renameActionIndices,
     implicitDestroys,
+    firingAlters,
     foldHints,
     acceptsFolds,
     assumedRoleNames,
@@ -314,6 +322,22 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     positionOf[actionIndex] = position;
   });
   const orderedActions = order.map((i) => actions[i] as Action);
+
+  // An evaluator action can write to any table through the routines it
+  // runs, so every `firesUntilAltered` alter ordered after the first one is
+  // reported: its old definition could fire on those writes.
+  const mayFireBeforeAlter: string[] = [];
+  if (firingAlters.size > 0) {
+    let firstEvaluator = Number.POSITIVE_INFINITY;
+    for (const i of evaluatorActions) {
+      firstEvaluator = Math.min(firstEvaluator, positionOf[i] as number);
+    }
+    for (const [i, key] of firingAlters) {
+      if ((positionOf[i] as number) > firstEvaluator) {
+        mayFireBeforeAlter.push(key);
+      }
+    }
+  }
   for (let u = 0; u < actions.length; u++) {
     if ((actions[u] as Action).transactionality !== "commitBoundaryAfter")
       continue;
@@ -378,5 +402,6 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   return {
     actions: finalActions,
     safetyReport: computeSafetyReport(finalActions),
+    mayFireBeforeAlter,
   };
 }

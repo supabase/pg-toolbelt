@@ -729,82 +729,97 @@ export function plan(
     }
   }
 
-  // ── phase 2: replacement expansion + drop-root suppression ────────────
-  // Classify set-deltas (alter vs replace), expand the forced dependent
-  // rebuild, and compute drop-root suppression/redirect (./phases/
-  // replacement-expansion.ts). Produces the replaceIds set + dropRootOf map.
-  const { replaceIds, dropRootOf } = expandReplacements({
-    removed,
-    added,
-    setsByFact,
-    source,
-    desired,
-    projectedDesired,
-    rulesForId,
-  });
+  // An in-place alter of a trigger leaves its OLD definition firing until the
+  // alter runs (`firesUntilAltered`). Whether an action that runs a user
+  // expression lands before it is only known once the plan is ordered, so
+  // phases 2-4 repeat with such a trigger replaced instead: its drop then
+  // comes first and nothing stale fires. Each round forces at least one more
+  // fact, so this ends within one round per such alter.
+  const forcedReplace = new Set<string>();
+  let finalized: ReturnType<typeof finalizeActions>;
+  for (;;) {
+    // ── phase 2: replacement expansion + drop-root suppression ────────────
+    // Classify set-deltas (alter vs replace), expand the forced dependent
+    // rebuild, and compute drop-root suppression/redirect (./phases/
+    // replacement-expansion.ts). Produces the replaceIds set + dropRootOf map.
+    const { replaceIds, dropRootOf } = expandReplacements({
+      removed,
+      added,
+      setsByFact,
+      source,
+      desired,
+      projectedDesired,
+      rulesForId,
+      forcedReplace,
+    });
 
-  // ── phase 3: emit actions (./phases/action-emitter.ts) ────────────────
-  // Rename actions, creates (parents first), default-privilege hygiene, drops,
-  // replaces, in-place alters, and owner-edge ALTERs — with the emitter's own
-  // producer/destroyer/fold
-  // bookkeeping. Enforces the create-produces-its-fact invariant.
-  const {
-    actions,
-    producerOf,
-    destroyerOf,
-    foldHints,
-    acceptsFolds,
-    renameActionIndices,
-    implicitDestroys,
-  } = emitActions({
-    source,
-    rawSource,
-    desired,
-    projectedDesired,
-    removed,
-    added,
-    setsByFact,
-    replaceIds,
-    dropRootOf,
-    acceptedRenames,
-    deltas,
-    params,
-    serializeRules,
-    capability: options?.capability,
-    rulesForId,
-    assumedDefaultGrants,
-    overlayAdpWipes: options?.assumedDefaultGrants ?? [],
-    overlayHygieneGrantees,
-    ...(options?.defaultOwner !== undefined
-      ? { defaultOwner: options.defaultOwner }
-      : {}),
-  });
+    // ── phase 3: emit actions (./phases/action-emitter.ts) ────────────────
+    // Rename actions, creates (parents first), default-privilege hygiene, drops,
+    // replaces, in-place alters, and owner-edge ALTERs — with the emitter's own
+    // producer/destroyer/fold
+    // bookkeeping. Enforces the create-produces-its-fact invariant.
+    const {
+      actions,
+      producerOf,
+      destroyerOf,
+      foldHints,
+      acceptsFolds,
+      renameActionIndices,
+      implicitDestroys,
+      firingAlters,
+    } = emitActions({
+      source,
+      rawSource,
+      desired,
+      projectedDesired,
+      removed,
+      added,
+      setsByFact,
+      replaceIds,
+      dropRootOf,
+      acceptedRenames,
+      deltas,
+      params,
+      serializeRules,
+      capability: options?.capability,
+      rulesForId,
+      assumedDefaultGrants,
+      overlayAdpWipes: options?.assumedDefaultGrants ?? [],
+      overlayHygieneGrantees,
+      ...(options?.defaultOwner !== undefined
+        ? { defaultOwner: options.defaultOwner }
+        : {}),
+    });
 
-  // ── phase 4: order, segment-mark, compact, and report ─────────────────
-  // Graph build + requirement checks, tie-break, segment-boundary marking, and
-  // the two cosmetic compaction passes are the ActionGraph phase
-  // (./phases/action-graph.ts → ./internal.ts building blocks). Reads only the
-  // emitted actions + producer/destroyer indexes + the two RESOLVED fact bases.
-  const finalized = finalizeActions({
-    actions,
-    producerOf,
-    destroyerOf,
-    source,
-    desired,
-    renameActionIndices,
-    implicitDestroys,
-    foldHints,
-    acceptsFolds,
-    assumedRoleNames,
-    assumedSchemaNames,
-    assumedPresentIds,
-    assumedDefaultGrants,
-    overlayAdpWipes: options?.assumedDefaultGrants ?? [],
-    capability: options?.capability,
-    compact: options?.compact !== false,
-    foldConstraints: options?.foldConstraints,
-    rulesForId,
-  });
+    // ── phase 4: order, segment-mark, compact, and report ─────────────────
+    // Graph build + requirement checks, tie-break, segment-boundary marking, and
+    // the two cosmetic compaction passes are the ActionGraph phase
+    // (./phases/action-graph.ts → ./internal.ts building blocks). Reads only the
+    // emitted actions + producer/destroyer indexes + the two RESOLVED fact bases.
+    finalized = finalizeActions({
+      actions,
+      producerOf,
+      destroyerOf,
+      source,
+      desired,
+      renameActionIndices,
+      implicitDestroys,
+      firingAlters,
+      foldHints,
+      acceptsFolds,
+      assumedRoleNames,
+      assumedSchemaNames,
+      assumedPresentIds,
+      assumedDefaultGrants,
+      overlayAdpWipes: options?.assumedDefaultGrants ?? [],
+      capability: options?.capability,
+      compact: options?.compact !== false,
+      foldConstraints: options?.foldConstraints,
+      rulesForId,
+    });
+    if (finalized.mayFireBeforeAlter.length === 0) break;
+    for (const key of finalized.mayFireBeforeAlter) forcedReplace.add(key);
+  }
   const { safetyReport } = finalized;
 
   const vaultDiags = vaultPresenceDiagnostics(desired, finalized.actions);

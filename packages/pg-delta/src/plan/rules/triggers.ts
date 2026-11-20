@@ -43,6 +43,7 @@ export const triggerRules: Record<string, KindRules> = {
       // `consumes`, so the emission-index tie-break keeps the restore second.
       def: {
         restatesDefinition: true,
+        firesUntilAltered: (source) => source.payload["enabled"] !== "D",
         replaceWhen: (from, to, fact) =>
           !str(from).startsWith("CREATE TRIGGER ") ||
           !str(to).startsWith("CREATE TRIGGER ") ||

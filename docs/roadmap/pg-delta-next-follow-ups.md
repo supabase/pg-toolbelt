@@ -2257,3 +2257,26 @@ The skip applies unless one of these holds, which keeps drop + create:
 The first condition is conservative: such a change only conflicts when the
 trigger's new definition, or a same-name object, waits on it. Narrowing it
 would mean reasoning about both ends of the action order at once.
+
+### Old trigger definition firing during the plan
+
+An in-place trigger alter leaves the old definition firing until the alter
+runs; drop + create leaves no trigger in that window. #583 falls back to
+drop + create when the alter of an enabled trigger is ordered after an action
+that evaluates a user routine (a DEFAULT backfill, a validated CHECK, an
+expression index build, a materialized view), using the planner's existing
+evaluator classification (`firesUntilAltered` in `src/plan/rules.ts`).
+
+Deferred, because the planner cannot see what the code does and covering them
+would send most trigger changes back to drop + create:
+
+- **Event triggers.** One that writes to a table fires on every statement of
+  the plan, so the old trigger can fire on those writes. Treating every action
+  as running user code while an enabled event trigger exists would cover it,
+  at the cost of the in-place alter for every project that has one. The
+  Supabase profile hides the platform's own event triggers, which only notify
+  and grant.
+- **`CREATE EXTENSION` install scripts** that write to a user table.
+
+A function body change behaves the same way and has no drop + create
+fallback: the old body runs until its `CREATE OR REPLACE`.

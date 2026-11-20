@@ -30,6 +30,10 @@ export interface ReplacementExpansionInput {
   projectedDesired: FactBase;
   /** id-keyed rule resolver (schema kinds + `extensionIntent`) */
   rulesForId: RulesForId;
+  /** encoded ids to replace regardless of their attribute rules: facts whose
+   *  in-place alter an earlier planning round found ordered after an action
+   *  that could fire their old definition (`firesUntilAltered`) */
+  forcedReplace?: ReadonlySet<string>;
 }
 
 export interface ReplacementExpansion {
@@ -150,7 +154,7 @@ export function expandReplacements(
   } = input;
 
   // ── classify set-deltas: in-place alter vs replace ────────────────────
-  const replaceIds = new Set<string>();
+  const replaceIds = new Set<string>(input.forcedReplace);
   // alters that invalidate dependents (e.g. an enum value-set replacement, or an
   // ALTER COLUMN TYPE that views/policies reference) seed the forced-rebuild
   // pass without replacing the fact itself. The value is the set of dependent

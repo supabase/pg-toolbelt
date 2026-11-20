@@ -97,6 +97,13 @@ export type AttributeRule =
        *  instead of force-rebuilding the fact. Leave unset for an alter that
        *  only touches part of the fact (ALTER POLICY … TO keeps USING). */
       restatesDefinition?: boolean;
+      /** Whether the fact's OLD definition (the source fact is passed) still
+       *  executes on data changes until this alter runs: an enabled trigger.
+       *  An earlier action that runs a user expression (a DEFAULT backfill
+       *  calling a function that writes) could fire it, so when the alter is
+       *  ordered after such an action the planner replaces the fact instead:
+       *  its drop comes first, and nothing stale fires in between. */
+      firesUntilAltered?: (source: Fact) => boolean;
       /** When this transition force-rebuilds surviving dependents (drop +
        *  recreate around the alter):
        *   - `true`  → every rebuildable dependent (enum value-set migration:
