@@ -23,6 +23,9 @@ outputs:
   pg-topo-package-json:
     description: Whether pg-topo package.json changed
     value: ${{ steps.filter.outputs.pg-topo-package-json }}
+  pg-checks:
+    description: Whether pg-checks changed
+    value: ${{ steps.filter.outputs.pg-checks }}
   root:
     description: Whether root config changed
     value: ${{ steps.filter.outputs.root }}
@@ -50,6 +53,8 @@ runs:
             - 'packages/pg-topo/**'
           pg-topo-package-json:
             - 'packages/pg-topo/package.json'
+          pg-checks:
+            - 'packages/pg-checks/**'
           root:
             - 'package.json'
             - 'bunfig.toml'

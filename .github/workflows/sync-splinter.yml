@@ -1,0 +1,95 @@
+name: Sync splinter
+
+# Keeps @supabase/pg-checks on the latest splinter release: vendors it, runs the
+# package tests, and opens (or updates) one PR per release.
+on:
+  schedule:
+    - cron: "43 5 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Splinter release tag to vendor (default latest)
+        required: false
+        default: latest
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-splinter
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Vendor the latest splinter release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The push below uses the app token; a persisted GITHUB_TOKEN header would win.
+          persist-credentials: false
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Vendor splinter
+        id: vendor
+        working-directory: packages/pg-checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || 'latest' }}
+        run: |
+          bun scripts/sync-splinter.ts --remote --tag "$TAG"
+          version=$(grep -oE 'SPLINTER_VERSION = "[^"]+"' src/vendor/splinter.ts | cut -d'"' -f2)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git diff --quiet -- src/vendor; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A release that changes a checked rule must still match its own lints/*.sql
+      # per rule and keep the check block working on supabase/postgres 15 and 17.
+      - name: Test
+        if: steps.vendor.outputs.changed == 'true'
+        working-directory: packages/pg-checks
+        run: |
+          bun run check-types
+          bun run test
+          bun run test:integration
+
+      - name: Generate token
+        if: steps.vendor.outputs.changed == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      # The app token (not GITHUB_TOKEN) makes the PR trigger the test workflow.
+      - name: Open or update the pull request
+        if: steps.vendor.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.vendor.outputs.version }}
+        run: |
+          branch="chore/sync-splinter-$VERSION"
+          cat > ".changeset/sync-splinter-$VERSION.md" <<EOF
+          ---
+          "@supabase/pg-checks": patch
+          ---
+
+          Vendor splinter $VERSION.
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add packages/pg-checks/src/vendor ".changeset/sync-splinter-$VERSION.md"
+          git commit -m "chore(pg-checks): vendor splinter $VERSION"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "$branch"
+          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --base main --head "$branch" \
+              --title "chore(pg-checks): vendor splinter $VERSION" \
+              --body "Vendors [splinter $VERSION](https://github.com/supabase/splinter/releases/tag/$VERSION) into \`@supabase/pg-checks\`. Opened by the daily \`Sync splinter\` workflow after the vendoring checks and the package tests passed. Review the rule SQL diff in \`src/vendor/splinter.ts\` before merging: a changed checked rule changes what blocks."
+          fi
