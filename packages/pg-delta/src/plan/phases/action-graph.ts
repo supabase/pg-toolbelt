@@ -20,7 +20,7 @@ import {
 import type { FoldHint, RulesForId } from "../rules.ts";
 import {
   actionTieKey,
-  addAcyclicEdges,
+  addSoftEdges,
   buildActionGraph,
   compactColumnFolds,
   computeSafetyReport,
@@ -277,7 +277,13 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     edges,
   );
   // cosmetic `ActionSpec.after` order, last so it never displaces an edge above
-  addAcyclicEdges(edges, softEdges);
+  addSoftEdges(
+    edges,
+    softEdges,
+    actions.flatMap((a, i) =>
+      a.transactionality === "transactional" ? [] : [i],
+    ),
+  );
 
   // Order a table's ADD COLUMN creates by declared column position
   // (pg_attribute.attnum, carried as the non-semantic `_position` field) instead

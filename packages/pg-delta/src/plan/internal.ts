@@ -129,7 +129,7 @@ export function buildActionGraph(
   // action index → encoded ids it should follow (`ActionSpec.after`). Lifts
   // this alterer's "alter before dependent create" and alter-after-dependency
   // edges for those ids; the reverse soft edges go to `softEdges`, for the
-  // caller to add last with `addAcyclicEdges`.
+  // caller to add last with `addSoftEdges`.
   softAfter: ReadonlyMap<number, ReadonlySet<string>> = new Map(),
   softEdges: Array<[before: number, after: number]> = [],
 ): Array<[number, number]> {
@@ -624,11 +624,15 @@ function actionReaches(
   return reachesIn(adj, from, to);
 }
 
-/** Push each candidate `[before, after]` that closes no cycle, in order,
- *  keeping one adjacency map across them. */
-export function addAcyclicEdges(
+/** Push each candidate `[before, after]`, in order, unless it closes a cycle
+ *  or `after` is not yet ordered against every segment boundary
+ *  (`boundaries`: actions that are not plain transactional). An unordered
+ *  boundary is placed by the tie-break, so the edge could move `after` past
+ *  that commit and let it fail after earlier statements committed. */
+export function addSoftEdges(
   edges: Array<[before: number, after: number]>,
   candidates: readonly [before: number, after: number][],
+  boundaries: readonly number[],
 ): void {
   if (candidates.length === 0) return;
   const adj = new Map<number, number[]>();
@@ -640,6 +644,9 @@ export function addAcyclicEdges(
   for (const [u, v] of edges) link(u, v);
   for (const [before, after] of candidates) {
     if (reachesIn(adj, after, before)) continue;
+    const unordered = (b: number): boolean =>
+      !reachesIn(adj, b, after) && !reachesIn(adj, after, b);
+    if (boundaries.some(unordered)) continue;
     edges.push([before, after]);
     link(before, after);
   }

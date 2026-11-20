@@ -4,7 +4,5 @@ CREATE TABLE app.t (
   id integer NOT NULL,
   status text,
   note text DEFAULT 'old',
-  mood text DEFAULT 'old',
-  label text,
-  code text DEFAULT 'old'
+  mood text DEFAULT 'old'
 );
