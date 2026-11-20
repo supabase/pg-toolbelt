@@ -11,7 +11,10 @@ export {
 } from "./check.ts";
 export {
   type CheckError,
+  type FileOutcome,
+  type FileResult,
   type Finding,
+  type RunResult,
   type SplinterLevel,
   parseCheckError,
   parseFindings,

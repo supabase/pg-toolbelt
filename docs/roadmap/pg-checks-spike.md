@@ -14,7 +14,7 @@ Local spike, 2026-10-21. Spec: `secure-by-default/RFC.md` §2–§5, §8, §9; D
 - `resolvePolicy`, `buildCheckStatements` / `buildCheckBlock`, `buildAfterCommitRead`, `parseCheckError`, `parseFindings`.
 - Deviation from RFC §3: `search_path` and `pgrst.db_schemas` are saved and restored inside the `DO` (plpgsql variables), not through `sbc.*` settings. Only `statement_timeout` needs a cross-statement save (`sbc.statement_timeout`). Every call outside splinter is `pg_catalog`-qualified, because the block runs under the migration's own `search_path`.
 - `tests/cli-executor.ts`: a CLI-faithful executor for cli@24347954f. It does `RESET ALL`, the history DDL, and one Parse/Bind/Describe/Execute pipeline with a single Sync (a port of `PgBatchQuery`), and it follows the D22 split paths. The insert matches the CLI's `INSERT … (version, name, statements) VALUES ($1,$2,$3)`.
-- `scripts/dogfood.ts`: the harness. It adds a pass (d) beyond the brief: the four core rules at `error`, the rest at `warn`.
+- `scripts/dogfood.ts` (removed before release, in the history of #560): the harness. It adds a pass (d) beyond the brief: the four core rules at `error`, the rest at `warn`.
 
 ## What was validated
 
@@ -76,7 +76,7 @@ Not done: hosted project / Supavisor (O8); the Mgmt API executor beyond the one-
 
 ## O8 hosted staging results
 
-One throwaway staging project (PG 17.11.0.003, micro, api.supabase.green, deleted afterwards). Probe: `packages/pg-checks/scripts/o8-probe.ts`. Full report: `~/.cache/supabase-pg-checks-dogfood/o8-20261021-1737/REPORT.md`.
+One throwaway staging project (PG 17.11.0.003, micro, api.supabase.green, deleted afterwards). Probe: `scripts/o8-probe.ts` (removed before release, in the history of #560). Full report: `~/.cache/supabase-pg-checks-dogfood/o8-20261021-1737/REPORT.md`.
 
 | Cell | Verdict |
 | -- | -- |

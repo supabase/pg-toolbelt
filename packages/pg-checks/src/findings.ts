@@ -37,6 +37,25 @@ export type CheckError =
     }
   | { readonly kind: "timed_out"; readonly message: string };
 
+/** What happened to one migration file (RFC §8). */
+export type FileOutcome = "rolled_back" | "applied_with_findings" | "timed_out";
+
+export interface FileResult {
+  readonly file: string;
+  readonly outcome: FileOutcome;
+  readonly errors: readonly Finding[];
+  /** At most `DETAIL_WARNING_LIMIT` rows on a blocked file; see {@link warningCount}. */
+  readonly warnings: readonly Finding[];
+  readonly warningCount: number;
+}
+
+/** One apply run as every client reports it (RFC §8). */
+export interface RunResult {
+  readonly files: readonly FileResult[];
+  /** Pending files after the one that stopped the run. */
+  readonly not_run: readonly string[];
+}
+
 const isRule = (value: unknown): value is Rule =>
   typeof value === "string" && (RULES as readonly string[]).includes(value);
 

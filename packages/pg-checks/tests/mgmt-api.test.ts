@@ -91,26 +91,39 @@ create function ${schema}.f() returns int language sql as 'select 1'`;
     });
 
     test("a read over its timeout still returns 200 with a read error, and the migration commits", async () => {
-      const { schema, version, exposed } = await fixture();
       const policy = resolvePolicy({});
-      const response = await stack.query(
-        applyAndTrack(
-          `create table ${schema}.t (id int primary key)`,
-          version,
-          {
-            warnRead: buildInTransactionWarnRead(policy, {
-              ...exposed,
-              timeoutMs: 1,
-            }),
-          },
-        ),
-      );
-      expect(response.status).toBe(200);
-      const result = parseInTransactionWarnRead(rowsOf(response.body), policy);
-      expect(result).toEqual({
-        readError: "57014: canceling statement due to statement timeout",
-      });
-      expect(await state(schema, version)).toEqual({ t: true, history: 1 });
+      // A 1 ms cancel can land while Postgres compiles the DO, before its
+      // handler exists; that rolls the migration back (documented residual).
+      // Retry so the test checks the handled path, not runner timing.
+      for (let attempt = 1; ; attempt++) {
+        const { schema, version, exposed } = await fixture();
+        const response = await stack.query(
+          applyAndTrack(
+            `create table ${schema}.t (id int primary key)`,
+            version,
+            {
+              warnRead: buildInTransactionWarnRead(policy, {
+                ...exposed,
+                timeoutMs: 1,
+              }),
+            },
+          ),
+        );
+        if (response.status !== 200 && attempt < 5) {
+          expect(JSON.stringify(response.body)).toContain("57014");
+          continue;
+        }
+        expect(response.status).toBe(200);
+        const result = parseInTransactionWarnRead(
+          rowsOf(response.body),
+          policy,
+        );
+        expect(result).toEqual({
+          readError: "57014: canceling statement due to statement timeout",
+        });
+        expect(await state(schema, version)).toEqual({ t: true, history: 1 });
+        return;
+      }
     });
 
     test("an SB001 block at error returns 400 and commits nothing", async () => {

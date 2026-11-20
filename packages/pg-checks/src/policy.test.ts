@@ -83,6 +83,13 @@ describe("resolvePolicy", () => {
     expect(() => resolvePolicy({ exclude: "public.foo" })).toThrow(
       /exclude must be a table of rule names to lists/,
     );
+    expect(() =>
+      resolvePolicy({ exclude: { security_definer_view: ["public.v$sbcq$"] } }),
+    ).toThrow(/expected "schema.name"/);
+    expect(
+      resolvePolicy({ exclude: { security_definer_view: ["public.v$sbc_x"] } })
+        .exclude,
+    ).toEqual([{ rule: "security_definer_view", object: "public.v$sbc_x" }]);
   });
 });
 

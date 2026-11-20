@@ -91,9 +91,22 @@ describe("buildCheckBlock", () => {
     expect(() => buildCheckStatements(blocking, { timeoutMs: 0 })).toThrow(
       /timeoutMs/,
     );
+    expect(() => buildCheckStatements(blocking, { timeoutMs: 3e9 })).toThrow(
+      /timeoutMs/,
+    );
     expect(() =>
       buildCheckStatements(blocking, { exposedSchemas: ["a,b"] }),
     ).toThrow(/comma/);
+    // The literal sits inside a $sbcq$-quoted body: closing it would end the check.
+    expect(() =>
+      buildCheckStatements(blocking, { exposedSchemas: ["a$sbcq$"] }),
+    ).toThrow(/\$sbc/);
+    // Only the exact closing tags matter: other names with "$sbc" are valid.
+    expect(
+      buildCheckStatements(blocking, {
+        exposedSchemas: ["tenant$sbc_archive"],
+      }),
+    ).toHaveLength(4);
   });
 });
 

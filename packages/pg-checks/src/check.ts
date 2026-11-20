@@ -3,7 +3,13 @@
  * Every function call is `pg_catalog`-qualified: these statements run under the
  * migration's own `search_path`, which may put a user schema before pg_catalog.
  */
-import { RULES, type ResolvedPolicy, type Rule, rulesAt } from "./policy.ts";
+import {
+  RULES,
+  type ResolvedPolicy,
+  type Rule,
+  closesCheckQuote,
+  rulesAt,
+} from "./policy.ts";
 import { RULE_SQL } from "./vendor/splinter.ts";
 
 export interface CheckOptions {
@@ -25,8 +31,17 @@ export const CHECK_TIMED_OUT_SQLSTATE = "SB002";
 /** Warning rows kept in `SB001`'s `DETAIL`; `warning_count` still counts them all. */
 export const DETAIL_WARNING_LIMIT = 50;
 
-/** A Postgres string literal, safe under either `standard_conforming_strings`. */
+/**
+ * A Postgres string literal, safe under either `standard_conforming_strings`.
+ * The literal lands inside the `$sbc$` / `$sbcq$` dollar-quoted bodies below,
+ * so a value that could close one is refused.
+ */
 export function quoteLiteral(value: string): string {
+  if (closesCheckQuote(value)) {
+    throw new Error(
+      `${JSON.stringify(value)} must not contain "$sbc$" or "$sbcq$"`,
+    );
+  }
   const quoted = `'${value.replaceAll("'", "''")}'`;
   return value.includes("\\") ? `E${quoted.replaceAll("\\", "\\\\")}` : quoted;
 }
@@ -146,7 +161,7 @@ $sbcq$ into findings;
     ${dbSchemasSet.restore}
   exception when query_canceled then
     raise exception using errcode = '${CHECK_TIMED_OUT_SQLSTATE}', message = 'security check timed out',
-      hint = 'retry with --skip-checks, or raise the check timeout';
+      hint = 'retry, or skip the security checks for this migration';
   end;
 end
 $sbc$`;
@@ -160,8 +175,15 @@ $sbc$`;
 
 function checkTimeout(options: Pick<CheckOptions, "timeoutMs">): number {
   const timeoutMs = options.timeoutMs ?? 2000;
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
-    throw new Error(`timeoutMs must be a positive integer, got ${timeoutMs}`);
+  // statement_timeout is an int32 of milliseconds.
+  if (
+    !Number.isInteger(timeoutMs) ||
+    timeoutMs <= 0 ||
+    timeoutMs > 2_147_483_647
+  ) {
+    throw new Error(
+      `timeoutMs must be an integer from 1 to 2147483647, got ${timeoutMs}`,
+    );
   }
   return timeoutMs;
 }

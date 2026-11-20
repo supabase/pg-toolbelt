@@ -38,6 +38,7 @@ jobs:
       pg-delta-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-delta-package-json }}
       pg-topo: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo }}
       pg-topo-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo-package-json }}
+      pg-checks: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-checks }}
       root: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.root }}
       # 'true' only when the PR is authored by the changesets release bot AND
       # every changed file is in the release-PR whitelist (CHANGELOGs,
@@ -125,6 +126,9 @@ jobs:
       - name: Check types (pg-topo)
         if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-topo' check-types
+      - name: Check types (pg-checks)
+        if: needs.detect-changes.outputs.pg-checks == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-checks' check-types
 
   format-and-lint:
     if: >-
@@ -168,6 +172,9 @@ jobs:
       - name: Knip (pg-topo)
         if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
         run: bun run --filter '@supabase/pg-topo' knip
+      - name: Knip (pg-checks)
+        if: needs.detect-changes.outputs.pg-checks == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-checks' knip
 
   pg-delta-unit:
     if: >-
@@ -433,6 +440,27 @@ jobs:
           retention-days: 1
           include-hidden-files: true
 
+  pg-checks-tests:
+    if: >-
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      (needs.detect-changes.outputs.pg-checks == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-checks: Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Run unit tests
+        working-directory: packages/pg-checks
+        run: bun run test
+      - name: Run integration tests (supabase/postgres 15 and 17)
+        working-directory: packages/pg-checks
+        run: bun run test:integration
+
   coverage:
     if: >-
       !cancelled() &&
@@ -576,6 +604,7 @@ jobs:
       - pg-delta-integration-pg15-compat
       - pg-delta-integration-pg17-compat
       - pg-topo-tests
+      - pg-checks-tests
       - coverage
       - deno2-library-e2e
     name: All tests passed

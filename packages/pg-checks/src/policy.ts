@@ -45,8 +45,17 @@ export class PolicyError extends Error {
 // with a dot and text on both sides, and no quoting.
 const isObjectName = (entry: string) => {
   const dot = entry.indexOf(".");
-  return entry === entry.trim() && dot > 0 && dot < entry.length - 1;
+  return (
+    entry === entry.trim() &&
+    dot > 0 &&
+    dot < entry.length - 1 &&
+    !closesCheckQuote(entry)
+  );
 };
+
+/** True when `value` would close a dollar-quoted body of the check SQL. */
+export const closesCheckQuote = (value: string) =>
+  value.includes("$sbc$") || value.includes("$sbcq$");
 
 const isRule = (key: string): key is Rule =>
   (RULES as readonly string[]).includes(key);
