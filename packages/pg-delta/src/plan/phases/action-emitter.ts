@@ -841,6 +841,13 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       if (!fact) continue;
       const ownerAlterPrefix = ruleFlag(fact.id.kind, "ownerAlterPrefix");
       if (!ownerAlterPrefix) continue;
+      // its owner follows another object's owner change in this plan
+      if (
+        !replaceIds.has(objKey) &&
+        ruleFlag(fact.id.kind, "ownerCarrier")?.(fact, source.get(objId)) !==
+          undefined
+      )
+        continue;
       const prefix = ownerAlterPrefix(fact);
       const newRoleId = delta.edge.to;
       if (newRoleId.kind !== "role") continue;
