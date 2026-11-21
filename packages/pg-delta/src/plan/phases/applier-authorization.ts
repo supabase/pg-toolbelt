@@ -118,6 +118,10 @@ function newAction(sql: string, consumes: StableId[]): Action {
   return {
     sql,
     verb: "alter",
+    // PoC placeholder: these statements change no fact; revision 4 replaces
+    // them with an action-level executing role.
+    subject: consumes[0] as StableId,
+    change: { kind: "attribute", name: "applierAuthorization" },
     produces: [],
     consumes,
     destroys: [],
