@@ -33,9 +33,11 @@ result, or fail loudly.
   one documented exception is a GRANT merged over several grantees, which lists every
   grant in `produces`.
 - **Authorization state comes from unfiltered facts.**
-- **Insert and remove, never reorder** (new in revision 5). The pass adds statements and
-  removes the ones an added statement replaces. It never moves a statement of the base
-  plan, and it never decides from a simulated intermediate ACL.
+- **Insert and remove; move only what is monotone** (new in revision 5). The pass adds
+  statements and removes the ones an added statement replaces. The only statements it
+  moves are schema GRANT / REVOKE (4g), in the direction that keeps a privilege longer. It
+  never moves a membership or role statement and never decides from a simulated
+  intermediate ACL.
 
 ## Why revision 5
 
@@ -54,6 +56,17 @@ non-superuser configs) but carried two mechanisms that kept producing findings:
 Both existed to answer "what can the applier (or the new owner) do at THIS step". Revision 5
 removes the question: the applier keeps every role it needs for the whole plan, and the
 schema CREATE rule is decided from the two end states.
+
+One kind of move stays, because the base plan needs it and it has a soundness argument the
+others lack. The base planner emits an owner's own schema ACL statements where only a
+superuser can live with them (`REVOKE ALL ON SCHEMA s FROM <owner>` first, the matching
+GRANT at the end; in between the owner has no USAGE on its own schema). Moving a schema
+GRANT earlier or a schema REVOKE later only makes a role hold a schema privilege LONGER.
+Holding a privilege longer can let a crossed statement succeed; it cannot change the result
+of one that already succeeded, as long as the move does not cross another ACL statement on
+that schema, a statement that writes the schema itself (owner change, create, drop, rename)
+or one that writes the grantee role. Membership moves have no such argument: an earlier
+GRANT can create a membership loop and changes which grantor Postgres picks.
 
 ## Verified Postgres facts
 
@@ -168,6 +181,12 @@ state holds, and a GRANT without REVOKE is always completed by a statement of th
 **4f. Blockers for owner changes (exact).** New owner neither settable nor reachable
 through the envelope; current owner (of an object that exists in the source) neither
 inherited nor reachable.
+
+**4g. Schema ACL placement.** Done first, on the base plan. A schema ACL statement whose
+item only gains privileges (desired ⊋ source) moves earlier, one that only loses them moves
+later; a mixed change stays. Each stops at the first statement that writes something it
+names (the schema, its ACL items, the grantee role), at a non-transactional statement and at
+a segment boundary.
 
 ### 5. Blockers and identity
 
