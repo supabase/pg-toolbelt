@@ -52,6 +52,31 @@ const samplePlan: Plan = stampPlanId({
 });
 
 describe("plan artifact v1", () => {
+  test("Action.runAs round-trips and is part of planId only when present", () => {
+    const withRunAs = stampPlanId({
+      ...samplePlan,
+      boundApplier: "app",
+      actions: samplePlan.actions.map((a) => ({ ...a, runAs: "test" })),
+    });
+    expect(parsePlan(serializePlan(withRunAs))).toEqual(withRunAs);
+    const withoutRunAs = stampPlanId({
+      ...withRunAs,
+      actions: samplePlan.actions,
+    });
+    expect(withRunAs.planId).not.toBe(withoutRunAs.planId);
+    expect(
+      stampPlanId({
+        ...samplePlan,
+        actions: samplePlan.actions.map((a) => ({ ...a })),
+      }).planId,
+    ).toBe(samplePlan.planId);
+    const bad = JSON.parse(serializePlan(withRunAs)) as {
+      actions: Record<string, unknown>[];
+    };
+    (bad.actions[0] as Record<string, unknown>)["runAs"] = 7;
+    expect(() => parsePlan(JSON.stringify(bad))).toThrow(/runAs/);
+  });
+
   test("round-trips losslessly, including bigint payload values", () => {
     const parsed = parsePlan(serializePlan(samplePlan));
     expect(parsed).toEqual(samplePlan);

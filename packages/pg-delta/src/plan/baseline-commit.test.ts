@@ -121,6 +121,17 @@ describe("splitActions", () => {
     expect(packed.map((a) => a.newSegmentBefore)).toEqual([false, true]);
   });
 
+  test("a split keeps an action's runAs on that action", () => {
+    const actions = [
+      createAction([table("a")]),
+      { ...createAction([table("b")]), runAs: "owner" },
+    ];
+    expect(splitActions(actions, 0)[1]).toMatchObject({
+      newSegmentBefore: true,
+      runAs: "owner",
+    });
+  });
+
   test("packs table creates to maxLocks without splitting one action", () => {
     // Each CREATE TABLE estimates 4 slots; maxLocks 8 → two per segment.
     const actions = Array.from({ length: 5 }, (_, i) =>

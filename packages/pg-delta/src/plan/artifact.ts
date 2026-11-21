@@ -263,6 +263,12 @@ function assertAction(value: unknown, index: number): asserts value is Action {
   if (typeof value["rewriteRisk"] !== "boolean") {
     fail(`${path}.rewriteRisk`, "a boolean");
   }
+  if (
+    value["runAs"] !== undefined &&
+    (typeof value["runAs"] !== "string" || value["runAs"] === "")
+  ) {
+    fail(`${path}.runAs`, "a role name when present");
+  }
 }
 function replacer(_key: string, value: unknown): unknown {
   if (typeof value === "bigint") return { $bigint: value.toString() };
@@ -315,6 +321,8 @@ export function computePlanId(plan: Omit<Plan, "planId">): string {
       newSegmentBefore: action.newSegmentBefore,
       dataLoss: action.dataLoss,
       rewriteRisk: action.rewriteRisk,
+      // omitted by canonicalize when absent, so other planIds are unchanged
+      runAs: action.runAs,
     })),
     profile: plan.profile,
     scope: plan.scope,

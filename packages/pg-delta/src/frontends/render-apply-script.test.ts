@@ -113,6 +113,37 @@ describe("renderApplyScript", () => {
     );
   });
 
+  test("brackets a runAs action with SET ROLE to it and back to the applier", () => {
+    const plan = planWithMixedSegments();
+    plan.preamble = [];
+    plan.boundApplier = "app";
+    plan.actions = [
+      action("SELECT 1"),
+      { ...action("GRANT SELECT ON public.widgets TO reader"), runAs: "owner" },
+      {
+        ...action("VACUUM public.widgets", "nonTransactional"),
+        runAs: "owner",
+      },
+    ];
+
+    expect(renderApplyScript(plan)).toEndWith(
+      [
+        "BEGIN;",
+        "SELECT 1;",
+        'SET ROLE "owner";',
+        "GRANT SELECT ON public.widgets TO reader;",
+        'SET ROLE "app";',
+        "COMMIT;",
+        "",
+        'SET ROLE "owner";',
+        "VACUUM public.widgets;",
+        'SET ROLE "app";',
+        "RESET ALL;",
+        "",
+      ].join("\n"),
+    );
+  });
+
   test("renders an empty plan as an empty script", () => {
     const plan = planWithMixedSegments();
     plan.actions = [];

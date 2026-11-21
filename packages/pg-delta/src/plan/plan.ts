@@ -128,6 +128,13 @@ interface ActionBase {
   newSegmentBefore: boolean;
   dataLoss: "none" | "destructive";
   rewriteRisk: boolean;
+  /** The role that must execute this statement instead of the applier
+   *  (`Plan.boundApplier`). Set only by the applier-authorization pass.
+   *  `apply()` runs `SET ROLE "<runAs>"` before it and `SET ROLE
+   *  "<boundApplier>"` after it, inside the action's own transaction, so no
+   *  split, segment or compaction ever separates the role from its
+   *  statement. Absent on every other action; part of planId when present. */
+  runAs?: string;
 }
 
 /** `verb` describes the FACT, not the SQL keyword: `ADD COLUMN` is a
