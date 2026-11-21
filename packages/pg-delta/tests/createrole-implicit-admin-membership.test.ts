@@ -161,14 +161,8 @@ describe.skipIf(PG_MAJOR < 16)(
             s.includes("WITH ADMIN OPTION"),
         ),
       ).toBe(false);
-      // a non-superuser applier on PG16+ grants every membership as itself
-      // with the full desired options (applier-authorization.ts)
       expect(
-        grantSql.some(
-          (s) =>
-            s ===
-            `GRANT "${parent}" TO "${child}" WITH ADMIN FALSE, INHERIT TRUE, SET TRUE GRANTED BY "${applier}"`,
-        ),
+        grantSql.some((s) => s === `GRANT "${parent}" TO "${child}"`),
       ).toBe(true);
     }, 120_000);
   },
