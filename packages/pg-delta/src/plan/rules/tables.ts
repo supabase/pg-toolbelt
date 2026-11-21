@@ -307,6 +307,8 @@ export const tableRules: Record<string, KindRules> = {
         // A generated column folds too (#518). Its expression's columns are
         // pg_depend edges, so compaction's crossing veto keeps it an ADD COLUMN
         // whenever a column it reads was not folded into the CREATE first.
+        // The action graph drops the hint when the column can run a user
+        // function and reads no column of its own table (#554).
         spec.compaction = { foldInto: fact.parent, clause };
       }
       return [spec];
