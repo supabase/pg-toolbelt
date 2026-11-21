@@ -1,0 +1,7 @@
+CREATE SCHEMA app;
+GRANT USAGE ON SCHEMA app TO PUBLIC;
+CREATE TABLE app.orders (id int);
+ALTER TABLE app.orders OWNER TO app_owner;
+SET ROLE app_owner;
+GRANT SELECT ON app.orders TO acl_delegate WITH GRANT OPTION;
+RESET ROLE;

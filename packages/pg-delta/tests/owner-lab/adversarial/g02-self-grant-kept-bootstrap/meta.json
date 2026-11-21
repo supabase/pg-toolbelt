@@ -1,0 +1,4 @@
+{
+  "notes": "The migration creates an owner role, grants it to itself and keeps the membership while handing the table to that role.",
+  "tags": ["round:g-review", "likelihood:common"]
+}

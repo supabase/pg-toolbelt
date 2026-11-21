@@ -1,0 +1,4 @@
+{
+  "notes": "A later migration changes a table owned by a role the applier granted itself earlier and still holds.",
+  "tags": ["round:g-review", "likelihood:common"]
+}

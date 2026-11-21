@@ -1,0 +1,4 @@
+{
+  "notes": "The applier holds a grant it made through a role that received SELECT WITH GRANT OPTION from the owner, and the desired state revokes it.",
+  "tags": ["round:g-review", "likelihood:rare"]
+}

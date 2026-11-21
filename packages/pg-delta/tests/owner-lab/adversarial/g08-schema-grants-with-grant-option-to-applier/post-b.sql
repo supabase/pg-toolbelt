@@ -1,0 +1,5 @@
+CREATE SCHEMA app AUTHORIZATION namespace_owner;
+SET ROLE namespace_owner;
+GRANT USAGE ON SCHEMA app TO reader;
+GRANT USAGE ON SCHEMA app TO lab_applier WITH GRANT OPTION;
+RESET ROLE;

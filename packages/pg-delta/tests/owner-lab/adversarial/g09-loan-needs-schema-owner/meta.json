@@ -1,0 +1,4 @@
+{
+  "notes": "The applier owns a table in a schema owned by another role and the desired state hands the table to a role that lacks CREATE on the schema.",
+  "tags": ["round:g-review", "likelihood:plausible"]
+}

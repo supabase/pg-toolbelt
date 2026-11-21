@@ -1,0 +1,4 @@
+{
+  "notes": "A table is created in a schema owned by a role the applier cannot SET, through an inherited writer role, while an unrelated grant option sits on app_owner.",
+  "tags": ["round:g-review", "likelihood:plausible"]
+}

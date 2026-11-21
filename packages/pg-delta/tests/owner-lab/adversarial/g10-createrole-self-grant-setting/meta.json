@@ -1,0 +1,5 @@
+{
+  "minVersion": 16,
+  "notes": "The applier has createrole_self_grant set, so roles it creates are granted back to it with inherit and set.",
+  "tags": ["round:g-review", "likelihood:rare"]
+}

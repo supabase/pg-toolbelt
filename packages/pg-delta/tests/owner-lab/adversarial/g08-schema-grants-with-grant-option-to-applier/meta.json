@@ -1,0 +1,4 @@
+{
+  "notes": "The schema owner grants the applier USAGE WITH GRANT OPTION on the schema in the desired state only.",
+  "tags": ["round:g-review", "likelihood:rare"]
+}

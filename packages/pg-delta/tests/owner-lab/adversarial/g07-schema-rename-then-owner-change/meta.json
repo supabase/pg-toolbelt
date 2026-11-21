@@ -1,0 +1,5 @@
+{
+  "renames": "auto",
+  "notes": "A schema is renamed and its table is handed to a role the applier granted itself.",
+  "tags": ["round:g-review", "likelihood:plausible"]
+}

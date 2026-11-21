@@ -1,0 +1,4 @@
+{
+  "notes": "The plan alters a table owned by app_owner, which also holds an untouched SELECT WITH GRANT OPTION elsewhere.",
+  "tags": ["round:g-review", "likelihood:plausible"]
+}

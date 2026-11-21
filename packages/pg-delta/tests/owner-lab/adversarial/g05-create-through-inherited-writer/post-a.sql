@@ -1,0 +1,2 @@
+CREATE SCHEMA app AUTHORIZATION app_owner;
+GRANT USAGE, CREATE ON SCHEMA app TO app_writer;
