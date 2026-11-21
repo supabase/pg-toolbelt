@@ -117,6 +117,20 @@ describe("ApplierCapability — PG16+ CREATEROLE self-ADMIN membership", () => {
     ).toBeDefined();
   });
 
+  test("keeps the applier's membership once it has its own grant row (self)", () => {
+    const fb = buildFactBase(
+      [
+        f(created),
+        {
+          id: selfAdmin,
+          payload: { admin: true, self: { inherit: true, set: true } },
+        },
+      ],
+      [],
+    );
+    expect(capabilityExcludedRoots(fb, createrolePg16).size).toBe(0);
+  });
+
   test("keeps a non-admin self-membership", () => {
     const fb = buildFactBase(
       [f(created), { id: selfPlain, payload: { admin: false } }],

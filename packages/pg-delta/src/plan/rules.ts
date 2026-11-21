@@ -91,6 +91,13 @@ export type AttributeRule =
         view: FactView,
         sourceView: FactView,
       ) => ActionSpec | ActionSpec[];
+      /** The kind's create and drop statements do not render this attribute:
+       *  a created fact gets this alter (from absent) right after its create,
+       *  a dropped fact gets it (to absent) right before its drop. For state
+       *  that needs a statement of its own and that the drop cannot remove
+       *  (a PG16+ membership's own grant row depends on the member's ADMIN
+       *  row, so it is revoked first). */
+      ownStatement?: true;
       /** When this transition force-rebuilds surviving dependents (drop +
        *  recreate around the alter):
        *   - `true`  → every rebuildable dependent (enum value-set migration:

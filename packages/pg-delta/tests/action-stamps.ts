@@ -7,6 +7,7 @@
 import type { FactBase } from "../src/core/fact.ts";
 import { encodeId, type StableId } from "../src/core/stable-id.ts";
 import { relabelRoleNames } from "../src/plan/identity-normalize.ts";
+import { buildRuleResolver } from "../src/plan/rules.ts";
 import type { Action, Plan } from "../src/plan/plan.ts";
 import { lit, qid } from "../src/plan/render.ts";
 
@@ -53,6 +54,8 @@ function mentions(sql: string, name: string): boolean {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^A-Za-z0-9_])${escaped}([^A-Za-z0-9_]|$)`).test(sql);
 }
+
+const rulesForId = buildRuleResolver();
 
 const has = (ids: readonly StableId[], id: StableId): boolean =>
   ids.some((other) => encodeId(other) === encodeId(id));
@@ -143,7 +146,20 @@ function stampViolations(action: Action, ctx: PlanContext): string[] {
   } else {
     const { change } = action;
     switch (change.kind) {
-      case "attribute":
+      case "attribute": {
+        // an attribute its kind renders in a statement of its own
+        // (`ownStatement`) also accompanies its fact's create or drop
+        const created = !inSource(subject) && desired.has(subject);
+        const dropped = inSource(subject) && !desired.has(subject);
+        const side = created ? desired : dropped ? source : undefined;
+        const rule =
+          side?.get(subject)?.payload[change.name] !== undefined &&
+          subject.kind !== "extensionIntent"
+            ? rulesForId(subject).attributes[change.name]
+            : undefined;
+        if (rule !== undefined && rule !== "replace" && rule.ownStatement) {
+          break;
+        }
         expect(
           inSource(subject) && desired.has(subject),
           "altered subject must exist in both states",
@@ -153,6 +169,7 @@ function stampViolations(action: Action, ctx: PlanContext): string[] {
           `no set delta for attribute "${change.name}"`,
         );
         break;
+      }
       case "owner":
         expect(
           desired

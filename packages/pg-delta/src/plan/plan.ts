@@ -84,7 +84,10 @@ export type { AssumedDefaultGrant } from "../policy/policy.ts";
  *  The kinds mirror what caused the statement (`Delta` in `core/diff.ts`). */
 export type ActionChange =
   /** a payload attribute, named as in the `set` delta that caused it. The
-   *  names are payload keys, so renaming one is a breaking change. */
+   *  names are payload keys, so renaming one is a breaking change. An
+   *  attribute its kind renders in a statement of its own (`ownStatement`,
+   *  e.g. a membership's `self` row) also gets this alter right after its
+   *  fact's create and right before its fact's drop. */
   | { kind: "attribute"; name: string }
   /** the owner edge (`link` delta); `to` names the new owner role */
   | { kind: "owner"; to: string }

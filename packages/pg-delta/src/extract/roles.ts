@@ -14,24 +14,20 @@ const ROLES_SQL = `
     ORDER BY r.rolname`;
 
 // ── role memberships (cluster-level; multi-grantor rows deduped) ─────
-// pg-delta converges the EFFECTIVE options of (role, member), not which grantor
-// row carries them: on PG16+ each option is OR-ed across grantor rows. SET and
-// INHERIT exist per grant only on PG16+, so <=15 payloads stay `{ admin }`.
+// PG16+ also reads the member's own grant row (grantor = member): the row a
+// CREATEROLE role adds to use a role it created (`GRANT r TO me`). Only that
+// row's INHERIT / SET are modelled; every other row stays deduped to `admin`.
 function membershipsSql(pgMajor: number): string {
-  const perGrantOptions =
+  const self =
     pgMajor >= 16
       ? `,
-           bool_or(m.set_option) AS set,
-           bool_or(m.inherit_option) AS inherit,
-           json_agg(json_build_object(
-             'grantor', pg_get_userbyid(m.grantor),
-             'admin', m.admin_option,
-             'inherit', m.inherit_option,
-             'set', m.set_option) ORDER BY pg_get_userbyid(m.grantor)) AS rows`
+           bool_or(m.grantor = m.member) AS has_self,
+           bool_or(m.inherit_option) FILTER (WHERE m.grantor = m.member) AS self_inherit,
+           bool_or(m.set_option) FILTER (WHERE m.grantor = m.member) AS self_set`
       : "";
   return `
     SELECT r1.rolname AS role, r2.rolname AS member,
-           bool_or(m.admin_option) AS admin${perGrantOptions}
+           bool_or(m.admin_option) AS admin${self}
     FROM pg_auth_members m
     JOIN pg_roles r1 ON r1.oid = m.roleid
     JOIN pg_roles r2 ON r2.oid = m.member
@@ -191,26 +187,14 @@ export const rolesAndGrantsFamily: CatalogFamily = {
         },
         payload: {
           admin: Boolean(row["admin"]),
-          ...("set" in row
+          // absent when the member has no own grant row (always on <=15), so
+          // memberships without one hash as before
+          ...(row["has_self"] === true
             ? {
-                set: Boolean(row["set"]),
-                inherit: Boolean(row["inherit"]),
-                // non-semantic (`_`, not hashed): the per-grantor rows the
-                // effective options are OR-ed from, so the planner can tell
-                // which rows a non-superuser applier cannot change.
-                _rows: (
-                  row["rows"] as {
-                    grantor: string;
-                    admin: boolean;
-                    inherit: boolean;
-                    set: boolean;
-                  }[]
-                ).map((r) => ({
-                  grantor: String(r.grantor),
-                  admin: Boolean(r.admin),
-                  inherit: Boolean(r.inherit),
-                  set: Boolean(r.set),
-                })),
+                self: {
+                  inherit: Boolean(row["self_inherit"]),
+                  set: Boolean(row["self_set"]),
+                },
               }
             : {}),
         },

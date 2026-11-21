@@ -10,6 +10,7 @@
  */
 import type { Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
+import type { PayloadValue } from "../../core/hash.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import type { ApplierCapability } from "../../policy/capability.ts";
 import {
@@ -241,6 +242,49 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     rulesForId(fact.id).implicitlyDestroys?.(fact, projectedDesired, source) ??
     [];
 
+  // attributes a kind renders in a statement of their own (rule-declared
+  // `ownStatement`), with the fact's value, for its create and drop
+  const ownStatementAttrs = (fact: Fact): [string, PayloadValue][] =>
+    Object.entries(rulesForId(fact.id).attributes).flatMap(([attr, rule]) =>
+      rule !== "replace" &&
+      rule.ownStatement === true &&
+      fact.payload[attr] !== undefined
+        ? [[attr, fact.payload[attr] as PayloadValue]]
+        : [],
+    );
+  const emitAttributeAlter = (
+    fact: Fact,
+    attr: string,
+    from: PayloadValue | undefined,
+    to: PayloadValue | undefined,
+    view: FactBase,
+    opts: { consumes?: StableId[]; releases?: StableId[] },
+  ): void => {
+    const rule = rulesForId(fact.id).attributes[attr];
+    if (rule === undefined || rule === "replace") return;
+    const specs = rule.alter(
+      fact,
+      from as PayloadValue,
+      to as PayloadValue,
+      view,
+      source,
+    );
+    for (const spec of Array.isArray(specs) ? specs : [specs]) {
+      pushAction(
+        "alter",
+        {
+          ...spec,
+          releases: [...(spec.releases ?? []), ...(opts.releases ?? [])],
+        },
+        {
+          subject: fact.id,
+          change: { kind: "attribute", name: attr },
+          consumes: opts.consumes ?? [],
+        },
+      );
+    }
+  };
+
   const emitCreate = (fact: Fact, base: FactBase): void => {
     let specs = rulesForId(fact.id).create(fact, base, paramsFor(fact), source);
     // Overlay dest may hold a SUPERSET of this ADP. GRANT is additive — wipe first.
@@ -262,6 +306,11 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         wipes: i === 0 ? wiped : [],
       });
     });
+    for (const [attr, value] of ownStatementAttrs(fact)) {
+      emitAttributeAlter(fact, attr, undefined, value, base, {
+        consumes: [fact.id],
+      });
+    }
   };
 
   // renames: one action renames the whole subtree — produces every new id,
@@ -422,6 +471,11 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       // drop AFTER the parent's re-create. Its ordering before the parent drop
       // comes from the child-teardown rule (source parent → parentDestroyer).
       const isRoot = encodeId(rootFact.id) === key;
+      for (const [attr, value] of ownStatementAttrs(rootFact)) {
+        emitAttributeAlter(rootFact, attr, value, undefined, source, {
+          releases: [rootFact.id],
+        });
+      }
       pushAction("drop", rulesForId(rootFact.id).drop(rootFact, source), {
         subject: rootFact.id,
         consumes:
@@ -737,6 +791,11 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // pass the resolved SOURCE view so a drop rule can read the fact's context
     // (e.g. DROP EXTENSION derives data-loss from its members' edges).
     const spec = rulesForId(fact.id).drop(fact, source);
+    for (const [attr, value] of ownStatementAttrs(fact)) {
+      emitAttributeAlter(fact, attr, value, undefined, source, {
+        releases: [fact.id],
+      });
+    }
     const seen = new Set<string>([key]);
     const destroyList: StableId[] = [fact.id];
     // `destroysByRoot` is removed-only. A replaced attached child is not in
