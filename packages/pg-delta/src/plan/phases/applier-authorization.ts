@@ -254,6 +254,12 @@ export function authorizeForApplier(
     const p = fb.get(id)?.payload;
     return p?.["inherit"] === true || p?.["set"] === true;
   };
+  const canAdmin = (r: string): boolean =>
+    createdByPlan.has(r) || (cap.adminOf ?? []).includes(r);
+  const membershipOfApplier = (a: Action): string | undefined =>
+    a.subject.kind === "membership" && a.subject.member === applier
+      ? a.subject.role
+      : undefined;
   // PG16+: the applier's ADMIN row on a role it created (or already holds
   // ADMIN on directly) is the row a superuser's `GRANT … WITH ADMIN OPTION`
   // records, and Postgres refuses to grant it back to its own grantor
@@ -264,8 +270,27 @@ export function authorizeForApplier(
     a.subject.kind === "membership" &&
     a.subject.member === applier &&
     desired.get(a.subject)?.payload["admin"] === true &&
-    (createdByPlan.has(a.subject.role) ||
-      (cap.adminOf ?? []).includes(a.subject.role));
+    canAdmin(a.subject.role);
+  // PG16+: an ADMIN membership of the applier it can never make true: ADMIN
+  // on a role it did not create and holds no ADMIN on, or use it holds
+  // through another grantor's row (a platform superuser's), which no GRANT
+  // or REVOKE of its own row changes. Left as it is, like any ADMIN row.
+  const unchangeable = (a: Action): boolean => {
+    const r = membershipOfApplier(a);
+    return (
+      modern &&
+      r !== undefined &&
+      ((desired.get(a.subject)?.payload["admin"] === true && !canAdmin(r)) ||
+        (source.get(a.subject)?.payload["admin"] === true &&
+          usesIn(source, a.subject) &&
+          !(cap.selfGrants ?? []).some(
+            (g) => g.role === r && (g.inherit || g.set),
+          )))
+    );
+  };
+  const rewritten = input.some(
+    (a) => ownAdmin(a) && usesIn(desired, a.subject),
+  );
   const planned = without(
     input.map((a) =>
       ownAdmin(a) && usesIn(desired, a.subject)
@@ -280,7 +305,7 @@ export function authorizeForApplier(
           }
         : a,
     ),
-    (a) => ownAdmin(a) && !usesIn(desired, a.subject),
+    (a) => (ownAdmin(a) && !usesIn(desired, a.subject)) || unchangeable(a),
   );
 
   // ── 3. order: schema GRANT earlier, schema REVOKE later ─────────────────
@@ -385,18 +410,20 @@ export function authorizeForApplier(
   }
 
   // ── the plan's own changes to the applier's memberships ────────────────
-  const membershipOfApplier = (a: Action): string | undefined =>
-    a.subject.kind === "membership" && a.subject.member === applier
-      ? a.subject.role
-      : undefined;
   /** whether the statement gives the applier use of the role or takes it
-   *  away; on PG16+ that is INHERIT / SET, an ADMIN-only row gives none */
+   *  away; on PG16+ that is INHERIT / SET, an ADMIN-only row gives none, and
+   *  losing either one is a revoke: a statement may still need it */
   const effect = (a: Action): "grant" | "revoke" | undefined => {
     if (a.verb === "drop") return "revoke";
     if (!modern) return a.verb === "create" ? "grant" : undefined;
-    const before = usesIn(source, a.subject);
-    const now = usesIn(desired, a.subject);
-    return now && !before ? "grant" : before && !now ? "revoke" : undefined;
+    const was = source.get(a.subject)?.payload;
+    const now = desired.get(a.subject)?.payload;
+    const keys = ["inherit", "set"] as const;
+    if (keys.some((k) => was?.[k] === true && now?.[k] === false))
+      return "revoke";
+    return keys.some((k) => now?.[k] === true && was?.[k] !== true)
+      ? "grant"
+      : undefined;
   };
   const planGrants = new Set<string>();
   const planRevokes = new Set<string>();
@@ -702,27 +729,30 @@ export function authorizeForApplier(
     modern ? (cap.selfGrants ?? []).find((g) => g.role === r) : undefined;
   const withOptions = (r: string, inherit: boolean, set: boolean) =>
     `GRANT ${qid(r)} TO ${qid(applier)} WITH INHERIT ${inherit ? "TRUE" : "FALSE"}, SET ${set ? "TRUE" : "FALSE"}`;
+  // the applier already has full use: the borrow writes no statement
+  const holdsFully = (r: string) => inheritedSet.has(r) && settableSet.has(r);
   const borrowSql = (r: string) =>
     ownRow(r) !== undefined
       ? withOptions(r, true, true)
       : modern && cap.inherit !== true
         ? `GRANT ${qid(r)} TO ${qid(applier)} WITH INHERIT TRUE`
         : `GRANT ${qid(r)} TO ${qid(applier)}`;
-  // the plan's own REVOKE of a borrowed role from the applier would give the
-  // role back too early: the closing REVOKE replaces it. Its own GRANT of
-  // that role, when it is the very statement the borrow writes (PG16+: when
-  // it gives full use), is the borrow; one giving partial use (PG16+) closes
-  // the borrow instead, at the end.
+  // the plan's own REVOKE (PG16+: any narrowing) of a borrowed role from
+  // the applier would give the role back too early: the closing statement
+  // replaces it. Its own GRANT of that role, when it is the very statement
+  // the borrow writes (PG16+: when it gives full use) and the borrow is
+  // written, is the borrow; one giving partial use (PG16+) closes the borrow
+  // instead, at the end.
   const partial = new Set<string>();
   const list = without(planned, (a) => {
     const r = membershipOfApplier(a);
     if (r === undefined || !borrowed.has(r)) return false;
-    if (a.verb === "drop" || (a.verb === "create" && a.sql === borrowSql(r)))
-      return true;
-    if (!modern || effect(a) === undefined) return false;
+    if (effect(a) === "revoke") return true;
+    if (effect(a) !== "grant" || (!modern && a.sql !== borrowSql(r)))
+      return false;
     const p = desired.get(a.subject)?.payload;
-    if (effect(a) === "grant" && !(p?.["inherit"] && p["set"])) partial.add(r);
-    return true;
+    if (modern && !(p?.["inherit"] && p["set"])) partial.add(r);
+    return partial.has(r) || !holdsFully(r);
   });
 
   // ── 4. refuse: the borrow must not change the grantor ───────────────────
@@ -926,24 +956,25 @@ export function authorizeForApplier(
     );
     // nothing to grant when the applier already has full use of the role and
     // only the plan's REVOKE is postponed
-    if (inheritedSet.has(r) && settableSet.has(r)) {
+    if (holdsFully(r)) {
       // no statement
     } else if (createdAt === undefined) head.push(openAction);
     else after.set(createdAt, [openAction, ...(after.get(createdAt) ?? [])]);
     // a role the plan drops takes the membership with it; one the plan
     // grants to the applier stays granted
     if (list.some((a) => a.verb === "drop" && roleSubject(a) === r)) continue;
-    if (planGrants.has(r)) {
-      const p = desired.get(selfId(r))?.payload;
-      if (partial.has(r))
-        tail.push(
-          membershipStatement(
-            r,
-            withOptions(r, !!p?.["inherit"], !!p?.["set"]),
-          ),
-        );
+    // the plan's own change of the applier's use of the role ends as desired
+    const p = desired.get(selfId(r))?.payload;
+    if (
+      partial.has(r) ||
+      (modern && planRevokes.has(r) && usesIn(desired, selfId(r)))
+    ) {
+      tail.push(
+        membershipStatement(r, withOptions(r, !!p?.["inherit"], !!p?.["set"])),
+      );
       continue;
     }
+    if (planGrants.has(r)) continue;
     // PG16+: the row the applier had granted itself goes back as it was
     const was = ownRow(r);
     const keepsMembership =
@@ -971,7 +1002,7 @@ export function authorizeForApplier(
   }
   actions.push(...tail);
 
-  const bound = borrowed.size > 0 || lends.length > 0;
+  const bound = borrowed.size > 0 || lends.length > 0 || rewritten;
   return {
     actions,
     blockers: [...blockerMap.values()],

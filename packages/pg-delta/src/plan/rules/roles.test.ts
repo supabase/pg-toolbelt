@@ -122,7 +122,9 @@ describe("membership options (PG16+ INHERIT / SET)", () => {
       [{ admin: false }, { admin: true, inherit: false, set: true }],
     ] as const)
       expect(alters(from, to)).toEqual(
-        to.admin ? [`GRANT "r" TO "somerole" WITH ADMIN TRUE, INHERIT FALSE`] : [],
+        to.admin
+          ? [`GRANT "r" TO "somerole" WITH ADMIN TRUE, INHERIT FALSE`]
+          : [],
       );
   });
 });

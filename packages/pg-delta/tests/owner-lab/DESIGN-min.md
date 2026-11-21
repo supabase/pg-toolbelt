@@ -75,9 +75,13 @@ every version the role is not reserved by supautils and is not a member of the a
 
 PG16+ memberships carry INHERIT / SET (effective over all rows) as facts, so a `GRANT
 app_owner TO postgres` kept in the desired database is a planned change like on PG ≤15: the
-plan's own GRANT keeps a borrowed role (a full GRANT is the borrow, a partial one closes
-it), and a membership whose use the plan takes away is the closing REVOKE. Only the
-ADMIN-only row `CREATE ROLE` gives the creator stays out of the managed view.
+plan's own GRANT keeps a borrowed role (a full GRANT is the borrow when the borrow statement
+is written, a partial one closes it), and a membership whose INHERIT or SET the plan takes
+away is closed at the end with the desired row (a REVOKE when no use is left). Only the
+ADMIN-only row `CREATE ROLE` gives the creator stays out of the managed view, and a
+statement on an ADMIN membership of the applier it can never make true is not planned: ADMIN
+on a role it did not create and holds no ADMIN on, or use it holds through another grantor's
+row (`cap.selfGrants` has no row with use).
 
 A plan that borrows or lends is bound to its applier: `apply()` refuses to run it as
 another role, and a rendered script starts with a `DO` block that raises unless
@@ -107,7 +111,11 @@ Likelihood is my estimate of how often a real project migration hits it.
 | Publication owner (new owner needs CREATE on the database); FDW, event trigger, all-tables publication (superuser) | Postgres error | rare |
 | Role rename in the same plan as work on objects it owns | Postgres error | rare |
 | Owner change of schema `public` itself | not planned, on any applier | rare |
-| Membership rows granted by another role | not modelled per grantor, as on `main`; a REVOKE of a row the applier did not grant is a no-op with a warning. INHERIT / SET are facts as the EFFECTIVE option (any row): `GRANT r TO m WITH INHERIT FALSE, SET FALSE` updates only the executing role's row, so turning them off for a member that holds them through another grantor's row leaves them on (FACT_DRIFT) | rare |
+| Membership rows granted by another role | not modelled per grantor, as on `main`; a REVOKE of a row the applier did not grant is a no-op with a warning. INHERIT / SET are facts as the EFFECTIVE option (any row): `GRANT r TO m WITH INHERIT FALSE, SET FALSE` updates only the executing role's row, so turning them off for a member that holds them through another grantor's row leaves them on (FACT_DRIFT); no grantor-blind statement can do it | rare |
+| PG16+: an ADMIN membership of the applier it can never make true: ADMIN on a role a superuser created, or use through a platform superuser's row (`h04`, `h05`) | not planned, as before INHERIT / SET were facts: the catalog keeps the other grantor's row (lab: SILENT, a superuser can make it true) | plausible on hosted Postgres |
+| A PG ≤15 state diffed with a PG16+ state | INHERIT / SET are not comparable (absent on one side) and never give a statement; a GRANT rendered from a PG16+ desired state for a PG ≤15 server may still spell `WITH INHERIT …`, which PG ≤15 rejects | rare |
+| A membership whose member role a policy hides (INHERIT assumed true for the default) | the create may omit `WITH INHERIT TRUE` for a NOINHERIT member. Not reproduced: the Supabase profile hides such memberships with the role | rare |
+| The plan itself grants the applier a role holding a grant option (`d03`) or ADMIN (`d21`) on what a later statement grants | on PG16+ the plan's own self-grant now exists, so Postgres records that role as the grantor: silent | rare |
 | A plan with several transactions that fails in a later one (for example a failed `CREATE INDEX CONCURRENTLY`) | the migration fails loudly and the borrowed role stays granted; `REVOKE <role> FROM <applier>` by hand. Borrowing per transaction would remove this at the cost of a GRANT / REVOKE pair per transaction | rare |
 | Grant options on columns: the refusal looks at the whole table, so a borrowed role's option on column `a` refuses a planned grant on column `b` | blocker where the plan would have been fine | rare |
 | A REVOKE the applier makes through a grant option (no borrow) when the grant being revoked was in fact made by the owner | Postgres revokes nothing and warns; the next plan is not empty. Same as on `main` | rare |

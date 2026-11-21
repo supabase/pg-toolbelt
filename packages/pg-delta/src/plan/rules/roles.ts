@@ -118,18 +118,35 @@ export function membershipGrantSql(
 }
 
 /** PG16+ INHERIT / SET of an existing membership, both in one statement: it
- *  updates the row the executing role granted (or adds one) and keeps ADMIN. */
-function membershipUseAlter(fact: Fact): ActionSpec {
+ *  updates the row the executing role granted (or adds one) and keeps ADMIN
+ *  unless it is raised here too. */
+function membershipUseAlter(fact: Fact, admin = false): ActionSpec {
   const id = fact.id as { role: string; member: string };
   const bool = (key: string) => (fact.payload[key] ? "TRUE" : "FALSE");
   return {
-    sql: `GRANT ${qid(id.role)} TO ${qid(id.member)} WITH INHERIT ${bool("inherit")}, SET ${bool("set")}`,
+    sql: `GRANT ${qid(id.role)} TO ${qid(id.member)} WITH ${admin ? "ADMIN TRUE, " : ""}INHERIT ${bool("inherit")}, SET ${bool("set")}`,
     consumes: [
       { kind: "role", name: id.role },
       { kind: "role", name: id.member },
     ],
   };
 }
+
+/** Whether INHERIT or SET changes. A PG <= 15 fact has neither key: not
+ *  comparable, so never a change. */
+function useChanged(
+  fact: Fact,
+  sourceView: FactView,
+  key: "inherit" | "set",
+): boolean {
+  const from = sourceView.get(fact.id)?.payload[key];
+  const to = fact.payload[key];
+  return typeof from === "boolean" && typeof to === "boolean" && from !== to;
+}
+
+const adminRaised = (fact: Fact, sourceView: FactView): boolean =>
+  fact.payload["admin"] === true &&
+  sourceView.get(fact.id)?.payload["admin"] !== true;
 
 export const roleRules: Record<string, KindRules> = {
   role: {
@@ -240,6 +257,13 @@ export const roleRules: Record<string, KindRules> = {
       admin: {
         alter: (fact, _from, to, view, sourceView) => {
           const id = fact.id as { role: string; member: string };
+          // a GRANT on an existing row leaves the options it does not name
+          if (
+            to &&
+            (useChanged(fact, sourceView, "inherit") ||
+              useChanged(fact, sourceView, "set"))
+          )
+            return membershipUseAlter(fact, true);
           return {
             sql: to
               ? membershipGrantSql(
@@ -256,12 +280,20 @@ export const roleRules: Record<string, KindRules> = {
           };
         },
       },
-      inherit: { alter: (fact) => membershipUseAlter(fact) },
-      // one statement sets both: the INHERIT alter wrote it when both changed
+      // one statement sets all: the ADMIN alter wrote it when ADMIN is
+      // raised, the INHERIT alter when both options change
+      inherit: {
+        alter: (fact, _from, _to, _view, sourceView) =>
+          adminRaised(fact, sourceView) ||
+          !useChanged(fact, sourceView, "inherit")
+            ? []
+            : membershipUseAlter(fact),
+      },
       set: {
         alter: (fact, _from, _to, _view, sourceView) =>
-          sourceView.get(fact.id)?.payload["inherit"] !==
-          fact.payload["inherit"]
+          adminRaised(fact, sourceView) ||
+          !useChanged(fact, sourceView, "set") ||
+          useChanged(fact, sourceView, "inherit")
             ? []
             : membershipUseAlter(fact),
       },
