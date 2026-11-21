@@ -78,19 +78,6 @@ function roleConfigSetSql(role: string, key: string, value: string): string {
   return `ALTER ROLE ${role} SET ${qid(key)} TO ${rendered}`;
 }
 
-/** The member's own grant row (PG16+ `self`): granted and revoked BY the
- *  member, so it is the only row whose grantor the plan names. */
-function membershipSelfSql(
-  id: { role: string; member: string },
-  to: PayloadValue,
-): string {
-  if (to === undefined || to === null) {
-    return `REVOKE ${qid(id.role)} FROM ${qid(id.member)} GRANTED BY ${qid(id.member)}`;
-  }
-  const self = to as { inherit: boolean; set: boolean };
-  return `GRANT ${qid(id.role)} TO ${qid(id.member)} WITH INHERIT ${self.inherit ? "TRUE" : "FALSE"}, SET ${self.set ? "TRUE" : "FALSE"} GRANTED BY ${qid(id.member)}`;
-}
-
 export const roleRules: Record<string, KindRules> = {
   role: {
     weight: 0,
@@ -199,19 +186,6 @@ export const roleRules: Record<string, KindRules> = {
             sql: to
               ? `GRANT ${qid(id.role)} TO ${qid(id.member)} WITH ADMIN OPTION`
               : `REVOKE ADMIN OPTION FOR ${qid(id.role)} FROM ${qid(id.member)}`,
-            consumes: [
-              { kind: "role", name: id.role },
-              { kind: "role", name: id.member },
-            ],
-          };
-        },
-      },
-      self: {
-        ownStatement: true,
-        alter: (fact, _from, to) => {
-          const id = fact.id as { role: string; member: string };
-          return {
-            sql: membershipSelfSql(id, to),
             consumes: [
               { kind: "role", name: id.role },
               { kind: "role", name: id.member },

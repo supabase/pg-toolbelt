@@ -219,11 +219,6 @@ function scriptedApplyClient(failingSql: ReadonlySet<string>): ScriptedApply {
     query: (sql: unknown) => {
       const text = queryText(sql);
       queries.push(text);
-      if (text.startsWith("SELECT current_user")) {
-        return Promise.resolve({
-          rows: [{ current_user: "app", role: "none" }],
-        });
-      }
       const parts = text.includes("\n;")
         ? text
             .split(/\n;\n\n/)
@@ -738,116 +733,5 @@ describe("apply batchTransactional opt-in", () => {
     });
     expect(events.some((event) => event.kind === "actionStart")).toBe(true);
     expect(events.some((event) => event.kind === "actionEnd")).toBe(false);
-  });
-});
-
-describe("apply runAs", () => {
-  const WHO = "SELECT current_user, current_setting('role') AS role";
-  // `SELECT 42` runs as "owner", the plan's applier is "app": the pair is
-  // `SET ROLE` to the owner and back to the applier BY NAME (never RESET ROLE,
-  // which returns to the session user), inside the action's transaction.
-  function runAsPlan(
-    transactionality: Action["transactionality"],
-    boundApplier: string | null = "app",
-  ): Plan {
-    const base = planWithAction(transactionality);
-    return stampPlanId({
-      ...base,
-      ...(boundApplier !== null ? { boundApplier } : {}),
-      actions: base.actions.map((a) => ({ ...a, runAs: "owner" })),
-    });
-  }
-
-  test("brackets a transactional action inside its transaction", async () => {
-    const scripted = scriptedApplyClient(new Set());
-    const report = await apply(runAsPlan("transactional"), scripted.pool, {
-      fingerprintGate: false,
-    });
-    expect(report.status).toBe("applied");
-    expect(scripted.queries).toEqual([
-      WHO,
-      "BEGIN",
-      'SET LOCAL ROLE "owner"',
-      "SELECT 42",
-      'SET LOCAL ROLE "app"',
-      "COMMIT",
-    ]);
-  });
-
-  test("batches the pair with its action", async () => {
-    const scripted = scriptedApplyClient(new Set());
-    await apply(runAsPlan("transactional"), scripted.pool, {
-      fingerprintGate: false,
-      batchTransactional: true,
-    });
-    expect(scripted.queries).toEqual([
-      WHO,
-      joinStatements([
-        "BEGIN",
-        'SET LOCAL ROLE "owner"',
-        "SELECT 42",
-        'SET LOCAL ROLE "app"',
-      ]),
-      "COMMIT",
-    ]);
-  });
-
-  test("a failed action rolls back, which also undoes SET LOCAL ROLE", async () => {
-    const scripted = scriptedApplyClient(new Set(["SELECT 42"]));
-    const report = await apply(runAsPlan("transactional"), scripted.pool, {
-      fingerprintGate: false,
-    });
-    expect(report.error).toMatchObject({ statementKind: "action" });
-    expect(scripted.queries.slice(1)).toEqual([
-      "BEGIN",
-      'SET LOCAL ROLE "owner"',
-      "SELECT 42",
-      "ROLLBACK",
-    ]);
-  });
-
-  test("a refused SET ROLE is a control failure of that action", async () => {
-    const scripted = scriptedApplyClient(new Set(['SET LOCAL ROLE "owner"']));
-    const report = await apply(runAsPlan("transactional"), scripted.pool, {
-      fingerprintGate: false,
-      batchTransactional: true,
-    });
-    expect(report.error).toMatchObject({
-      actionIndex: 0,
-      statementKind: "control",
-      sql: 'SET LOCAL ROLE "owner"',
-    });
-    expect(report.actionStatuses).toEqual(["unapplied"]);
-    expect(scripted.queries.at(-1)).toBe("ROLLBACK");
-  });
-
-  test("a non-transactional action returns to the session's own role before RESET ALL, also on failure", async () => {
-    const ok = scriptedApplyClient(new Set());
-    await apply(runAsPlan("nonTransactional"), ok.pool, {
-      fingerprintGate: false,
-    });
-    expect(ok.queries).toEqual([
-      WHO,
-      'SET ROLE "owner"',
-      "SELECT 42",
-      "SET ROLE NONE",
-      "RESET ALL",
-    ]);
-    const failed = scriptedApplyClient(new Set(["SELECT 42"]));
-    const report = await apply(runAsPlan("nonTransactional"), failed.pool, {
-      fingerprintGate: false,
-    });
-    expect(report.actionStatuses).toEqual(["inDoubt"]);
-    expect(failed.queries.slice(-2)).toEqual(["SET ROLE NONE", "RESET ALL"]);
-  });
-
-  test("refuses a runAs action in a plan that names no applier", () => {
-    const scripted = scriptedApplyClient(new Set());
-    expect(
-      apply(runAsPlan("transactional", null), scripted.pool, {
-        fingerprintGate: false,
-      }),
-    ).rejects.toThrow(/names no boundApplier/);
-    expect(scripted.queries).toEqual([]);
   });
 });

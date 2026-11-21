@@ -210,15 +210,11 @@ export function capabilityExcludedRoots(
       roots.set(encodeId(fact.id), CAPABILITY_FDW_ACL);
       continue;
     }
-    // Only while the applier has no own grant row on the role (`self`): the
-    // implicit row CREATE ROLE leaves behind is not the applier's to manage,
-    // its own row is.
     if (
       selfAdmin &&
       fact.id.kind === "membership" &&
       fact.id.member === cap.role &&
-      fact.payload["admin"] === true &&
-      fact.payload["self"] === undefined
+      fact.payload["admin"] === true
     ) {
       roots.set(encodeId(fact.id), CAPABILITY_CREATEROLE_SELF_ADMIN);
     }

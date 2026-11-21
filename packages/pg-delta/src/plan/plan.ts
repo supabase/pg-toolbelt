@@ -85,10 +85,7 @@ export type { AssumedDefaultGrant } from "../policy/policy.ts";
  *  The kinds mirror what caused the statement (`Delta` in `core/diff.ts`). */
 export type ActionChange =
   /** a payload attribute, named as in the `set` delta that caused it. The
-   *  names are payload keys, so renaming one is a breaking change. An
-   *  attribute its kind renders in a statement of its own (`ownStatement`,
-   *  e.g. a membership's `self` row) also gets this alter right after its
-   *  fact's create and right before its fact's drop. */
+   *  names are payload keys, so renaming one is a breaking change. */
   | { kind: "attribute"; name: string }
   /** the owner edge (`link` delta); `to` names the new owner role */
   | { kind: "owner"; to: string }
@@ -132,13 +129,6 @@ interface ActionBase {
   newSegmentBefore: boolean;
   dataLoss: "none" | "destructive";
   rewriteRisk: boolean;
-  /** The role that must execute this statement instead of the applier
-   *  (`Plan.boundApplier`). Set only by the applier-authorization pass.
-   *  `apply()` runs `SET ROLE "<runAs>"` before it and `SET ROLE
-   *  "<boundApplier>"` after it, inside the action's own transaction, so no
-   *  split, segment or compaction ever separates the role from its
-   *  statement. Absent on every other action; part of planId when present. */
-  runAs?: string;
 }
 
 /** `verb` describes the FACT, not the SQL keyword: `ADD COLUMN` is a

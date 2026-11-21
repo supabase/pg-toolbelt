@@ -66,8 +66,7 @@ const applier: ApplierCapability = {
   selfGrants: [],
   reservedMemberships: [],
 };
-const sqlOf = (p: ReturnType<typeof plan>) =>
-  p.actions.map((a) => (a.runAs ? `[as ${a.runAs}] ${a.sql}` : a.sql));
+const sqlOf = (p: ReturnType<typeof plan>) => p.actions.map((a) => a.sql);
 
 describe("applier authorization", () => {
   test("superuser and capability-free plans are untouched", () => {

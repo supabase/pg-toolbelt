@@ -1093,9 +1093,7 @@ async function runOne(
       );
     }
     rec.timings.planMs = lap();
-    rec.plan = thePlan.actions.map((a) =>
-      a.runAs !== undefined ? `[as ${a.runAs}] ${a.sql}` : a.sql,
-    );
+    rec.plan = thePlan.actions.map((a) => a.sql);
     rec.segments = segmentActions(thePlan.actions).length;
     // `blockers` exists only on trees with the applier-authorization pass
     const blockers =

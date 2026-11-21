@@ -3,7 +3,7 @@ import {
   buildApplyPreamble,
   type ApplyTimeoutOptions,
 } from "../apply/apply-preamble.ts";
-import { runAsBracket, segmentActions } from "../apply/apply.ts";
+import { segmentActions } from "../apply/apply.ts";
 import { CapabilityError } from "../policy/capability.ts";
 
 function terminate(sql: string): string {
@@ -36,11 +36,7 @@ export function renderApplyScript(
       ),
     );
     for (let index = segment.start; index < segment.end; index++) {
-      const action = plan.actions[index]!;
-      const bracket = runAsBracket(action, plan.boundApplier);
-      if (bracket !== undefined) statements.push(terminate(bracket.set));
-      statements.push(terminate(action.sql));
-      if (bracket !== undefined) statements.push(terminate(bracket.restore));
+      statements.push(terminate(plan.actions[index]!.sql));
     }
     statements.push(segment.transactional ? "COMMIT;" : "RESET ALL;");
     return statements.join("\n");

@@ -23,7 +23,6 @@ import type { FactBase } from "../core/fact.ts";
 import { extract } from "../extract/extract.ts";
 import { assertPlanId } from "../plan/artifact.ts";
 import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
-import { qid } from "../plan/render.ts";
 import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import { ApplierIdentityError, CapabilityError } from "../policy/capability.ts";
@@ -69,8 +68,7 @@ type ApplyStatementKind = NonNullable<ApplyError["statementKind"]>;
 type ProducedApplyError = ApplyError & { statementKind: ApplyStatementKind };
 
 type BatchStatement =
-  /** `actionIndex` on the `SET ROLE` pair of a `runAs` action */
-  | { kind: "control"; sql: string; actionIndex?: number }
+  | { kind: "control"; sql: string }
   | { kind: "action"; sql: string; actionIndex: number };
 
 export interface ApplyReport {
@@ -196,41 +194,6 @@ export function segmentActions(
     segments.push({ start, end: actions.length, transactional: true });
   }
   return segments;
-}
-
-/** The role pair around an action that must run as another role
- *  (`Action.runAs`), or undefined. In a transaction it is `SET LOCAL ROLE`:
- *  COMMIT or ROLLBACK returns the session to exactly the role setting it had,
- *  and the second statement returns to the applier for the rest of the
- *  transaction. A non-transactional action uses `SET ROLE` and returns to
- *  `sessionRole` (apply reads it at connect time; the applier by name
- *  otherwise). Never `RESET ROLE`: RESET returns to the SESSION user, which
- *  is not the applier when the session logged in as another role and stepped
- *  down to it. */
-export function runAsBracket(
-  action: { readonly runAs?: string; readonly transactionality: string },
-  boundApplier: string | undefined,
-  sessionRole?: string,
-): { set: string; restore: string } | undefined {
-  if (action.runAs === undefined) return undefined;
-  if (boundApplier === undefined) {
-    throw new Error(
-      `plan invariant: an action runs as "${action.runAs}" but the plan names no boundApplier to return to — re-plan`,
-    );
-  }
-  if (action.transactionality !== "nonTransactional") {
-    return {
-      set: `SET LOCAL ROLE ${qid(action.runAs)}`,
-      restore: `SET LOCAL ROLE ${qid(boundApplier)}`,
-    };
-  }
-  return {
-    set: `SET ROLE ${qid(action.runAs)}`,
-    restore:
-      sessionRole === "none"
-        ? "SET ROLE NONE"
-        : `SET ROLE ${qid(sessionRole ?? boundApplier)}`,
-  };
 }
 
 export function planSegments(plan: {
@@ -380,42 +343,26 @@ export async function apply(
   // SQL before connecting so a later segment cannot commit earlier ones.
   for (const action of thePlan.actions) {
     assertActionSqlBatchable(action.sql);
-    runAsBracket(action, thePlan.boundApplier);
   }
 
   const client = await connectWithErrorListener(target);
   let destroyClient = false;
   try {
-    // A plan that names its applier (envelope GRANT/REVOKE … GRANTED BY, a
-    // `runAs` returning to it) is only correct when run as that role.
-    // The session's own role setting (`none` on a direct login) is what a
-    // non-transactional `runAs` action returns to.
-    let sessionRole: string | undefined;
+    // A plan that names its applier (envelope GRANT/REVOKE … GRANTED BY) is
+    // only correct when run as that role.
     if (thePlan.boundApplier !== undefined) {
-      const who = await client.query<{ current_user: string; role: string }>(
-        "SELECT current_user, current_setting('role') AS role",
+      const who = await client.query<{ current_user: string }>(
+        "SELECT current_user",
       );
       const actual = String(who.rows[0]?.current_user);
       if (actual !== thePlan.boundApplier) {
         throw new ApplierIdentityError(thePlan.boundApplier, actual);
       }
-      sessionRole = who.rows[0]?.role;
     }
     const onEvent = options?.onEvent;
     const segments = segmentActions(thePlan.actions);
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       const segment = segments[segIdx]!;
-      // ROLLBACK also undoes a `SET LOCAL ROLE` made in the segment
-      const rollbackAfterError = async (): Promise<boolean> => {
-        emit(onEvent, { kind: "control", sql: "ROLLBACK" });
-        try {
-          await client.query("ROLLBACK");
-        } catch {
-          destroyClient = true;
-          return false;
-        }
-        return true;
-      };
       // segmentStart fires before the preamble/BEGIN for this segment, for
       // BOTH transactional and non-transactional segments.
       emit(onEvent, {
@@ -431,9 +378,6 @@ export async function apply(
         // a lone non-transactional action; session-level settings, reset after
         const index = segment.start;
         const action = thePlan.actions[index]!;
-        const bracket = runAsBracket(action, thePlan.boundApplier, sessionRole);
-        // whether a `SET ROLE <runAs>` may be in effect and must be undone
-        let roleSet = false;
         // the failure return is deferred past the finally so segmentEnd stays
         // the segment's LAST event — after the RESET ALL control — on every
         // path; a trace must never show wire traffic after the outcome line.
@@ -448,12 +392,6 @@ export async function apply(
             currentSql = sql;
             emit(onEvent, { kind: "control", sql });
             await client.query(sql);
-          }
-          if (bracket !== undefined) {
-            currentSql = bracket.set;
-            emit(onEvent, { kind: "control", sql: bracket.set });
-            roleSet = true;
-            await client.query(bracket.set);
           }
           currentKind = "action";
           currentSql = action.sql;
@@ -497,21 +435,11 @@ export async function apply(
         // ALWAYS restore session state before the client returns to the pool,
         // on success or failure. A cleanup failure never replaces the primary
         // failure, and its connection is destroyed instead of being reused.
-        // RESET ALL leaves `role` alone (GUC_NO_RESET_ALL), so a `runAs`
-        // action returns to the applier first, whether it ran or failed.
-        const resets =
-          bracket !== undefined && roleSet
-            ? [bracket.restore, "RESET ALL"]
-            : ["RESET ALL"];
+        emit(onEvent, { kind: "control", sql: "RESET ALL" });
         let resetFailed = false;
         let resetError: unknown;
-        let resetSql = "RESET ALL";
         try {
-          for (const sql of resets) {
-            resetSql = sql;
-            emit(onEvent, { kind: "control", sql });
-            await client.query(sql);
-          }
+          await client.query("RESET ALL");
         } catch (error) {
           resetFailed = true;
           resetError = error;
@@ -545,7 +473,7 @@ export async function apply(
             status: "failed",
             appliedActions,
             actionStatuses: statuses,
-            error: errorEntry(index, "control", resetSql, resetError),
+            error: errorEntry(index, "control", "RESET ALL", resetError),
           };
         }
         emit(onEvent, {
@@ -587,26 +515,6 @@ export async function apply(
         }
         for (let i = segment.start; i < segment.end; i++) {
           const action = thePlan.actions[i]!;
-          const bracket = runAsBracket(action, thePlan.boundApplier);
-          if (bracket !== undefined) {
-            try {
-              emit(onEvent, { kind: "control", sql: bracket.set });
-              await client.query(bracket.set);
-            } catch (error) {
-              await rollbackAfterError();
-              emit(onEvent, {
-                kind: "segmentEnd",
-                segmentIndex: segIdx,
-                outcome: "failed",
-              });
-              return {
-                status: "failed",
-                appliedActions,
-                actionStatuses: statuses,
-                error: errorEntry(i, "control", bracket.set, error),
-              };
-            }
-          }
           emit(onEvent, {
             kind: "actionStart",
             actionIndex: i,
@@ -623,7 +531,14 @@ export async function apply(
               ok: false,
               ms: actionElapsedMs,
             });
-            const rollbackSucceeded = await rollbackAfterError();
+            emit(onEvent, { kind: "control", sql: "ROLLBACK" });
+            let rollbackSucceeded = true;
+            try {
+              await client.query("ROLLBACK");
+            } catch {
+              rollbackSucceeded = false;
+              destroyClient = true;
+            }
             emit(onEvent, {
               kind: "segmentEnd",
               segmentIndex: segIdx,
@@ -643,25 +558,6 @@ export async function apply(
             ok: true,
             ms: actionElapsedMs,
           });
-          if (bracket !== undefined) {
-            try {
-              emit(onEvent, { kind: "control", sql: bracket.restore });
-              await client.query(bracket.restore);
-            } catch (error) {
-              await rollbackAfterError();
-              emit(onEvent, {
-                kind: "segmentEnd",
-                segmentIndex: segIdx,
-                outcome: "failed",
-              });
-              return {
-                status: "failed",
-                appliedActions,
-                actionStatuses: statuses,
-                error: errorEntry(i, "control", bracket.restore, error),
-              };
-            }
-          }
         }
         try {
           emit(onEvent, { kind: "control", sql: "COMMIT" });
@@ -670,7 +566,12 @@ export async function apply(
           // the commit itself failed: the segment's fate is unknown
           for (let i = segment.start; i < segment.end; i++)
             statuses[i] = "inDoubt";
-          await rollbackAfterError();
+          emit(onEvent, { kind: "control", sql: "ROLLBACK" });
+          try {
+            await client.query("ROLLBACK");
+          } catch {
+            destroyClient = true;
+          }
           emit(onEvent, {
             kind: "segmentEnd",
             segmentIndex: segIdx,
@@ -703,26 +604,11 @@ export async function apply(
       }
       for (let i = segment.start; i < segment.end; i++) {
         const action = thePlan.actions[i]!;
-        const bracket = runAsBracket(action, thePlan.boundApplier);
-        if (bracket !== undefined) {
-          batchStatements.push({
-            kind: "control",
-            sql: bracket.set,
-            actionIndex: i,
-          });
-        }
         batchStatements.push({
           kind: "action",
           sql: action.sql,
           actionIndex: i,
         });
-        if (bracket !== undefined) {
-          batchStatements.push({
-            kind: "control",
-            sql: bracket.restore,
-            actionIndex: i,
-          });
-        }
       }
       const batches = partitionByBatchBounds(
         batchStatements,
@@ -774,7 +660,14 @@ export async function apply(
               });
             }
           }
-          const rollbackSucceeded = await rollbackAfterError();
+          emit(onEvent, { kind: "control", sql: "ROLLBACK" });
+          let rollbackSucceeded = true;
+          try {
+            await client.query("ROLLBACK");
+          } catch {
+            rollbackSucceeded = false;
+            destroyClient = true;
+          }
           emit(onEvent, {
             kind: "segmentEnd",
             segmentIndex: segIdx,
@@ -790,7 +683,7 @@ export async function apply(
             appliedActions,
             actionStatuses: statuses,
             error: errorEntry(
-              failed?.actionIndex ?? segment.start,
+              failed?.kind === "action" ? failed.actionIndex : segment.start,
               failed?.kind === "action" ? "action" : "control",
               failed?.sql ?? batch[0]?.sql ?? "BEGIN",
               error,
@@ -813,7 +706,12 @@ export async function apply(
       } catch (error) {
         for (let i = segment.start; i < segment.end; i++)
           statuses[i] = "inDoubt";
-        await rollbackAfterError();
+        emit(onEvent, { kind: "control", sql: "ROLLBACK" });
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          destroyClient = true;
+        }
         emit(onEvent, {
           kind: "segmentEnd",
           segmentIndex: segIdx,

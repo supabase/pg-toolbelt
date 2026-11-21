@@ -350,19 +350,6 @@ if (summaryRows.length) {
   emit();
 }
 
-// 4. Plans that use run-as
-emit("## Plans that use run-as (union)");
-emit();
-const usesRunAs = (r: Run) => r.plan.some((e) => e.startsWith("[as "));
-for (const c of configs) {
-  const hit = get("union", c).filter(usesRunAs);
-  const names = [...new Set(hit.map((r) => r.scenario))].sort();
-  emit(
-    `- ${c}: ${hit.length} runs, ${names.length} scenarios${names.length ? ` (${names.slice(0, 40).join(", ")}${names.length > 40 ? `, ... ${names.length - 40} more` : ""})` : ""}`,
-  );
-}
-emit();
-
 // 5. Verdict
 const unsound = new Map<Kind, number>();
 for (const c of configs) {
