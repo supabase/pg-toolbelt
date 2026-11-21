@@ -1,0 +1,7 @@
+CREATE ROLE o_own NOLOGIN;
+CREATE ROLE x_reader NOLOGIN;
+CREATE SCHEMA s;
+GRANT USAGE, CREATE ON SCHEMA s TO o_own;
+CREATE TABLE s.t (id int);
+GRANT o_own TO current_user;
+ALTER TABLE s.t OWNER TO o_own;

@@ -1,0 +1,3 @@
+{
+  "notes": "like b01 but h_hold holds ALL WITH GRANT OPTION on s.t (owner o_own is also in the envelope). REVOKE ALL picks h_hold as grantor (first full match) and revokes nothing granted by o_own."
+}

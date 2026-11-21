@@ -1,0 +1,7 @@
+CREATE ROLE r NOLOGIN;
+CREATE SCHEMA s;
+GRANT USAGE, CREATE ON SCHEMA s TO r;
+GRANT r TO current_user;
+CREATE FUNCTION s.f(a int) RETURNS text LANGUAGE sql SECURITY DEFINER AS 'select ''x''::text';
+ALTER FUNCTION s.f(int) OWNER TO r;
+REVOKE r FROM current_user;

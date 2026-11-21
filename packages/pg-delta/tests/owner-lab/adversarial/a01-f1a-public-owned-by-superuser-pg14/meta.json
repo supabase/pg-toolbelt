@@ -1,0 +1,5 @@
+{
+  "maxVersion": 14,
+  "dbOwner": "superuser",
+  "notes": "F1-A: public is owned by the superuser (PG14). Must not be refused because the schema owner is un-assumable. Also F4: r has CREATE on public only through PUBLIC."
+}

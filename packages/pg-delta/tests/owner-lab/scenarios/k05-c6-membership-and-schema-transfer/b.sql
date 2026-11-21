@@ -1,0 +1,4 @@
+CREATE SCHEMA s;
+CREATE ROLE r;
+GRANT r TO current_user;
+ALTER SCHEMA s OWNER TO r;

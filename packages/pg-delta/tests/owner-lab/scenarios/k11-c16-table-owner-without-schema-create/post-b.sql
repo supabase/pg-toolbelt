@@ -1,0 +1,1 @@
+ALTER TABLE s.t OWNER TO r;

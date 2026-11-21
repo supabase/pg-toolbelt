@@ -1,0 +1,3 @@
+{
+  "notes": "Only change: GRANT EXECUTE on an r-owned function whose argument type is in schema t, where r has no USAGE. Under SET ROLE r the signature cannot be resolved (permission denied for schema t). The bracket check looks only at the function's own schema."
+}

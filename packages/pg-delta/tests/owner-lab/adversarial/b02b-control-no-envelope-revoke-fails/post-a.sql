@@ -1,0 +1,4 @@
+GRANT USAGE, CREATE ON SCHEMA s TO o_foreign;
+ALTER TABLE s.t OWNER TO o_foreign;
+GRANT SELECT ON s.t TO h_hold WITH GRANT OPTION;
+GRANT SELECT ON s.t TO x_reader;

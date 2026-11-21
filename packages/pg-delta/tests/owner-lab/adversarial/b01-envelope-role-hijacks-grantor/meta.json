@@ -1,0 +1,3 @@
+{
+  "notes": "h_hold is opened in the envelope only because the plan alters its table s.u. It holds SELECT WITH GRANT OPTION on s.t (owned by o_own, also opened). The plan's GRANT SELECT ON s.t TO x_reader runs while the applier inherits both; select_best_grantor picks the first inheriting role holding the grant option, so the grant can be recorded with grantor h_hold instead of the owner o_own. pg-delta ignores ACL grantors."
+}

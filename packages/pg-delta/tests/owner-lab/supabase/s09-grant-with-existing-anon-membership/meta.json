@@ -1,0 +1,3 @@
+{
+  "notes": "No custom owners. Plan must carry no GRANT/REVOKE <role> TO/FROM postgres envelope statements."
+}

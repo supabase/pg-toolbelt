@@ -1,0 +1,11 @@
+create role app_owner nologin;
+grant create on schema public to app_owner;
+grant app_owner to postgres;
+create function public.f() returns int language sql as $$ select 2 $$;
+alter function public.f() owner to app_owner;
+create table public.t (id int primary key, extra text);
+alter table public.t owner to app_owner;
+alter table public.t enable row level security;
+create policy p_sel on public.t for select to authenticated using (true);
+revoke app_owner from postgres;
+revoke create on schema public from app_owner;

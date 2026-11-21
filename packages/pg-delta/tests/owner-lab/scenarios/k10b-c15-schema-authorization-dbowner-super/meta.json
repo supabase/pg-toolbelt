@@ -1,0 +1,4 @@
+{
+  "dbOwner": "superuser",
+  "notes": "C15 with the database owned by the superuser (applier only has CREATE on the database)"
+}

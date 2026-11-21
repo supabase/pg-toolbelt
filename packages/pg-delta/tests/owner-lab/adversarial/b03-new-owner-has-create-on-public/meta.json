@@ -1,0 +1,3 @@
+{
+  "notes": "new owner already holds CREATE on public directly; the temp CREATE wrapper must not revoke it"
+}

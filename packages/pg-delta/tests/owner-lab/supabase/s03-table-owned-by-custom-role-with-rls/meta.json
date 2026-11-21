@@ -1,0 +1,3 @@
+{
+  "notes": "Table owned by new custom role with RLS, policies, grants, index, trigger calling a postgres-owned function."
+}

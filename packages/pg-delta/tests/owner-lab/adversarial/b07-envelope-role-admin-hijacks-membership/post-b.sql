@@ -1,0 +1,1 @@
+GRANT g TO h_hold WITH ADMIN OPTION;

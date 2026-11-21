@@ -1,0 +1,10 @@
+create schema private;
+create type private.status as enum ('open', 'closed');
+create role app_owner nologin;
+create function public.set_status(id bigint, s private.status) returns void language sql security definer set search_path = '' as $$ select $$;
+revoke execute on function public.set_status(bigint, private.status) from anon, public;
+grant create on schema public to app_owner;
+grant app_owner to postgres;
+alter function public.set_status(bigint, private.status) owner to app_owner;
+revoke app_owner from postgres;
+revoke create on schema public from app_owner;

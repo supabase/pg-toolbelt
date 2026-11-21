@@ -1,0 +1,3 @@
+{
+  "notes": "F6: a superuser granted g5 to m5 on the source; desired has no membership. The applier has ADMIN on g5 but cannot remove another grantor row (PG16+). Must not be silent: anything except OK-with-drift is acceptable."
+}

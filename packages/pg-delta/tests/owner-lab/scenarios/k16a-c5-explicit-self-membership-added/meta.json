@@ -1,0 +1,3 @@
+{
+  "notes": "C5 fidelity: only difference is the explicit self-grant row (PG16+: SET/INHERIT row with grantor=applier next to the implicit ADMIN row)"
+}

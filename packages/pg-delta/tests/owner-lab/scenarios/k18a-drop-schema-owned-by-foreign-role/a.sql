@@ -1,0 +1,6 @@
+CREATE ROLE r NOLOGIN;
+GRANT r TO current_user;
+CREATE SCHEMA s AUTHORIZATION r;
+CREATE TABLE s.t (id int);
+ALTER TABLE s.t OWNER TO r;
+REVOKE r FROM current_user;

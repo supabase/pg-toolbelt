@@ -1,0 +1,3 @@
+{
+  "notes": "C16: desired owner has NO CREATE on the schema in either state (owner set by a superuser). Needs a temporary schema CREATE."
+}

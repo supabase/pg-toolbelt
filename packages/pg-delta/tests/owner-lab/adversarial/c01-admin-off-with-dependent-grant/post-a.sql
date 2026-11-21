@@ -1,0 +1,1 @@
+GRANT r TO n GRANTED BY m;

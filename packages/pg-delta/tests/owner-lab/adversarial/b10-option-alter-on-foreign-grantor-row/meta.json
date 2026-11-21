@@ -1,0 +1,4 @@
+{
+  "minVersion": 16,
+  "notes": "membership g->m granted by the superuser; desired turns INHERIT on and keeps SET off. The applier (ADMIN on g, it created g) runs GRANT g TO m WITH INHERIT TRUE, which creates a NEW row under grantor applier with SET defaulting to TRUE."
+}

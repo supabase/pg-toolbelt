@@ -1,0 +1,3 @@
+{
+  "notes": "no owner change at all: an object owned by a role the applier holds no membership in is replaced (return type change) and must keep its owner"
+}

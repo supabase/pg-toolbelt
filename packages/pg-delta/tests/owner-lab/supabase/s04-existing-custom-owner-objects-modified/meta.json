@@ -1,0 +1,3 @@
+{
+  "notes": "Objects already owned by the custom role are modified (body, column, policy). No owner change."
+}

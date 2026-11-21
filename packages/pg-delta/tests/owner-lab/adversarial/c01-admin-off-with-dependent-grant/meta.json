@@ -1,0 +1,4 @@
+{
+  "minVersion": 16,
+  "notes": "m holds ADMIN on r (granted by the applier) and has granted r onward to n. Desired: m loses ADMIN, n keeps r. Postgres refuses REVOKE ADMIN OPTION FOR r FROM m (dependent privileges exist); main renders that REVOKE and fails loudly. The PoC renders GRANT r TO m WITH ADMIN FALSE ... GRANTED BY applier, which Postgres accepts without a dependency check, leaving n's row granted by a role with no ADMIN."
+}

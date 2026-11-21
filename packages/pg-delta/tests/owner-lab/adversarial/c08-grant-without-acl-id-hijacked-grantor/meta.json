@@ -1,0 +1,3 @@
+{
+  "notes": "A new function s.g handed to r, with EXECUTE WITH GRANT OPTION to h_hold and EXECUTE to x (both granted by r). The plan also alters h_hold's table s.u, so the envelope opens h_hold and r. Compaction elides the REVOKE leader of a GRANT on a freshly created object and then strips the acl id from the GRANT's consumes, so the GRANTs carry no acl id: the pass neither brackets them as the owner nor checks the grant-option-holder blocker. GRANT ... TO x then runs as the widened applier and Postgres may pick h_hold as grantor."
+}

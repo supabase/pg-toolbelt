@@ -1,0 +1,1 @@
+{ "notes": "pgvector RPC (extensions.vector argument) owned by a custom role; desired revokes EXECUTE from anon/PUBLIC. app_owner has no USAGE on schema extensions (no PUBLIC USAGE there on Supabase), so SET ROLE app_owner cannot resolve the signature." }

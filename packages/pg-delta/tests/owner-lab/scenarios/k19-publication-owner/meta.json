@@ -1,0 +1,3 @@
+{
+  "notes": "Sentry BBR sample: publication owned by a custom login role (new owner needs CREATE on the database)"
+}

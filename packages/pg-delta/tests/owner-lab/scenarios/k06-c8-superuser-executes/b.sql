@@ -1,0 +1,7 @@
+CREATE SCHEMA t;
+CREATE FUNCTION t.f() RETURNS int LANGUAGE sql AS 'select 1';
+CREATE ROLE r;
+GRANT CREATE ON SCHEMA t TO r;
+GRANT r TO current_user;
+ALTER FUNCTION t.f() OWNER TO r;
+REVOKE r FROM current_user;

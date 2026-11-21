@@ -1,0 +1,4 @@
+{
+  "maxVersion": 15,
+  "notes": "same on PG<=15: CREATEROLE can grant any non-superuser role, so this must converge"
+}

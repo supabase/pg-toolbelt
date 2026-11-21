@@ -1,0 +1,17 @@
+CREATE ROLE h_hold NOLOGIN;
+CREATE ROLE r NOLOGIN;
+CREATE ROLE x NOLOGIN;
+CREATE SCHEMA s;
+GRANT USAGE, CREATE ON SCHEMA s TO r, h_hold;
+CREATE TABLE s.u (id int, note text);
+GRANT h_hold TO current_user;
+ALTER TABLE s.u OWNER TO h_hold;
+REVOKE h_hold FROM current_user;
+CREATE FUNCTION s.g() RETURNS int LANGUAGE sql AS 'select 1';
+GRANT r TO current_user;
+ALTER FUNCTION s.g() OWNER TO r;
+SET ROLE r;
+GRANT EXECUTE ON FUNCTION s.g() TO h_hold WITH GRANT OPTION;
+GRANT EXECUTE ON FUNCTION s.g() TO x;
+RESET ROLE;
+REVOKE r FROM current_user;

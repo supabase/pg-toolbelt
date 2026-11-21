@@ -1,0 +1,4 @@
+CREATE ROLE other_admin CREATEROLE NOLOGIN;
+SET ROLE other_admin;
+CREATE ROLE foreign_r NOLOGIN;
+RESET ROLE;

@@ -1,0 +1,8 @@
+CREATE ROLE p6_owner NOLOGIN;
+CREATE SCHEMA p6;
+GRANT CREATE ON SCHEMA p6 TO p6_owner;
+CREATE FUNCTION p6.f() RETURNS integer LANGUAGE sql AS 'SELECT 1';
+GRANT p6_owner TO current_user;
+ALTER FUNCTION p6.f() OWNER TO p6_owner;
+REVOKE p6_owner FROM current_user;
+REVOKE CREATE ON SCHEMA p6 FROM p6_owner;

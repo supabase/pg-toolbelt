@@ -1,0 +1,2 @@
+CREATE ROLE r NOLOGIN;
+CREATE TABLE public.p (id int);

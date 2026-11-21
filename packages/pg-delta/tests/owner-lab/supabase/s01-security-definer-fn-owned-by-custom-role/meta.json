@@ -1,0 +1,3 @@
+{
+  "notes": "Mirrors a customer failure: cannot set owner of function legal_api.legal_public_page_v1(text) to role legal_public_reader. Membership revoked in desired state."
+}

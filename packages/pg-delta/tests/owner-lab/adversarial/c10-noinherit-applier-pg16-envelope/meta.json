@@ -1,0 +1,1 @@
+{ "minVersion": 16, "applierInherit": false, "notes": "NOINHERIT applier on PG16+: envelope must use per-grant INHERIT TRUE; alter + grant on an r-owned table" }

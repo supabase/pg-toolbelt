@@ -1,0 +1,6 @@
+{
+  "applierInherit": false,
+  "maxVersion": 15,
+  "expect": "refuse",
+  "notes": "C18: NOINHERIT applier on PG<=15 cannot inherit a temporary membership: declared refusal."
+}

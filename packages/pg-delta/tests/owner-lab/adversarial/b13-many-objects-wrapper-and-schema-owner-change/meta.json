@@ -1,0 +1,3 @@
+{
+  "notes": "several objects (identity table, serial table, function, enum, a table in public) handed to r who never has CREATE, while the schema itself changes owner o1 -> o2 in the same plan"
+}

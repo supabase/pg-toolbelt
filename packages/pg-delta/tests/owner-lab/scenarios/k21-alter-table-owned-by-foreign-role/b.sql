@@ -1,0 +1,13 @@
+CREATE ROLE r NOLOGIN;
+CREATE SCHEMA s;
+GRANT USAGE, CREATE ON SCHEMA s TO r;
+GRANT r TO current_user;
+CREATE ROLE reader NOLOGIN;
+CREATE TABLE s.t (id int primary key, note text, created_at timestamptz DEFAULT now());
+CREATE INDEX t_note_idx ON s.t (note);
+ALTER TABLE s.t ENABLE ROW LEVEL SECURITY;
+CREATE POLICY p ON s.t FOR SELECT TO reader USING (true);
+COMMENT ON TABLE s.t IS 'hello';
+GRANT SELECT ON s.t TO reader;
+ALTER TABLE s.t OWNER TO r;
+REVOKE r FROM current_user;

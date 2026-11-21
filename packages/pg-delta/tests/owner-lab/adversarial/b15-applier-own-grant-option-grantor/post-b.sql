@@ -1,0 +1,2 @@
+GRANT SELECT ON s.t TO lab_applier WITH GRANT OPTION;
+GRANT SELECT ON s.t TO x_reader;

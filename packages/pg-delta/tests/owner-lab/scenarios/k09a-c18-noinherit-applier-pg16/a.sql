@@ -1,0 +1,2 @@
+CREATE SCHEMA s;
+CREATE TABLE s.t (id int);

@@ -1,0 +1,12 @@
+CREATE ROLE r NOLOGIN;
+CREATE ROLE x NOLOGIN;
+CREATE SCHEMA s;
+GRANT USAGE, CREATE ON SCHEMA s TO r;
+CREATE TABLE s.base (a int, b text);
+CREATE VIEW s.v AS SELECT b, a FROM s.base;
+GRANT r TO current_user;
+ALTER TABLE s.base OWNER TO r;
+ALTER VIEW s.v OWNER TO r;
+GRANT SELECT ON s.v TO x;
+GRANT SELECT (a, b) ON s.base TO x;
+REVOKE r FROM current_user;

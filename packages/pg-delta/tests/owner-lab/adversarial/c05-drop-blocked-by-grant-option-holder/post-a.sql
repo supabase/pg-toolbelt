@@ -1,0 +1,3 @@
+CREATE TABLE s.t (id int);
+ALTER TABLE s.t OWNER TO o_foreign;
+GRANT SELECT ON s.t TO h_hold WITH GRANT OPTION;

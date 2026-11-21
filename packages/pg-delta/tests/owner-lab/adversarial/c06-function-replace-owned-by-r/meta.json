@@ -1,0 +1,1 @@
+{ "notes": "r-owned function replaced (return type change) and the applier has a default privilege on FUNCTIONS in desired; checks which statements land in SET ROLE brackets and which default ACL the re-created function gets." }

@@ -1,0 +1,3 @@
+{
+  "notes": "new owner r has no CREATE on public (owned by pg_database_owner on 15+, the applier owns the database). The temp CREATE wrapper is needed."
+}

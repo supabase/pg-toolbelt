@@ -1,0 +1,3 @@
+{
+  "notes": "C17 variant: the bigserial table exists on both sides and only its owner changes; the linked sequence follows the table (R7)"
+}

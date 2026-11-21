@@ -1,0 +1,2 @@
+CREATE SCHEMA t;
+CREATE FUNCTION t.f() RETURNS int LANGUAGE sql AS 'select 1';

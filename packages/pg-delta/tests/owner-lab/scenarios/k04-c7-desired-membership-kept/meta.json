@@ -1,0 +1,3 @@
+{
+  "notes": "C7: desired state KEEPS the applier membership in r (explicit self-grant row). Must survive, incl. catalog truth."
+}

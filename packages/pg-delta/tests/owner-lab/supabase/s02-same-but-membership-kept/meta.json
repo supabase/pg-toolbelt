@@ -1,0 +1,3 @@
+{
+  "notes": "As s01 but the desired state keeps grant legal_public_reader to postgres."
+}

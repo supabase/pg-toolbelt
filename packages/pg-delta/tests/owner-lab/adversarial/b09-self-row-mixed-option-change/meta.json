@@ -1,0 +1,4 @@
+{
+  "minVersion": 16,
+  "notes": "the applier keeps an own-grantor row on r whose options flip (INHERIT on->off, SET off->on) while the plan alters r-owned s.t"
+}

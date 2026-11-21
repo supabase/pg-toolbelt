@@ -1,0 +1,1 @@
+CREATE ROLE o_foreign NOLOGIN;

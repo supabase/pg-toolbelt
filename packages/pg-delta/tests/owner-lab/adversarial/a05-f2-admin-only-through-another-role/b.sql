@@ -1,0 +1,11 @@
+CREATE ROLE mid CREATEROLE;
+GRANT mid TO current_user;
+SET ROLE mid;
+CREATE ROLE rr;
+RESET ROLE;
+CREATE SCHEMA s;
+GRANT USAGE, CREATE ON SCHEMA s TO rr;
+CREATE FUNCTION s.f() RETURNS int LANGUAGE sql AS 'select 1';
+GRANT rr TO current_user;
+ALTER FUNCTION s.f() OWNER TO rr;
+REVOKE rr FROM current_user;

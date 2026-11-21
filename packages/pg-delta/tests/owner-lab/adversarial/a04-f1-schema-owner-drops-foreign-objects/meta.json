@@ -1,0 +1,4 @@
+{
+  "minVersion": 16,
+  "notes": "F1: the applier owns the schema (database owner), so it may DROP objects owned by a role it cannot assume."
+}

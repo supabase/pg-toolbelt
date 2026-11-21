@@ -1,0 +1,3 @@
+{
+  "notes": "F7: on PG16+ a plain GRANT takes INHERIT from the member role attribute at grant time"
+}

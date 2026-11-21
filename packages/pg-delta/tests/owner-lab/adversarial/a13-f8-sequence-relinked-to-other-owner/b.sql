@@ -1,0 +1,12 @@
+CREATE ROLE sa NOLOGIN; CREATE ROLE sb NOLOGIN;
+CREATE SCHEMA s;
+GRANT USAGE, CREATE ON SCHEMA s TO sa, sb;
+GRANT sa, sb TO current_user;
+CREATE TABLE s.t_a (id int);
+CREATE TABLE s.t_b (id int);
+CREATE SEQUENCE s.sq;
+ALTER TABLE s.t_a OWNER TO sa;
+ALTER TABLE s.t_b OWNER TO sb;
+ALTER SEQUENCE s.sq OWNER TO sb;
+ALTER SEQUENCE s.sq OWNED BY s.t_b.id;
+REVOKE sa, sb FROM current_user;

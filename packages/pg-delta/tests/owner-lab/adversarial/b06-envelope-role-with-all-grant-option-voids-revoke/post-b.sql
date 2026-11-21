@@ -1,0 +1,1 @@
+GRANT ALL ON s.t TO h_hold WITH GRANT OPTION;

@@ -1,0 +1,4 @@
+{
+  "minVersion": 16,
+  "notes": "F1-C: the schema is owned by a role the applier did not create; the applier has CREATE on it. Plain creates must work."
+}

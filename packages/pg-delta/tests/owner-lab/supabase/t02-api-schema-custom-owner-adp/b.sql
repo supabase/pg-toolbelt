@@ -1,0 +1,12 @@
+create role api_owner nologin;
+grant api_owner to postgres;
+create schema api authorization api_owner;
+grant usage on schema api to anon, authenticated;
+alter default privileges for role api_owner in schema api grant select on tables to anon, authenticated;
+alter default privileges for role api_owner in schema api grant execute on functions to anon, authenticated;
+set role api_owner;
+create table api.items (id bigint generated always as identity primary key, name text);
+create view api.items_v with (security_invoker = true) as select id, name from api.items;
+create function api.item_count() returns bigint language sql stable security definer set search_path = '' as $$ select count(*) from api.items $$;
+reset role;
+revoke api_owner from postgres;

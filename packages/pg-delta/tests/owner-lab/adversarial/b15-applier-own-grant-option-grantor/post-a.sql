@@ -1,0 +1,1 @@
+GRANT SELECT ON s.t TO lab_applier WITH GRANT OPTION;

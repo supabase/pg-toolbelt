@@ -1,0 +1,3 @@
+{
+  "notes": "no owner change: column/index/RLS/policy/comment/grant on a table owned by a role the applier holds no membership in"
+}

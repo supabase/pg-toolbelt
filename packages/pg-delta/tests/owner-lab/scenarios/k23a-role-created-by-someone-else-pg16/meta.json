@@ -1,0 +1,5 @@
+{
+  "minVersion": 16,
+  "expect": "refuse",
+  "notes": "owner is a role created by another admin: on PG16+ the applier has no ADMIN on it and cannot self-grant. Declared refusal with a typed error."
+}

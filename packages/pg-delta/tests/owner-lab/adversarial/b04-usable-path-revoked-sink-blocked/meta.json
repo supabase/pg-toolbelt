@@ -1,0 +1,3 @@
+{
+  "notes": "applier uses r only through g; the plan revokes g from the applier and transfers s.t to r; an unrelated membership grant may block the sink of the revoke"
+}

@@ -1,0 +1,16 @@
+create function public.touch_fn() returns trigger language plpgsql as $$ begin return new; end $$;
+create role app_owner nologin;
+create table public.notes (id bigint primary key, owner_id uuid, body text);
+alter table public.notes enable row level security;
+create policy notes_select on public.notes for select to authenticated using (owner_id = auth.uid());
+create policy notes_insert on public.notes for insert to authenticated with check (owner_id = auth.uid());
+grant select on public.notes to anon;
+grant select, insert, update, delete on public.notes to authenticated;
+grant all on public.notes to service_role;
+create index notes_owner_idx on public.notes (owner_id);
+create trigger notes_touch before update on public.notes for each row execute function public.touch_fn();
+grant create on schema public to app_owner;
+grant app_owner to postgres;
+alter table public.notes owner to app_owner;
+revoke app_owner from postgres;
+revoke create on schema public from app_owner;

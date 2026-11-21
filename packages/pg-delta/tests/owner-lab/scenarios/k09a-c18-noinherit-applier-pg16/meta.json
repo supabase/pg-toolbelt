@@ -1,0 +1,5 @@
+{
+  "applierInherit": false,
+  "minVersion": 16,
+  "notes": "C18/C11: NOINHERIT applier, schema + table re-owned and table altered. PG16+: per-grant INHERIT TRUE should make it work."
+}

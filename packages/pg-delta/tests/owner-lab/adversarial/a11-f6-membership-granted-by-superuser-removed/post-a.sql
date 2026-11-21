@@ -1,0 +1,1 @@
+GRANT g5 TO m5;

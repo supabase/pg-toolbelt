@@ -1,0 +1,4 @@
+{
+  "minVersion": 15,
+  "notes": "CLI-2340 / E1: desired public owned by the applier, source public owned by pg_database_owner. No REVOKE may strand the applier before the CREATE."
+}

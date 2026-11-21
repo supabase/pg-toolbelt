@@ -1,0 +1,7 @@
+CREATE ROLE h_hold NOLOGIN;
+CREATE SCHEMA s;
+CREATE SCHEMA s2;
+GRANT h_hold TO current_user;
+ALTER SCHEMA s2 OWNER TO h_hold;
+GRANT USAGE, CREATE ON SCHEMA s2 TO current_user;
+REVOKE h_hold FROM current_user;

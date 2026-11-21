@@ -1,0 +1,1 @@
+ALTER PUBLICATION pub1 ADD TABLE s.users;

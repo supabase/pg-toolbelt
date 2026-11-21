@@ -1,0 +1,3 @@
+{
+  "notes": "As c02 but the applier keeps INHERIT+SET membership of r on both sides (no envelope). On main the GRANT runs as the applier and Postgres picks r as grantor; with the PoC it runs under SET ROLE r and cannot resolve t.e. Regression candidate."
+}

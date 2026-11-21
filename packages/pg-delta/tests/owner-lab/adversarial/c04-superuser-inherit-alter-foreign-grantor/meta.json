@@ -1,0 +1,4 @@
+{
+  "minVersion": 16,
+  "notes": "Run with --applier superuser. Source row g->m granted by adm (INHERIT FALSE, SET FALSE); desired INHERIT TRUE, SET FALSE. The superuser path still renders the single-option GRANT g TO m WITH INHERIT TRUE, which creates a NEW bootstrap-grantor row with SET defaulting to TRUE."
+}

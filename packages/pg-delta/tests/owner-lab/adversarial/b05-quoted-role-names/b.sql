@@ -1,0 +1,12 @@
+CREATE ROLE "Weird.Role x" NOLOGIN;
+CREATE ROLE "new""Owner" NOLOGIN;
+CREATE SCHEMA "S p";
+GRANT USAGE ON SCHEMA "S p" TO "Weird.Role x", "new""Owner";
+GRANT CREATE ON SCHEMA "S p" TO "Weird.Role x", "new""Owner";
+CREATE TABLE "S p"."T 1" (id int, extra int);
+CREATE TABLE "S p"."T 2" (id int);
+GRANT "Weird.Role x", "new""Owner" TO current_user;
+ALTER TABLE "S p"."T 1" OWNER TO "Weird.Role x";
+ALTER TABLE "S p"."T 2" OWNER TO "new""Owner";
+REVOKE CREATE ON SCHEMA "S p" FROM "new""Owner";
+REVOKE "Weird.Role x", "new""Owner" FROM current_user;
