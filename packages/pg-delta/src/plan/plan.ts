@@ -842,6 +842,7 @@ export function plan(
     ...(options?.defaultOwner !== undefined
       ? { defaultOwner: options.defaultOwner }
       : {}),
+    ...(policyDefaultOwner !== undefined ? { policyDefaultOwner } : {}),
   });
 
   // ── phase 4: order, segment-mark, compact, and report ─────────────────

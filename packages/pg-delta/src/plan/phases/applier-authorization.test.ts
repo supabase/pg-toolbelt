@@ -89,16 +89,16 @@ describe("applier authorization", () => {
     const bare = sqlOf(plan(state("owner_a"), state("owner_b")));
     const at = bare.indexOf('ALTER TABLE "app"."t" OWNER TO "owner_b"');
     expect(sqlOf(p)).toEqual([
-      'GRANT "owner_a" TO "app" WITH INHERIT TRUE, SET TRUE GRANTED BY "app"',
-      'GRANT "owner_b" TO "app" WITH INHERIT TRUE, SET TRUE GRANTED BY "app"',
+      'GRANT "owner_a" TO "app"',
+      'GRANT "owner_b" TO "app"',
       ...bare.slice(0, at),
       // the new owner gets CREATE on the schema for the owner change only
       'GRANT CREATE ON SCHEMA "app" TO "owner_b"',
       bare[at] as string,
       'REVOKE CREATE ON SCHEMA "app" FROM "owner_b"',
       ...bare.slice(at + 1),
-      'REVOKE "owner_a" FROM "app" GRANTED BY "app"',
-      'REVOKE "owner_b" FROM "app" GRANTED BY "app"',
+      'REVOKE "owner_a" FROM "app"',
+      'REVOKE "owner_b" FROM "app"',
     ]);
   });
 

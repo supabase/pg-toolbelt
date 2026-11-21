@@ -717,15 +717,24 @@ export function authorizeForApplier(
       { kind: "role", name: r },
       { kind: "role", name: applier },
     ]);
-  const by = modern ? ` GRANTED BY ${qid(applier)}` : "";
-  const grantSql = (r: string, inherit: boolean, set: boolean) =>
-    modern
-      ? `GRANT ${qid(r)} TO ${qid(applier)} WITH INHERIT ${inherit ? "TRUE" : "FALSE"}, SET ${set ? "TRUE" : "FALSE"}${by}`
-      : `GRANT ${qid(r)} TO ${qid(applier)}`;
+  // The statements a person would write. PG16+ records the applier as the
+  // grantor of both (it holds ADMIN directly, or it could not borrow), so
+  // the REVOKE removes exactly the row the GRANT made. INHERIT / SET are
+  // spelled out only when the defaults would not give them.
+  const ownRow = (r: string) =>
+    modern ? (cap.selfGrants ?? []).find((g) => g.role === r) : undefined;
+  const withOptions = (r: string, inherit: boolean, set: boolean) =>
+    `GRANT ${qid(r)} TO ${qid(applier)} WITH INHERIT ${inherit ? "TRUE" : "FALSE"}, SET ${set ? "TRUE" : "FALSE"}`;
+  const borrowSql = (r: string) =>
+    ownRow(r) !== undefined
+      ? withOptions(r, true, true)
+      : modern && cap.inherit !== true
+        ? `GRANT ${qid(r)} TO ${qid(applier)} WITH INHERIT TRUE`
+        : `GRANT ${qid(r)} TO ${qid(applier)}`;
   const head: Action[] = [];
   const tail: Action[] = [];
   for (const r of borrowed) {
-    const openAction = membershipStatement(r, grantSql(r, true, true));
+    const openAction = membershipStatement(r, borrowSql(r));
     const createdAt = list.find(
       (a) => a.verb === "create" && roleSubject(a) === r,
     );
@@ -735,17 +744,15 @@ export function authorizeForApplier(
     // grants to the applier stays granted
     if (list.some((a) => a.verb === "drop" && roleSubject(a) === r)) continue;
     if (planGrants.has(r)) continue;
-    // PG16+: the row the applier granted itself, exactly as the probe saw it
-    const was = modern
-      ? (cap.selfGrants ?? []).find((g) => g.role === r)
-      : undefined;
+    // PG16+: the row the applier had granted itself goes back as it was
+    const was = ownRow(r);
     const keepsMembership =
       !modern && source.has(selfId(r)) && !planRevokes.has(r);
     if (was !== undefined && !planRevokes.has(r))
-      tail.push(membershipStatement(r, grantSql(r, was.inherit, was.set)));
+      tail.push(membershipStatement(r, withOptions(r, was.inherit, was.set)));
     else if (!keepsMembership)
       tail.push(
-        membershipStatement(r, `REVOKE ${qid(r)} FROM ${qid(applier)}${by}`),
+        membershipStatement(r, `REVOKE ${qid(r)} FROM ${qid(applier)}`),
       );
   }
 

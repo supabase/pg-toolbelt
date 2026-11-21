@@ -81,6 +81,9 @@ export interface ActionEmitterInput {
    *  Projected-ADP hygiene matches `defaultPrivilege.role` against this when
    *  the object has no owner edge. */
   defaultOwner?: string;
+  /** the default owner the policy declares (the Supabase profile: `postgres`).
+   *  Its owner edges are pruned with the role, like the run-level one's. */
+  policyDefaultOwner?: string;
 }
 
 export interface ActionEmitterOutput {
@@ -127,6 +130,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     overlayAdpWipes,
     overlayHygieneGrantees,
     defaultOwner,
+    policyDefaultOwner,
   } = input;
 
   const actions: Action[] = [];
@@ -912,7 +916,8 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       ownerLinks.push(delta.edge);
       linked.add(encodeId(delta.edge.from));
     }
-    if (defaultOwner !== undefined) {
+    const implicitOwner = defaultOwner ?? policyDefaultOwner;
+    if (implicitOwner !== undefined) {
       for (const delta of deltas) {
         if (delta.verb !== "unlink" || delta.edge.kind !== "owner") continue;
         const objId = delta.edge.from;
@@ -932,7 +937,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         // owner edges always target a role, so the name alone identifies it
         if (
           rawOwner === undefined ||
-          (rawOwner.to as { name?: string }).name !== defaultOwner
+          (rawOwner.to as { name?: string }).name !== implicitOwner
         )
           continue;
         ownerLinks.push({ from: objId, to: rawOwner.to });
