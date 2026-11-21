@@ -1,0 +1,4 @@
+{
+  "notes": "h_hold (lower OID, opened because the plan alters its table s.u) holds a COLUMN-level SELECT (c) WITH GRANT OPTION on o_own's s.t. Desired adds a column grant to x_reader by o_own. Column acl facts are children of the column, not the table, so grantOptionHolders(s.t) misses h_hold: the column GRANT runs unpinned and Postgres (merged table+column acl) may record h_hold as grantor; the reverse REVOKE may remove nothing.",
+  "tags": ["r5:hazard-holders"]
+}

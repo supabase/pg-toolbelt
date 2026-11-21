@@ -1,0 +1,4 @@
+{
+  "notes": "The applier permanently inherits k2 (lower OID) and k1 -> o_own. Desired adds h_hold -> k2 (h_hold holds SELECT WITH GRANT OPTION on o_own's s.t). After the plan's (moved-earlier) GRANT h_hold TO k2, the applier inherits h_hold at the same depth as o_own and BFS reaches it first. inherited() comes from the probe (source) and viaEnvelope only walks envelope roles, so the hazard is missed. Not envelope-induced: the base branch behaves the same.",
+  "tags": ["r5:hazard-inherited-set", "preexisting"]
+}

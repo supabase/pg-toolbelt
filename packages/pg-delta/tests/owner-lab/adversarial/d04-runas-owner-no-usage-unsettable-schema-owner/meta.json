@@ -1,0 +1,4 @@
+{
+  "notes": "The applier is a permanent member of o_own (owner of s.t) and of h_hold, which holds only INSERT WITH GRANT OPTION on s.t. o_own has no USAGE on schema s, whose owner is a superuser role the applier cannot SET to. The hazard rule counts ANY grant option, so GRANT/REVOKE SELECT ... x_reader is pinned to runAs o_own; no USAGE wrapper is possible (schema owner not settable), so SET ROLE o_own then fails on name lookup. As the applier, Postgres picks o_own (h_hold has no SELECT grant option) and the base converges.",
+  "tags": ["r5:runas-regression"]
+}

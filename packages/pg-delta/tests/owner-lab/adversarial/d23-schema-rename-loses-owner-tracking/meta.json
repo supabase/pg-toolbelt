@@ -1,0 +1,5 @@
+{
+  "renames": "auto",
+  "notes": "Accepted schema rename s -> s2. The tracker's rename step re-keys only the renamed subject (the schema); the table under it gets a new id s2.t with no source fact, so ownerNow(s2.t) is undefined and the hazard check is skipped. h_hold (envelope via q.u, lower OID) holds SELECT WITH GRANT OPTION on the table; the GRANT to x_reader can record h_hold.",
+  "tags": ["r5:owner-tracking"]
+}

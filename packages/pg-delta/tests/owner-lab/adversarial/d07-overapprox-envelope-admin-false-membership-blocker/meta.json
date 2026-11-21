@@ -1,0 +1,5 @@
+{
+  "minVersion": 16,
+  "notes": "c09 plus an unrelated table the applier creates in schema s owned by r_sch. The applier already has CREATE on s; r_sch is opened only because needed roles add the container owner. r_sch holds ADMIN on g, so the membership rule blocks GRANT g TO m, although Postgres picks mid (permanent, lower OID, one hop like r_sch) as grantor either way, exactly as on the base branch.",
+  "tags": ["r5:false-blocker", "r5:needed-overapprox"]
+}

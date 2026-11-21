@@ -1,0 +1,4 @@
+{
+  "notes": "Hold test: default privileges FOR ROLE o_own (per-schema and global, with a grant option) where o_own is reachable only through the envelope. pg_default_acl always records defaclrole as grantor.",
+  "tags": ["r5:hold"]
+}

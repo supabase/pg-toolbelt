@@ -1,0 +1,4 @@
+CREATE SCHEMA s;
+GRANT USAGE, CREATE ON SCHEMA s TO a_user, z_own;
+CREATE TABLE s.t (id int);
+ALTER TABLE s.t OWNER TO z_own;

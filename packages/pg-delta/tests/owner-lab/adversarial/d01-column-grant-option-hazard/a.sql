@@ -1,0 +1,16 @@
+CREATE ROLE h_hold NOLOGIN;
+CREATE ROLE o_own NOLOGIN;
+CREATE ROLE x_reader NOLOGIN;
+CREATE SCHEMA s;
+GRANT USAGE, CREATE ON SCHEMA s TO o_own, h_hold;
+CREATE TABLE s.u (id int);
+CREATE TABLE s.t (id int, c int);
+GRANT h_hold TO current_user;
+GRANT o_own TO current_user;
+ALTER TABLE s.u OWNER TO h_hold;
+ALTER TABLE s.t OWNER TO o_own;
+SET ROLE o_own;
+GRANT ALL (c) ON s.t TO h_hold WITH GRANT OPTION;
+RESET ROLE;
+REVOKE h_hold FROM current_user;
+REVOKE o_own FROM current_user;

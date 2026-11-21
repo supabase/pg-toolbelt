@@ -1,0 +1,17 @@
+CREATE ROLE h_hold NOLOGIN;
+CREATE ROLE o1 NOLOGIN;
+CREATE ROLE o2 NOLOGIN;
+CREATE ROLE x_reader NOLOGIN;
+CREATE SCHEMA s;
+GRANT USAGE, CREATE ON SCHEMA s TO o1, o2, h_hold;
+CREATE TABLE s.u (id int);
+CREATE TABLE s.t (id serial, v text);
+GRANT h_hold TO current_user;
+GRANT o1 TO current_user;
+ALTER TABLE s.u OWNER TO h_hold;
+ALTER TABLE s.t OWNER TO o1;
+SET ROLE o1;
+GRANT ALL ON SEQUENCE s.t_id_seq TO h_hold WITH GRANT OPTION;
+RESET ROLE;
+REVOKE h_hold FROM current_user;
+REVOKE o1 FROM current_user;

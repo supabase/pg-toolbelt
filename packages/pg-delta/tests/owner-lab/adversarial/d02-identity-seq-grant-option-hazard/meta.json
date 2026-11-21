@@ -1,0 +1,4 @@
+{
+  "notes": "Identity sequences are not facts: an acl on s.t_id_seq has target kind sequence, rootOf(target) is the sequence id itself (ownable kind) and ownerNow() finds no owner edge, so the hazard check is skipped (o undefined). h_hold (envelope, lower OID) holds USAGE WITH GRANT OPTION on the sequence; the GRANT to x_reader may be recorded with grantor h_hold.",
+  "tags": ["r5:hazard-holders"]
+}

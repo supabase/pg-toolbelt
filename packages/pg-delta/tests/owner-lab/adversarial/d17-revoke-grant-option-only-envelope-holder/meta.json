@@ -1,0 +1,4 @@
+{
+  "notes": "Hold test: REVOKE GRANT OPTION FOR SELECT ... FROM h_hold where h_hold is itself an envelope role (lower OID). Unpinned, Postgres would pick h_hold as grantor and remove nothing.",
+  "tags": ["r5:hold"]
+}

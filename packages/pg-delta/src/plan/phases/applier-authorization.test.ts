@@ -1,5 +1,5 @@
 /**
- * Applier authorization pass (revision 5): what a non-superuser applier's
+ * Applier authorization pass (minimal): what a non-superuser applier's
  * plan gains over the superuser plan. The owner-lab
  * (tests/owner-lab) judges the results on real Postgres; these pin the shape.
  */
@@ -102,25 +102,22 @@ describe("applier authorization", () => {
     ]);
   });
 
-  test("an ACL statement runs as the owner when another inherited role holds a grant option", () => {
+  test("a borrowed role that holds a grant option is a blocker", () => {
     const acl = (grantee: string, grantable: string[]): Fact => ({
       id: { kind: "acl", target: table, grantee },
       parent: table,
       payload: { privileges: ["SELECT"], grantable },
     });
-    const withGrants = (extra: Fact[]) => state("owner_a", extra);
+    // the plan must borrow owner_b (the new owner), which holds SELECT WITH
+    // GRANT OPTION: Postgres could record it as the grantor of the GRANT
     const p = plan(
-      withGrants([acl("owner_b", ["SELECT"])]),
-      withGrants([acl("owner_b", ["SELECT"]), acl("app", [])]),
-      // owner_b, whom the applier inherits, holds a grant option
-      {
-        capability: { ...applier, inheritedRoles: ["owner_b"] },
-        ownerMode: "union",
-      },
+      state("owner_a", [acl("owner_b", ["SELECT"])]),
+      state("owner_b", [acl("owner_b", ["SELECT"]), acl("app", [])]),
+      { capability: applier },
     );
-    expect(
-      sqlOf(p).filter((s) => s.includes('TO "app"') && s.startsWith("[as")),
-    ).toEqual(['[as owner_a] GRANT SELECT ON TABLE "app"."t" TO "app"']);
+    expect(p.blockers?.map((b) => [b.code, b.role])).toEqual([
+      ["capability_acl_grantor", "owner_b"],
+    ]);
   });
 
   test("a new owner the applier can neither set nor grant itself is a blocker", () => {

@@ -483,7 +483,8 @@ function clusterCatalogSql(pgMajor: number, builtin?: string[]): string {
               || ' admin=' || m.admin_option::text || ' inherit=' || m.inherit_option::text || ' set=' || m.set_option::text
               || ' grantor=' || pg_get_userbyid(m.grantor)
            FROM pg_auth_members m
-          WHERE pg_get_userbyid(m.roleid) NOT LIKE 'pg\\_%' OR pg_get_userbyid(m.member) NOT LIKE 'pg\\_%'`
+          WHERE (pg_get_userbyid(m.roleid) NOT LIKE 'pg\\_%' OR pg_get_userbyid(m.member) NOT LIKE 'pg\\_%')
+            AND m.grantor <> m.member`
       : `SELECT 'member ' || pg_get_userbyid(m.roleid) || ' <- ' || pg_get_userbyid(m.member)
               || ' admin=' || m.admin_option::text
            FROM pg_auth_members m
@@ -511,9 +512,10 @@ function supaClusterCatalogSql(pgMajor: number, builtin: string[]): string {
   return `
 SELECT 'member ' || pg_get_userbyid(m.roleid) || ' <- ' || pg_get_userbyid(m.member) || ${cols}
   FROM pg_auth_members m
- WHERE NOT (pg_get_userbyid(m.roleid) = ANY(${bl}))
+ WHERE (NOT (pg_get_userbyid(m.roleid) = ANY(${bl}))
     OR NOT (pg_get_userbyid(m.member) = ANY(${bl}))
-    OR pg_get_userbyid(m.member) = 'postgres'
+    OR pg_get_userbyid(m.member) = 'postgres')
+   ${pgMajor >= 16 ? "AND m.grantor <> m.member" : ""}
 UNION ALL
 SELECT 'role ' || rolname || ' super=' || rolsuper::text || ' inherit=' || rolinherit::text
     || ' createrole=' || rolcreaterole::text || ' createdb=' || rolcreatedb::text

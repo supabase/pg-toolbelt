@@ -1,0 +1,4 @@
+{
+  "notes": "s.f(s2.ty) is owned by o_own, which has USAGE on s but not on s2 (applier-owned). The applier permanently inherits o_own and h_hold (created after o_own) with EXECUTE WITH GRANT OPTION. The hazard pins GRANT/REVOKE EXECUTE ... x_reader to runAs o_own; the USAGE wrapper covers only the function's own schema, so resolving s2.ty as o_own fails. As the applier, Postgres picks o_own (lower OID) and the base converges.",
+  "tags": ["r5:runas-regression"]
+}

@@ -1,0 +1,4 @@
+{
+  "notes": "Co-created schema s with GRANT USAGE, CREATE to a_user and z_own: compaction merges the two GRANTs into one statement whose subject names only the first grantee (a_user). The owner tracker (schemaPrivNow) updates from the subject only, so it believes z_own lacks CREATE on s when s.t is handed to z_own, wraps the owner change with GRANT CREATE ... z_own / REVOKE CREATE ... FROM z_own, and the REVOKE removes the CREATE the desired state granted.",
+  "tags": ["r5:wrapper", "r5:merged-grant"]
+}

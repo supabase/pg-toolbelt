@@ -1,0 +1,1 @@
+CREATE ROLE r_sch NOLOGIN;

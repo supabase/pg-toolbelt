@@ -10,7 +10,7 @@ name: Owner lab (PoC)
 # Shards the owner-lab measuring stick (packages/pg-delta/tests/owner-lab)
 # across runners. Each shard records a baseline on the BASE tree (the lab
 # files are copied into it) and then runs the PoC tree once per mode (union, plus
-# the nopin / nowrap / nomoves ablations on some configs) against that baseline. The lab exiting 1 (SILENT / REGRESSION / PLAN_CHANGED)
+# the nowrap / nomoves ablations on some configs) against that baseline. The lab exiting 1 (SILENT / REGRESSION / PLAN_CHANGED)
 # is a result, not a CI failure; the `summary` job judges the merged results.
 
 on:
@@ -18,6 +18,7 @@ on:
     branches:
       - avallete/owner-envelope-poc
       - avallete/owner-envelope-r5
+      - avallete/owner-envelope-min
   workflow_dispatch:
     inputs:
       base_ref:
@@ -58,7 +59,7 @@ jobs:
           const STOCK_SHARDS = 4;
           const SUPA_SHARDS = 32;
           const UNION = "union";
-          const ABLATE = "union nopin nowrap nomoves";
+          const ABLATE = "union nowrap nomoves";
           const stock = (v, extra, modes = UNION) => ({
             image: `postgres:${v}-alpine`,
             flags: `--image postgres:${v}-alpine --applier createrole${extra}`,
@@ -88,7 +89,7 @@ jobs:
             "pg17-script": stock(17, " --via script"),
             "pg17-superuser": superuser(17),
             "pg15-superuser": superuser(15),
-            supa17: supa("supabase/postgres:17.11.0.018", "union nopin"),
+            supa17: supa("supabase/postgres:17.11.0.018"),
             supa15: supa("public.ecr.aws/supabase/postgres:15.19.0.018"),
           };
           let want = process.env.CONFIGS.trim();

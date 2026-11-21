@@ -1,0 +1,6 @@
+{
+  "minVersion": 16,
+  "ideal": "refuse",
+  "notes": "Declared limit 'a role the applier can neither assume nor grant itself' is said to be LOUD. Here o_own (superuser-made, no ADMIN for the applier on 16+) owns s.t and the applier holds SELECT on it without grant option. GRANT/REVOKE SELECT ... x_reader as the applier is a WARNING, not an error: the plan applies and changes nothing. The pass has no blocker for ACL statements whose owner it cannot get.",
+  "tags": ["r5:declared-limit-not-loud", "preexisting"]
+}

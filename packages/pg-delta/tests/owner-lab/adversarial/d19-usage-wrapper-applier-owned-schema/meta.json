@@ -1,0 +1,4 @@
+{
+  "notes": "Hold test, the d04 shape with schema s owned by the applier: the pinned GRANT/REVOKE as o_own gets a temporary USAGE on s granted and revoked by the applier.",
+  "tags": ["r5:hold"]
+}

@@ -1,0 +1,4 @@
+{
+  "notes": "Hold test for a multi-segment plan: ALTER TYPE ... ADD VALUE (commit boundary) on an envelope role's enum, a consumer (column default using the new value) in the next segment, plus a new role and a schema-ACL widening that the pass moves earlier. The envelope must open in the first segment and close in the last, and no moved action may land in a segment it does not belong to.",
+  "tags": ["r5:hold", "r5:multisegment"]
+}

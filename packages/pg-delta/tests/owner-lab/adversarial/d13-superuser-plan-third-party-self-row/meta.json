@@ -1,0 +1,5 @@
+{
+  "minVersion": 16,
+  "notes": "Run with --applier superuser. A CREATEROLE role adm (not the applier) grants itself a role it created: an own-grantor row (grantor = adm). The PG16+ membership `self` model is extraction-level, so the superuser plan now emits GRANT r TO adm WITH INHERIT TRUE, SET TRUE GRANTED BY adm where the base emitted nothing.",
+  "tags": ["r5:superuser-plan"]
+}

@@ -1,0 +1,6 @@
+{
+  "minVersion": 16,
+  "ideal": "refuse",
+  "notes": "b07 one hop further: e_hold (envelope, opened for its table) is a member of f_admin, which holds ADMIN on g. With the envelope open GRANT g TO m would succeed with grantor f_admin. viaEnvelope must be transitive.",
+  "tags": ["r5:hold"]
+}

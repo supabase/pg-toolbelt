@@ -1,0 +1,4 @@
+{
+  "notes": "Hold test for owner tracking of carried sequences: s.t moves o1 -> o2 and its serial sequence follows (no ALTER SEQUENCE OWNER). h_hold (envelope, lower OID) holds ALL WITH GRANT OPTION on the sequence. The GRANT/REVOKE on the sequence after the table owner change must be pinned to o2 (the follower's owner), not o1.",
+  "tags": ["r5:hold"]
+}

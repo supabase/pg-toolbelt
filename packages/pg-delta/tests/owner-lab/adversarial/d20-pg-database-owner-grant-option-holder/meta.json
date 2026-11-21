@@ -1,0 +1,4 @@
+{
+  "notes": "The applier owns the database, so it implicitly inherits pg_database_owner, appended right after its direct memberships (before o_own, reached through k). pg_database_owner holds SELECT WITH GRANT OPTION on o_own's s.t. Probes whether a pg_* grantee counts as a grant-option holder (ACL fact kept, inheritedRoles includes it).",
+  "tags": ["r5:hazard-holders"]
+}

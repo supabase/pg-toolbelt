@@ -1,0 +1,5 @@
+CREATE ROLE k NOLOGIN;
+CREATE ROLE o_own NOLOGIN;
+CREATE ROLE x_reader NOLOGIN;
+GRANT k TO lab_applier;
+GRANT o_own TO k;

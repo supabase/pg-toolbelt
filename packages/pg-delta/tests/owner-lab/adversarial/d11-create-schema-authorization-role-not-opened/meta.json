@@ -1,0 +1,4 @@
+{
+  "notes": "A new empty schema owned by r_own (self-grantable: created by the applier). Compaction folds the owner into CREATE SCHEMA ... AUTHORIZATION r_own, which has no change.kind owner, so needed roles never include r_own and no envelope opens; Postgres needs SET (<=15: membership) on r_own.",
+  "tags": ["r5:needed-gap"]
+}

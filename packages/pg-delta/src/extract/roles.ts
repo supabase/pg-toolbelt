@@ -14,23 +14,10 @@ const ROLES_SQL = `
     ORDER BY r.rolname`;
 
 // ── role memberships (cluster-level; multi-grantor rows deduped) ─────
-// PG16+ also reads the member's own grant row (grantor = member): the row a
-// CREATEROLE role adds to use a role it created (`GRANT r TO me`). Only that
-// row's INHERIT / SET are modelled; every other row stays deduped to `admin`.
-// The bootstrap superuser (oid 10) is the recorded grantor of every grant a
-// superuser makes, so its own memberships are ordinary rows, not own-grant
-// rows.
-function membershipsSql(pgMajor: number): string {
-  const self =
-    pgMajor >= 16
-      ? `,
-           bool_or(m.grantor = m.member AND m.grantor <> 10) AS has_self,
-           bool_or(m.inherit_option) FILTER (WHERE m.grantor = m.member AND m.grantor <> 10) AS self_inherit,
-           bool_or(m.set_option) FILTER (WHERE m.grantor = m.member AND m.grantor <> 10) AS self_set`
-      : "";
+function membershipsSql(_pgMajor: number): string {
   return `
     SELECT r1.rolname AS role, r2.rolname AS member,
-           bool_or(m.admin_option) AS admin${self}
+           bool_or(m.admin_option) AS admin
     FROM pg_auth_members m
     JOIN pg_roles r1 ON r1.oid = m.roleid
     JOIN pg_roles r2 ON r2.oid = m.member
@@ -190,16 +177,6 @@ export const rolesAndGrantsFamily: CatalogFamily = {
         },
         payload: {
           admin: Boolean(row["admin"]),
-          // absent when the member has no own grant row (always on <=15), so
-          // memberships without one hash as before
-          ...(row["has_self"] === true
-            ? {
-                self: {
-                  inherit: Boolean(row["self_inherit"]),
-                  set: Boolean(row["self_set"]),
-                },
-              }
-            : {}),
         },
       });
     }

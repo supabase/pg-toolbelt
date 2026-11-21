@@ -1,0 +1,5 @@
+{
+  "maxVersion": 15,
+  "notes": "PG<=15 only (on 16+ ADMIN implies a membership row, so the circular shape cannot exist with a self-grantable role). Schema s is owned by r_sch, and r_sch is a MEMBER of the applier. The applier has CREATE on s and the plan only creates / drops its own table s.t. needed roles over-approximate with the container (schema) owner, so the pass opens r_sch: GRANT r_sch TO lab_applier is refused as circular. The base plan just runs CREATE/DROP TABLE.",
+  "tags": ["r5:envelope-open"]
+}

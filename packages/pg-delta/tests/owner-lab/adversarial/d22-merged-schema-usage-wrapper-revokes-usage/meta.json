@@ -1,0 +1,4 @@
+{
+  "notes": "d09 through the runAs path: the co-created schema's GRANT USAGE to a_user, o_own is merged and names only a_user, so the tracker thinks o_own lacks USAGE on s when the pinned GRANTs on s.t run as o_own; the temporary USAGE wrapper's REVOKE then removes o_own's desired USAGE.",
+  "tags": ["r5:wrapper", "r5:merged-grant"]
+}

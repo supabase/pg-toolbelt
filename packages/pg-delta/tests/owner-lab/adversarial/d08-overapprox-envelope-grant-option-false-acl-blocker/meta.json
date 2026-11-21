@@ -1,0 +1,5 @@
+{
+  "minVersion": 16,
+  "notes": "The applier inherits o_own (INHERIT TRUE, SET FALSE) and only GRANTs/REVOKEs SELECT on o_own's s.t to x_reader. Schema s is owned by r_sch (applier-created, ADMIN), which holds only INSERT WITH GRANT OPTION on s.t. r_sch is opened only because needed roles add the container owner; then r_sch is an envelope grant-option holder, the applier cannot SET o_own, and the pass blocks (capability_acl_grantor). Postgres would pick o_own (r_sch has no SELECT grant option); the base converges.",
+  "tags": ["r5:false-blocker", "r5:needed-overapprox"]
+}

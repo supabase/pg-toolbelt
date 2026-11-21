@@ -1,0 +1,4 @@
+{
+  "notes": "Desired makes the applier a member of h_hold (its own row, moved earlier by the pass). h_hold (lower OID) holds SELECT WITH GRANT OPTION on o_own's s.t. The hazard test only counts capability-inherited and envelope roles, not roles the plan itself grants the applier (planSelf), so GRANT SELECT ... TO x_reader runs unpinned after the self grant and Postgres may record h_hold as grantor.",
+  "tags": ["r5:hazard-inherited-set"]
+}

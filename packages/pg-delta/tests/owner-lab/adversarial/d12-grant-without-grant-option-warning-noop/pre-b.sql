@@ -1,0 +1,7 @@
+CREATE ROLE o_own NOLOGIN;
+CREATE ROLE x_reader NOLOGIN;
+CREATE SCHEMA s;
+GRANT USAGE ON SCHEMA s TO lab_applier;
+CREATE TABLE s.t (id int);
+ALTER TABLE s.t OWNER TO o_own;
+GRANT SELECT ON s.t TO lab_applier;

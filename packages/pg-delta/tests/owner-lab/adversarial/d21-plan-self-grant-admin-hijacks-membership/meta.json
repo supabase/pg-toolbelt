@@ -1,0 +1,5 @@
+{
+  "minVersion": 16,
+  "notes": "Desired gives the applier its own row on p (p holds ADMIN on zg; the applier has none directly) and adds zg -> m granted by the superuser. The membership grantor rule only looks at envelope roles, not roles the plan itself grants the applier, so GRANT zg TO m runs after the self grant and Postgres records p as grantor. A superuser records the bootstrap superuser.",
+  "tags": ["r5:hazard-inherited-set", "r5:membership"]
+}

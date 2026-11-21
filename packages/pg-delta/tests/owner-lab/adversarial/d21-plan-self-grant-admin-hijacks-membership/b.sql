@@ -1,0 +1,3 @@
+CREATE ROLE p NOLOGIN;
+CREATE ROLE m NOLOGIN;
+GRANT p TO current_user;

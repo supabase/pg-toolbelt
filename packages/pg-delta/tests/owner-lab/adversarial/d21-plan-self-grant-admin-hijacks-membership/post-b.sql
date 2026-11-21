@@ -1,0 +1,2 @@
+GRANT zg TO p WITH ADMIN OPTION;
+GRANT zg TO m;
