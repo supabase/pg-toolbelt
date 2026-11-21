@@ -272,10 +272,28 @@ export function authorizeForApplier(
   // cross a statement that writes something it names.
   if (ctx.mode !== "nomoves") {
     type Direction = "earlier" | "later" | undefined;
+    // Only schema privileges the plan itself can depend on are moved: those
+    // of the applier, of PUBLIC, of a role that owns something in either
+    // state, and of the roles these are members of. A grant to any other
+    // role (a runtime role that owns nothing) stays where the plan put it.
+    let reliedOn: Set<string> | undefined;
+    const isReliedOn = (grantee: string): boolean => {
+      if (reliedOn === undefined) {
+        reliedOn = new Set(["PUBLIC", ...upward(applier)]);
+        for (const fb of views) {
+          for (const fact of fb.facts()) {
+            const o = ownerIn(fb, fact.id);
+            if (o !== undefined && !reliedOn.has(o))
+              for (const u of upward(o)) reliedOn.add(u);
+          }
+        }
+      }
+      return reliedOn.has(grantee);
+    };
     const directionOf = (a: Action): Direction => {
       const s = a.subject;
       if (s.kind !== "acl" || s.target.kind !== "schema") return undefined;
-      if (s.column !== undefined) return undefined;
+      if (s.column !== undefined || !isReliedOn(s.grantee)) return undefined;
       if (a.verb === "drop") return "later";
       const grants = (fb: FactBase) => {
         const p = fb.get(s)?.payload;

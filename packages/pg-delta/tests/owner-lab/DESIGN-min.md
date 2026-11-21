@@ -44,7 +44,10 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    REVOKE when the plan itself grants it, and no GRANT either when that grant already ran.
    Never in a schema the plan renames.
 3. **Order.** A schema GRANT moves earlier and a schema REVOKE later, so no role is locked
-   out of a schema while the plan still works in it. It stops at any other GRANT / REVOKE
+   out of a schema while the plan still works in it. Only for a role whose privileges the
+   plan can depend on: the applier, PUBLIC, a role that owns something in either state,
+   and the roles these are members of. A grant to a runtime role that owns nothing stays
+   where the plan put it. It stops at any other GRANT / REVOKE
    on that schema, at a statement on the schema or the role itself, and at a commit. (The base plan revokes an owner's own
    schema privileges first and grants the new ones last; only a superuser survives that.)
    Nothing else is ever reordered.
@@ -102,4 +105,5 @@ Likelihood is my estimate of how often a real project migration hits it.
 | A plan with several transactions that fails in a later one (for example a failed `CREATE INDEX CONCURRENTLY`) | the migration fails loudly and the borrowed role stays granted; `REVOKE <role> FROM <applier>` by hand. Borrowing per transaction would remove this at the cost of a GRANT / REVOKE pair per transaction | rare |
 | Which roles the applier has granted itself (PG16+): a `GRANT app_owner TO postgres` kept in the desired database | not compared, not planned: `CREATE ROLE` gives the creator an ADMIN-only row, so the membership fact exists on both sides and INHERIT / SET are not facts. A borrowed role is always given back, and a role the applier already held is left as found. Follow-up for the engine: INHERIT / SET as membership attributes (extract, diff, export together); the plan's own GRANT then keeps the role, as on PG ≤15, with no change to this pass | common, harmless: a migration that needs the role borrows it; `GRANT app_owner TO postgres` once on the target gives plain DDL from then on |
 | Grant options on columns: the refusal looks at the whole table, so a borrowed role's option on column `a` refuses a planned grant on column `b` | blocker where the plan would have been fine | rare |
+| A REVOKE the applier makes through a grant option (no borrow) when the grant being revoked was in fact made by the owner | Postgres revokes nothing and warns; the next plan is not empty. Same as on `main` | rare |
 | `createrole_self_grant` set for the applier (off by default, empty on Supabase) and the plan creates a role it also borrows | the closing REVOKE removes the automatic self-grant | rare |
