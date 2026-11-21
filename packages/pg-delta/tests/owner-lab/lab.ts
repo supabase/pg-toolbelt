@@ -684,8 +684,10 @@ interface RunRecord {
   outcome: string;
   detail: string;
   verdict: string;
-  /** DATA_LOSS | ROLE_LEFT | PLAN_CHANGED */
+  /** DATA_LOSS | ROLE_LEFT | MEMBER_USE | PLAN_CHANGED */
   flags: string[];
+  /** MEMBER_USE: roles whose effective membership of the applier differs */
+  memberUse?: string[];
   /** verdict before a baseline REGRESSION override */
   rawVerdict?: string;
   baseline?: "no-baseline" | "compared";
@@ -1173,6 +1175,37 @@ async function runOne(
           ...d.onlyDesired.map((l) => `- ${l}`),
           ...d.onlyResult.map((l) => `+ ${l}`),
         );
+      }
+
+      // 7b. informational: effective membership of the applier (all grantors)
+      if (ctx.pgMajor >= 16) {
+        const applierName = supa ? "postgres" : APPLIER;
+        const eff = async (p: pg.Pool) =>
+          new Map(
+            (
+              await p.query<{ r: string; i: boolean; s: boolean }>(
+                `SELECT pg_get_userbyid(m.roleid) AS r, bool_or(m.inherit_option) AS i, bool_or(m.set_option) AS s
+                   FROM pg_auth_members m
+                  WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = $1)
+                  GROUP BY 1`,
+                [applierName],
+              )
+            ).rows.map((x) => [x.r, x] as const),
+          );
+        const [er, ed] = await Promise.all([eff(su.src), eff(su.dst)]);
+        const fmt = (x?: { i: boolean; s: boolean }) =>
+          x ? `inherit=${x.i ? "t" : "f"} set=${x.s ? "t" : "f"}` : "none";
+        const use: string[] = [];
+        for (const role of [...new Set([...er.keys(), ...ed.keys()])].sort()) {
+          const a = er.get(role);
+          const b = ed.get(role);
+          if (fmt(a) !== fmt(b))
+            use.push(`${role}: result ${fmt(a)}, desired ${fmt(b)}`);
+        }
+        if (use.length > 0) {
+          rec.flags.push("MEMBER_USE");
+          rec.memberUse = use;
+        }
       }
 
       // 8. data preservation

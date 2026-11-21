@@ -69,6 +69,7 @@ Flags (independent of the outcome):
 - `ROLE_LEFT`: apply runs on a `max: 1` pool; `current_user, session_user,
   current_setting('role')` are read on that connection before and after (also
   after a failed or refused apply). Any difference is flagged.
+- `MEMBER_USE` (PG16+, informational): after a successful apply, per role the `bool_or` of `inherit_option` / `set_option` over ALL `pg_auth_members` rows where member = the applier (any grantor, self-grants included) differs between the result and the desired database; the roles are listed in the JSON field `memberUse`. Verdicts do not use it.
 - `PLAN_CHANGED` (`--applier superuser` + `--compare-baseline`): the statement
   list differs from the baseline; a statement diff is printed.
 
