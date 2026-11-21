@@ -88,6 +88,43 @@ describe("membership options (PG16+ INHERIT / SET)", () => {
       `GRANT "r" TO "somerole" WITH INHERIT FALSE, SET FALSE`,
     ]);
   });
+
+  const alters = (from: Fact["payload"], to: Fact["payload"]) =>
+    ["admin", "inherit", "set"].flatMap((attr) => {
+      if (from[attr] === to[attr]) return [];
+      const rule = rules.attributes[attr];
+      if (rule === undefined || rule === "replace") throw new Error(attr);
+      const out = rule.alter(
+        { id, payload: to },
+        from[attr],
+        to[attr],
+        viewOf([roleFact]),
+        viewOf([{ id, payload: from }]),
+      );
+      return (Array.isArray(out) ? out : [out]).map((s) => s.sql);
+    });
+
+  test("raising ADMIN while INHERIT and SET change gives one statement", () => {
+    expect(
+      alters(
+        { admin: false, inherit: false, set: false },
+        { admin: true, inherit: true, set: true },
+      ),
+    ).toEqual([
+      `GRANT "r" TO "somerole" WITH ADMIN TRUE, INHERIT TRUE, SET TRUE`,
+    ]);
+  });
+
+  test("a PG <= 15 side (no INHERIT / SET) never gives an INHERIT / SET statement", () => {
+    for (const [from, to] of [
+      [{ admin: false }, { admin: false, inherit: false, set: false }],
+      [{ admin: false, inherit: false, set: false }, { admin: false }],
+      [{ admin: false }, { admin: true, inherit: false, set: true }],
+    ] as const)
+      expect(alters(from, to)).toEqual(
+        to.admin ? [`GRANT "r" TO "somerole" WITH ADMIN TRUE, INHERIT FALSE`] : [],
+      );
+  });
 });
 
 describe("role drop", () => {

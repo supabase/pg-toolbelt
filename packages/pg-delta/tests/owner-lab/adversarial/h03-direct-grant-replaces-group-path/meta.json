@@ -1,0 +1,4 @@
+{
+  "tags": ["round:h-membership", "likelihood:rare"],
+  "notes": "The applier reaches the owner role r through a group g; desired grants r to it directly, revokes g and adds a column to an r-owned table, so the direct GRANT must survive."
+}

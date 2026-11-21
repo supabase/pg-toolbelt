@@ -1,0 +1,10 @@
+CREATE ROLE r NOLOGIN;
+CREATE ROLE g NOLOGIN;
+GRANT r TO g;
+GRANT g TO current_user;
+CREATE SCHEMA s;
+GRANT USAGE, CREATE ON SCHEMA s TO r;
+CREATE TABLE s.t (id int, extra int);
+ALTER TABLE s.t OWNER TO r;
+GRANT r TO current_user;
+REVOKE g FROM current_user;
