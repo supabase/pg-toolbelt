@@ -319,6 +319,10 @@ export function computePlanId(plan: Omit<Plan, "planId">): string {
     profile: plan.profile,
     scope: plan.scope,
     policy: plan.policy as Payload | undefined,
+    // absent on plans that need neither (canonicalize omits undefined), so
+    // existing planIds are unchanged
+    blockers: plan.blockers as Payload[] | undefined,
+    boundApplier: plan.boundApplier,
   };
   return contentHash(payload);
 }

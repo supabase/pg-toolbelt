@@ -31,5 +31,8 @@ export {
 } from "../policy/extensions/index.ts";
 export {
   type ApplierCapability,
+  ApplierIdentityError,
+  CapabilityError,
+  type PlanBlocker,
   probeApplierCapability,
 } from "../policy/capability.ts";

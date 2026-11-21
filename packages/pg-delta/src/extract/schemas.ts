@@ -73,7 +73,12 @@ export const schemasAndExtensionsFamily: CatalogFamily = {
       pushWithMeta(
         {
           id,
-          payload: {},
+          // non-semantic (`_`, not hashed): the raw owner name, known even
+          // when no owner edge exists (`public` → pg_database_owner is a
+          // built-in role, never a fact). Read by the applier-authorization
+          // pass to know who can grant on the schema.
+          payload:
+            typeof row["owner"] === "string" ? { _owner: row["owner"] } : {},
         },
         row,
         parseAcl(row["acl"]),

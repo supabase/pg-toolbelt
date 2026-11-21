@@ -12,7 +12,10 @@ import type { FactBase } from "../../core/fact.ts";
 import type { Action, SafetyReport } from "../plan.ts";
 import { topoSort } from "../graph.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
-import type { ApplierCapability } from "../../policy/capability.ts";
+import type {
+  ApplierCapability,
+  PlanBlocker,
+} from "../../policy/capability.ts";
 import {
   isOverlayWipeAction,
   type AssumedDefaultGrant,
@@ -31,6 +34,7 @@ import {
   mergeCoTargetGrants,
   mergeCoTargetRevokes,
 } from "../internal.ts";
+import { authorizeForApplier } from "./applier-authorization.ts";
 
 /** A column create's table and declared position (`_position`,
  *  pg_attribute.attnum), or undefined for any other action. */
@@ -207,6 +211,10 @@ export interface FinalizeInput {
 export interface FinalizeOutput {
   actions: Action[];
   safetyReport: SafetyReport;
+  /** owner changes this (non-superuser) applier cannot authorize */
+  blockers: PlanBlocker[];
+  /** the applier role the plan's membership statements name, if any */
+  boundApplier?: string;
 }
 
 /**
@@ -375,8 +383,27 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
       )
     : orderedActions;
 
+  // Authorization runs on the final order: it moves role/membership/schema-ACL
+  // statements within their dependency bounds and adds the owner envelope. The
+  // superuser / unrestricted path is untouched.
+  if (capability === undefined || capability.isSuperuser) {
+    return {
+      actions: finalActions,
+      safetyReport: computeSafetyReport(finalActions),
+      blockers: [],
+    };
+  }
+  const authorized = authorizeForApplier(finalActions, {
+    capability,
+    source,
+    desired,
+  });
   return {
-    actions: finalActions,
-    safetyReport: computeSafetyReport(finalActions),
+    actions: authorized.actions,
+    safetyReport: computeSafetyReport(authorized.actions),
+    blockers: authorized.blockers,
+    ...(authorized.boundApplier !== undefined
+      ? { boundApplier: authorized.boundApplier }
+      : {}),
   };
 }

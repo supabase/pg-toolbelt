@@ -150,9 +150,10 @@ describe("ApplierCapability — PG16+ CREATEROLE self-ADMIN membership", () => {
   });
 });
 
-describe("ApplierCapability — owner residue fail-fast (follow-up 1)", () => {
+describe("ApplierCapability — owner residue blockers (follow-up 1)", () => {
   // owner can't be silently skipped (acldefault is owner-relative → no
-  // convergence), so an owner action the applier can't run is a plan-time error.
+  // convergence), so an owner action the applier can't run is a plan blocker:
+  // the plan renders, apply()/prove refuse it with a CapabilityError.
   const schemaApp: StableId = { kind: "schema", name: "app" };
   const r1: StableId = { kind: "role", name: "r1" };
   const r2: StableId = { kind: "role", name: "r2" };
@@ -167,16 +168,18 @@ describe("ApplierCapability — owner residue fail-fast (follow-up 1)", () => {
     buildFactBase([f(schemaApp), f(role)], [ownerEdge(role)]);
   const source = (role: StableId) => buildFactBase([f(role)], []);
 
-  test("plan throws when a non-superuser must set an owner it is not a member of", () => {
-    expect(() =>
-      plan(source(r2), desiredOwnedBy(r2), { capability: memberOfR1 }),
-    ).toThrow(/cannot set owner/);
+  test("plan reports a blocker (and still renders) when a non-superuser must set an owner it cannot assume", () => {
+    const p = plan(source(r2), desiredOwnedBy(r2), { capability: memberOfR1 });
+    expect(p.blockers?.map((b) => [b.code, b.role, b.objects])).toEqual([
+      ["capability_owner", "r2", ["schema:app"]],
+    ]);
+    expect(p.actions.length).toBeGreaterThan(0);
   });
 
-  test("plan succeeds when the owner is a role the applier is a member of", () => {
-    expect(() =>
-      plan(source(r1), desiredOwnedBy(r1), { capability: memberOfR1 }),
-    ).not.toThrow();
+  test("plan has no blocker when the owner is a role the applier is a member of", () => {
+    expect(
+      plan(source(r1), desiredOwnedBy(r1), { capability: memberOfR1 }).blockers,
+    ).toBeUndefined();
   });
 
   test("superuser can set any owner (no throw)", () => {

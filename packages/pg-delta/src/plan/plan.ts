@@ -17,7 +17,7 @@ import {
   type AssumedDefaultGrant,
   type Policy,
 } from "../policy/policy.ts";
-import type { ApplierCapability } from "../policy/capability.ts";
+import type { ApplierCapability, PlanBlocker } from "../policy/capability.ts";
 import {
   projectionAuditFrom,
   type ProjectionAudit,
@@ -248,6 +248,15 @@ export interface Plan {
    *  Omitted when empty so corpus / direct-library artifacts stay byte-identical.
    *  Not part of planId — reporting metadata, not approved run content. */
   diagnostics?: Diagnostic[];
+  /** Reasons this applier cannot run the plan (owner changes it cannot
+   *  authorize). The plan still renders; `apply()` / `provePlan` refuse it
+   *  with a `CapabilityError`. Omitted when empty; part of planId. */
+  blockers?: PlanBlocker[];
+  /** The applier role this plan's self-membership statements name (envelope
+   *  GRANT/REVOKE … GRANTED BY, self-grant rewrites). `apply()` refuses to run
+   *  it as any other role. Omitted when the plan names no applier; part of
+   *  planId. */
+  boundApplier?: string;
 }
 
 export interface PlanOptions {
@@ -907,6 +916,10 @@ export function plan(
       : {}),
     actions: finalized.actions,
     safetyReport,
+    ...(finalized.blockers.length > 0 ? { blockers: finalized.blockers } : {}),
+    ...(finalized.boundApplier !== undefined
+      ? { boundApplier: finalized.boundApplier }
+      : {}),
     // CREATE/DROP EXTENSION supabase_vault is generic; the warning is that
     // secret values/keys are not schema state. Omitted when empty so corpus
     // artifacts stay byte-identical. Not hashed into planId.

@@ -11,10 +11,7 @@
 import type { Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
-import {
-  canSetOwner,
-  type ApplierCapability,
-} from "../../policy/capability.ts";
+import type { ApplierCapability } from "../../policy/capability.ts";
 import {
   factMatches,
   isOverlayDefaultPrivilege,
@@ -120,7 +117,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     deltas,
     params,
     serializeRules,
-    capability,
     rulesForId,
     assumedDefaultGrants,
     overlayAdpWipes,
@@ -853,6 +849,12 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       if (!fact) continue;
       const ownerAlterPrefix = ruleFlag(fact.id.kind, "ownerAlterPrefix");
       if (!ownerAlterPrefix) continue;
+      if (
+        !replaceIds.has(objKey) &&
+        ruleFlag(fact.id.kind, "ownerCarrier")?.(fact, source.get(objId)) !==
+          undefined
+      )
+        continue;
       const prefix = ownerAlterPrefix(fact);
       const newRoleId = delta.edge.to;
       if (newRoleId.kind !== "role") continue;
@@ -860,18 +862,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       // ownership carried unchanged by an accepted OBJECT rename (the object id
       // changed; renamedOwner maps it through any role rename) — no action
       if (renamedOwner.get(objKey) === roleName) continue;
-      // Owner residue (move 6): `ALTER … OWNER TO R` requires the applier to be
-      // a superuser or a member of R. If a capability is supplied and the
-      // applier cannot, fail fast at plan time with an actionable message —
-      // surfaced before any statement runs, and avoiding a non-converging
-      // "leave it applier-owned" (the owner is acldefault-relative). Unset only
-      // for owner CHANGES/creates (this is an owner link delta), not pre-existing
-      // unchanged ownership.
-      if (capability !== undefined && !canSetOwner(capability, roleName)) {
-        throw new Error(
-          `capability: cannot set owner of ${encodeId(objId)} to role "${roleName}" — applier "${capability.role}" is not a superuser or a member of that role; grant membership or apply as a member/superuser`,
-        );
-      }
+      // Whether the applier may run this owner change is decided after
+      // ordering by the authorization pass (applier-authorization.ts), which
+      // reports a plan blocker instead of throwing here.
       // for an accepted rename the source-side owner unlink is keyed by the OLD
       // id, so `oldOwnerByFact` (keyed by the link's `from`, i.e. the NEW id) has
       // no entry — fall back to the owner the renamed subtree carried in source
@@ -913,13 +906,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         .find((e) => e.kind === "owner");
       if (ownerEdge?.to.kind !== "role") continue;
       const roleName = (ownerEdge.to as { kind: "role"; name: string }).name;
-      if (capability !== undefined && !canSetOwner(capability, roleName)) {
-        throw new Error(
-          `capability: cannot set owner of ${key} to role "${roleName}" — ` +
-            `applier "${capability.role}" is not a superuser or a member of that role; ` +
-            `grant membership or apply as a member/superuser`,
-        );
-      }
       pushAction(
         "alter",
         {

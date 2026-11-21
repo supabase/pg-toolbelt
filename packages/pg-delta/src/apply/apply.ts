@@ -25,6 +25,7 @@ import { assertPlanId } from "../plan/artifact.ts";
 import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
+import { ApplierIdentityError, CapabilityError } from "../policy/capability.ts";
 import { buildApplyPreamble } from "./apply-preamble.ts";
 import {
   assertActionSqlBatchable,
@@ -263,6 +264,9 @@ export async function apply(
     );
   }
   assertPlanId(thePlan, "apply");
+  if (thePlan.blockers !== undefined && thePlan.blockers.length > 0) {
+    throw new CapabilityError(thePlan.blockers);
+  }
   assertDestructionMetadataIntegrity(
     thePlan.actions,
     thePlan.acceptedRenames,
@@ -344,6 +348,17 @@ export async function apply(
   const client = await connectWithErrorListener(target);
   let destroyClient = false;
   try {
+    // A plan whose membership statements name its applier (GRANT/REVOKE …
+    // GRANTED BY, the owner envelope) is only correct when run as that role.
+    if (thePlan.boundApplier !== undefined) {
+      const who = await client.query<{ current_user: string }>(
+        "SELECT current_user",
+      );
+      const actual = String(who.rows[0]?.current_user);
+      if (actual !== thePlan.boundApplier) {
+        throw new ApplierIdentityError(thePlan.boundApplier, actual);
+      }
+    }
     const onEvent = options?.onEvent;
     const segments = segmentActions(thePlan.actions);
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
@@ -420,11 +435,22 @@ export async function apply(
         // ALWAYS restore session state before the client returns to the pool,
         // on success or failure. A cleanup failure never replaces the primary
         // failure, and its connection is destroyed instead of being reused.
-        emit(onEvent, { kind: "control", sql: "RESET ALL" });
+        // RESET ALL leaves `role` alone (GUC_NO_RESET_ALL): a plan that runs
+        // statements under SET ROLE (bound to its applier) also resets it, so
+        // no role survives on the pooled connection.
+        const resets =
+          thePlan.boundApplier !== undefined
+            ? ["RESET ROLE", "RESET ALL"]
+            : ["RESET ALL"];
         let resetFailed = false;
         let resetError: unknown;
+        let resetSql = "RESET ALL";
         try {
-          await client.query("RESET ALL");
+          for (const sql of resets) {
+            resetSql = sql;
+            emit(onEvent, { kind: "control", sql });
+            await client.query(sql);
+          }
         } catch (error) {
           resetFailed = true;
           resetError = error;
@@ -458,7 +484,7 @@ export async function apply(
             status: "failed",
             appliedActions,
             actionStatuses: statuses,
-            error: errorEntry(index, "control", "RESET ALL", resetError),
+            error: errorEntry(index, "control", resetSql, resetError),
           };
         }
         emit(onEvent, {

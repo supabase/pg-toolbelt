@@ -78,6 +78,43 @@ function roleConfigSetSql(role: string, key: string, value: string): string {
   return `ALTER ROLE ${role} SET ${qid(key)} TO ${rendered}`;
 }
 
+/** `WITH …` options of a membership GRANT. PG16+ payloads carry `set` /
+ *  `inherit` and always render them: a plain GRANT would take INHERIT from the
+ *  member's role attribute instead of the desired value. <=15 payloads have
+ *  only `admin`, so their SQL is unchanged. */
+export function membershipGrantOptions(payload: Fact["payload"]): string {
+  const options: string[] = [];
+  if (payload["admin"] === true) options.push("ADMIN OPTION");
+  for (const [key, keyword] of [
+    ["inherit", "INHERIT"],
+    ["set", "SET"],
+  ] as const) {
+    const value = payload[key];
+    if (typeof value === "boolean")
+      options.push(`${keyword} ${value ? "TRUE" : "FALSE"}`);
+  }
+  return options.length > 0 ? ` WITH ${options.join(", ")}` : "";
+}
+
+/** Per-grant option alter (PG16+ only): GRANT … WITH <opt> TRUE turns it on
+ *  for the applier's grant row; REVOKE <opt> OPTION FOR turns it off. */
+function membershipOptionAlter(keyword: "INHERIT" | "SET") {
+  return {
+    alter: (fact: Fact, _from: PayloadValue, to: PayloadValue): ActionSpec => {
+      const id = fact.id as { role: string; member: string };
+      return {
+        sql: to
+          ? `GRANT ${qid(id.role)} TO ${qid(id.member)} WITH ${keyword} TRUE`
+          : `REVOKE ${keyword} OPTION FOR ${qid(id.role)} FROM ${qid(id.member)}`,
+        consumes: [
+          { kind: "role", name: id.role },
+          { kind: "role", name: id.member },
+        ],
+      };
+    },
+  };
+}
+
 export const roleRules: Record<string, KindRules> = {
   role: {
     weight: 0,
@@ -152,7 +189,7 @@ export const roleRules: Record<string, KindRules> = {
       const id = fact.id as { role: string; member: string };
       return [
         {
-          sql: `GRANT ${qid(id.role)} TO ${qid(id.member)}${p(fact, "admin") ? " WITH ADMIN OPTION" : ""}`,
+          sql: `GRANT ${qid(id.role)} TO ${qid(id.member)}${membershipGrantOptions(fact.payload)}`,
           consumes: [
             { kind: "role", name: id.role },
             { kind: "role", name: id.member },
@@ -193,6 +230,8 @@ export const roleRules: Record<string, KindRules> = {
           };
         },
       },
+      inherit: membershipOptionAlter("INHERIT"),
+      set: membershipOptionAlter("SET"),
     },
   },
 

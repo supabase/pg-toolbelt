@@ -27,7 +27,10 @@ import {
   normalizeProjectionAudit,
   reconstructManagedView,
 } from "../policy/reconstruct.ts";
-import type { ApplierCapability } from "../policy/capability.ts";
+import {
+  CapabilityError,
+  type ApplierCapability,
+} from "../policy/capability.ts";
 
 /** Structured table identity on the verdict: a collision-free { schema, name }
  *  (NOT a dotted string — identifiers can contain dots, review P2). Consumers
@@ -678,6 +681,9 @@ export async function provePlan(
   // BEFORE any clone work (re-extract, stats, auto-seed), not deep inside
   // apply — every public execution path validates the immutable plan first.
   assertPlanId(thePlan, "prove");
+  if (thePlan.blockers !== undefined && thePlan.blockers.length > 0) {
+    throw new CapabilityError(thePlan.blockers);
+  }
   const auditAvailable = thePlan.projectionAudit !== undefined;
   const projectionAuditStatus = auditAvailable ? "available" : "unavailable";
   const projectionAudit: ProjectionAudit = auditAvailable

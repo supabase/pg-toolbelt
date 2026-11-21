@@ -15,7 +15,11 @@ import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import type { Policy } from "../src/policy/policy.ts";
-import type { ApplierCapability } from "../src/policy/capability.ts";
+import {
+  CapabilityError,
+  type ApplierCapability,
+} from "../src/policy/capability.ts";
+import { apply } from "../src/apply/apply.ts";
 import {
   isolatedClusterPair,
   sharedCluster,
@@ -388,11 +392,11 @@ describe("owner edge: table rename + owner-role rename carries ownership (P1 #2)
 // Test (d): owner residue (follow-up 1). A non-superuser applier that is not a
 // member of an object's owner role cannot run ALTER … OWNER TO. The owner can't
 // be silently skipped (acldefault is owner-relative → no convergence), so the
-// planner FAILS FAST with an actionable error, surfaced before any apply.
+// plan carries a blocker and apply refuses it before running any statement.
 // ---------------------------------------------------------------------------
 
-describe("owner edge: owner residue — applier can't set owner → fail fast", () => {
-  test("a non-superuser capability rejects a plan that must set an unsettable owner", async () => {
+describe("owner edge: owner residue — applier can't set owner → blocked", () => {
+  test("a non-superuser capability blocks a plan that must set an unsettable owner", async () => {
     const cluster = await sharedCluster();
     const src = await cluster.createDb("cap_owner_src");
     const dst = await cluster.createDb("cap_owner_dst");
@@ -420,9 +424,13 @@ describe("owner edge: owner residue — applier can't set owner → fail fast", 
       memberOf: [],
     };
 
-    expect(() =>
-      plan(srcState.factBase, dstState.factBase, { capability }),
-    ).toThrow(/cannot set owner/);
+    // the plan still renders (read-only diff); it carries a blocker that
+    // apply() refuses with a typed CapabilityError before running anything
+    const blocked = plan(srcState.factBase, dstState.factBase, { capability });
+    expect(blocked.blockers?.map((b) => b.role)).toEqual(["cap_other_owner"]);
+    expect(
+      apply(blocked, src.pool, { fingerprintGate: false }),
+    ).rejects.toBeInstanceOf(CapabilityError);
 
     // a superuser applier (or none) plans fine — the objects + owner ALTERs land
     expect(() => plan(srcState.factBase, dstState.factBase)).not.toThrow();
