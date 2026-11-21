@@ -1,0 +1,5 @@
+{
+  "minVersion": 16,
+  "tags": ["round:g-review", "likelihood:rare"],
+  "notes": "Desired adds a delegate role the applier may SET to but does not inherit, and grants it SELECT WITH GRANT OPTION on a table whose owner the applier holds."
+}

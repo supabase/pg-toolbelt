@@ -575,16 +575,23 @@ export function authorizeForApplier(
   const toBorrow = [...missing].filter((r) => borrowable(r).ok);
   // PG16+: how the desired database shows the applier holding `r`, through
   // any grantor (advisory extract fields; the diff does not see them)
-  const desiredUse = (r: string): { inherit: boolean; set: boolean } => {
+  const desiredUse = (
+    r: string,
+  ): { inherit: boolean; set: boolean } | undefined => {
     const p = modern ? desired.get(selfId(r))?.payload : undefined;
-    return { inherit: p?.["_inherit"] === true, set: p?.["_set"] === true };
+    return p?.["_inherit"] === undefined
+      ? undefined
+      : { inherit: p["_inherit"] === true, set: p["_set"] === true };
   };
   const keeps = (r: string): boolean =>
-    desiredUse(r).inherit || desiredUse(r).set;
+    desiredUse(r)?.inherit === true || desiredUse(r)?.set === true;
   // a role the plan creates and the desired database shows the applier
-  // holding: CREATE ROLE gives its creator ADMIN only, the GRANT is the rest
+  // holding in full: CREATE ROLE gives its creator ADMIN only, the GRANT is
+  // the rest
   for (const r of createdByPlan) {
-    if (keeps(r) && borrowable(r).ok) toBorrow.push(r);
+    const want = desiredUse(r);
+    if (want?.inherit === true && want.set && borrowable(r).ok)
+      toBorrow.push(r);
   }
   // a role the plan revokes from the applier, through which a statement
   // reaches a role it uses, is kept until the end as well
@@ -636,19 +643,17 @@ export function authorizeForApplier(
   );
   const fresh = new Set(newlyInherited);
   /** per object: the roles holding a grant option on it, in either state */
-  const optionHolders = new Map<string, Set<string>>();
+  const optionHolders = new Map<string, Map<string, Set<string>>>();
   for (const fb of views) {
     for (const fact of fb.facts()) {
-      if (
-        fact.id.kind !== "acl" ||
-        ((fact.payload["grantable"] as string[] | undefined) ?? []).length === 0
-      )
-        continue;
+      if (fact.id.kind !== "acl") continue;
+      const options = (fact.payload["grantable"] as string[] | undefined) ?? [];
+      if (options.length === 0) continue;
       const key = encodeId(rootOf(fact.id.target) ?? fact.id.target);
-      optionHolders.set(
-        key,
-        (optionHolders.get(key) ?? new Set<string>()).add(fact.id.grantee),
-      );
+      const holders = optionHolders.get(key) ?? new Map<string, Set<string>>();
+      const held = holders.get(fact.id.grantee) ?? new Set<string>();
+      for (const o of options) held.add(o);
+      optionHolders.set(key, holders.set(fact.id.grantee, held));
     }
   }
   if (newlyInherited.length > 0) {
@@ -711,23 +716,37 @@ export function authorizeForApplier(
     if (a.newSegmentBefore || a.transactionality !== "transactional") endRuns();
     if (a.subject.kind === "schema") endRuns(a.subject.name);
 
-    for (const id of [a.subject, ...a.produces]) {
-      if (id.kind !== "acl") continue;
+    // a GRANT merged over several grantees is on one object: its subject
+    if (a.subject.kind === "acl") {
+      const id = a.subject;
       const root = rootOf(id.target) ?? id.target;
       const o = walk.ownerNow(root);
-      // as the owner itself the applier is always the grantor
-      if (o === applier) continue;
+      // what the statement grants or, for a REVOKE of everything, takes away
+      const privileges = (fb: FactBase) =>
+        (fb.get(id)?.payload["privileges"] as string[] | undefined) ?? [];
+      const asked =
+        privileges(desired).length > 0
+          ? privileges(desired)
+          : privileges(source);
       const asOwner = o !== undefined && canInherit(o);
-      for (const h of optionHolders.get(encodeId(root)) ?? []) {
+      // as the owner itself the applier is always the grantor
+      for (const [h, held] of o === applier
+        ? []
+        : (optionHolders.get(encodeId(root)) ?? [])) {
         if (h === o) continue;
-        const had = h === applier || inheritedSet.has(h);
-        if (!(fresh.has(h) || (had && asOwner))) continue;
+        // beside the owner, who holds every option, only a role holding all
+        // the options asked for can be picked instead
+        const hazard = asOwner
+          ? (h === applier || inheritedSet.has(h) || fresh.has(h)) &&
+            asked.every((x) => held.has(x))
+          : fresh.has(h);
+        if (!hazard) continue;
         block(
           "capability_acl_grantor",
           h,
           asOwner
-            ? `holds a grant option on an object owned by "${o}", whose privileges the applier also has while the plan runs; Postgres could record either as the grantor of the plan's GRANT / REVOKE on it. Apply as a superuser`
-            : `holds a grant option on an object the plan grants or revokes on, and the plan must borrow it (or a role that is a member of it) to act as an owner; Postgres could then record it as the grantor. Apply as a superuser`,
+            ? `holds a grant option on an object owned by "${o}", whose privileges the applier also has while the plan runs; Postgres could record either as the grantor of the plan's GRANT / REVOKE on it. Take the grant option away from "${h}", or apply as a superuser`
+            : `holds a grant option on an object the plan grants or revokes on, and the plan must borrow it (or a role that is a member of it) to act as an owner; Postgres could then record it as the grantor. Take the grant option away from "${h}", or apply as a superuser`,
           id.target,
         );
       }
@@ -850,7 +869,7 @@ export function authorizeForApplier(
       !modern && source.has(selfId(r)) && !planRevokes.has(r);
     if (was !== undefined && !planRevokes.has(r))
       tail.push(membershipStatement(r, withOptions(r, was.inherit, was.set)));
-    else if (keeps(r) && !planRevokes.has(r)) {
+    else if (want !== undefined && keeps(r) && !planRevokes.has(r)) {
       // the desired database shows the applier holding the role: it stays,
       // narrowed when only one of INHERIT / SET is wanted
       if (!(want.inherit && want.set))
@@ -861,6 +880,17 @@ export function authorizeForApplier(
       tail.push(
         membershipStatement(r, `REVOKE ${qid(r)} FROM ${qid(applier)}`),
       );
+  }
+  // PG16+, the other direction: a role the applier had granted itself in
+  // full, that the plan used, and that the desired database shows it no
+  // longer holding. The creator's ADMIN-only row hides that from the diff.
+  for (const g of modern ? (cap.selfGrants ?? []) : []) {
+    const r = g.role;
+    const want = desiredUse(r);
+    if (borrowed.has(r) || !touched.has(r) || planRevokes.has(r)) continue;
+    if (!(g.inherit && g.set) || want === undefined || keeps(r)) continue;
+    if (list.some((a) => a.verb === "drop" && roleSubject(a) === r)) continue;
+    tail.push(membershipStatement(r, `REVOKE ${qid(r)} FROM ${qid(applier)}`));
   }
 
   const out = (a: Action, newSegmentBefore: boolean): Action =>

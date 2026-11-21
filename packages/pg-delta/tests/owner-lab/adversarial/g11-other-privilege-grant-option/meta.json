@@ -1,0 +1,4 @@
+{
+  "tags": ["round:g-review", "likelihood:rare"],
+  "notes": "The applier inherits the schema's owner and holds CREATE WITH GRANT OPTION on it (a legacy deployment grant); the migration grants USAGE to another role. Postgres records the owner: the applier's option does not cover USAGE."
+}

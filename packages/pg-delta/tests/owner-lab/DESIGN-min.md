@@ -41,7 +41,9 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    cannot see it (`CREATE ROLE` already gives the creator an ADMIN-only row), so extract
    carries whether the member can use the role (`_inherit`, `_set`, any grantor) as
    advisory fields. For the same reason a role the plan creates is granted to the
-   applier when the desired database shows it holding the role.
+   applier when the desired database shows it holding the role, and a role the applier
+   had granted itself, that the plan used, is revoked at the end when the desired
+   database shows it no longer holding it. Each is one plain statement.
 2. **Lend.** A new owner without CREATE on the schema gets it before the first owner change
    of a run and loses it after the last. Decided from the two end states: nothing when the
    role (or PUBLIC) holds CREATE before the plan and the plan does not take it away; no
@@ -62,8 +64,9 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
      grant options in THAT object's ACL (the owner holds them all); a superuser always
      records the owner. So the plan is refused when a role the applier acts through,
      other than the owner, holds a grant option on that very object and either the
-     applier also has the owner's privileges, or that role is one the plan borrows. A
-     grant option on any other object is harmless and ignored.
+     applier also has the owner's privileges and that role holds every option the
+     statement asks for (otherwise the owner, who holds them all, is picked), or that
+     role is one the plan borrows. A grant option on any other object is ignored.
    - a membership GRANT / REVOKE on a role where a borrowed role holds ADMIN and the
      applier holds none directly (same reason, for `pg_auth_members`).
 
@@ -98,5 +101,7 @@ Likelihood is my estimate of how often a real project migration hits it.
 | Owner change of schema `public` itself | not planned, on any applier | rare |
 | Membership rows granted by another role, and their INHERIT / SET options | not modelled, as on `main`; a REVOKE of a row the applier did not grant is a no-op with a warning | rare |
 | A plan with several transactions that fails in a later one (for example a failed `CREATE INDEX CONCURRENTLY`) | the migration fails loudly and the borrowed role stays granted; `REVOKE <role> FROM <applier>` by hand. Borrowing per transaction would remove this at the cost of a GRANT / REVOKE pair per transaction | rare |
-| The applier's own membership (PG16+) when the plan neither borrows nor creates the role: a `GRANT app_owner TO postgres` added or removed in the desired database with no other change | no migration (INHERIT / SET are not facts). Follow-up for the engine: model them as membership attributes | plausible, harmless: the next plan that needs the role settles it |
+| The applier's own membership (PG16+) when the plan does not use the role at all: a `GRANT app_owner TO postgres` added or removed in the desired database with no change to that role's objects | no migration (INHERIT / SET are not facts). Follow-up for the engine: model them as membership attributes | plausible, harmless: the next plan that uses the role settles it |
+| A role the plan creates that the desired database shows the applier holding with only one of INHERIT / SET | not granted | rare |
+| A desired state that gives a grant option to a role the applier acts through, on an object whose owner the applier also holds (and is not) | blocker, every time a GRANT / REVOKE on that object is planned | rare |
 | The applier had granted itself the role with only one of INHERIT / SET and the plan borrows it | the row goes back as it was, whatever the desired database shows | rare |
