@@ -293,7 +293,12 @@ export function authorizeForApplier(
     const directionOf = (a: Action): Direction => {
       const s = a.subject;
       if (s.kind !== "acl" || s.target.kind !== "schema") return undefined;
-      if (s.column !== undefined || !isReliedOn(s.grantee)) return undefined;
+      if (s.column !== undefined) return undefined;
+      // a GRANT merged over several grantees lists them all in `produces`
+      const grantees = [s, ...a.produces].flatMap((id) =>
+        "grantee" in id ? [id.grantee] : [],
+      );
+      if (!grantees.some(isReliedOn)) return undefined;
       if (a.verb === "drop") return "later";
       const grants = (fb: FactBase) => {
         const p = fb.get(s)?.payload;
