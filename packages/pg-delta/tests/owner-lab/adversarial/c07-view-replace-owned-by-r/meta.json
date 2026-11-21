@@ -1,1 +1,3 @@
-{ "notes": "r-owned view replaced (column order change forces drop+create) plus a column ACL change on the r-owned base table" }
+{
+  "notes": "r-owned view replaced (column order change forces drop+create) plus a column ACL change on the r-owned base table"
+}

@@ -1,6 +1,4 @@
 {
- "notes": "Sentry BBR sample: publication owned by a custom login role (new owner needs CREATE on the database)",
- "tags": [
-  "limit:publication-db-create"
- ]
+  "notes": "Sentry BBR sample: publication owned by a custom login role (new owner needs CREATE on the database)",
+  "tags": ["limit:publication-db-create"]
 }

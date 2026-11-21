@@ -1,1 +1,3 @@
-{ "notes": "canonical handle_new_user trigger on auth.users, function and profiles table owned by a custom role" }
+{
+  "notes": "canonical handle_new_user trigger on auth.users, function and profiles table owned by a custom role"
+}

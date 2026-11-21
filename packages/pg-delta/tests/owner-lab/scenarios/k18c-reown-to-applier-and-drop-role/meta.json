@@ -1,6 +1,4 @@
 {
- "notes": "object moves back to the applier and the old owner role is dropped",
- "tags": [
-  "preexisting:role-drop-recreate"
- ]
+  "notes": "object moves back to the applier and the old owner role is dropped",
+  "tags": ["preexisting:role-drop-recreate"]
 }

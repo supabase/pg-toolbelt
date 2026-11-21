@@ -1,6 +1,4 @@
 {
- "notes": "Source objects owned by app_owner; desired owns them as postgres and the role is gone.",
- "tags": [
-  "preexisting:role-drop-recreate"
- ]
+  "notes": "Source objects owned by app_owner; desired owns them as postgres and the role is gone.",
+  "tags": ["preexisting:role-drop-recreate"]
 }

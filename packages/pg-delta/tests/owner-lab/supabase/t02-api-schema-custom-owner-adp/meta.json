@@ -1,1 +1,3 @@
-{ "notes": "custom role owns an API schema with default privileges for anon/authenticated, a security_invoker view, an identity table and a security definer function. Forward creates all; reverse drops all (role dropped)." }
+{
+  "notes": "custom role owns an API schema with default privileges for anon/authenticated, a security_invoker view, an identity table and a security definer function. Forward creates all; reverse drops all (role dropped)."
+}

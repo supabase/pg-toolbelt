@@ -1,5 +1,5 @@
 {
- "minVersion": 16,
- "notes": "control for b07: s.u unchanged, h_hold not opened; REVOKE g FROM m must fail loudly",
- "ideal": "refuse"
+  "minVersion": 16,
+  "notes": "control for b07: s.u unchanged, h_hold not opened; REVOKE g FROM m must fail loudly",
+  "ideal": "refuse"
 }

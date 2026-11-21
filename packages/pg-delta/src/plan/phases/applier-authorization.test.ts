@@ -102,24 +102,6 @@ describe("applier authorization", () => {
     ]);
   });
 
-  test("runas: SET only; the owner change away from owner_a inherits it for that statement", () => {
-    const p = plan(state("owner_a"), state("owner_b"), {
-      capability: applier,
-      ownerMode: "runas",
-    });
-    const sql = sqlOf(p);
-    expect(sql.slice(0, 2)).toEqual([
-      'GRANT "owner_a" TO "app" WITH INHERIT FALSE, SET TRUE GRANTED BY "app"',
-      'GRANT "owner_b" TO "app" WITH INHERIT FALSE, SET TRUE GRANTED BY "app"',
-    ]);
-    const at = sql.indexOf('ALTER TABLE "app"."t" OWNER TO "owner_b"');
-    expect(sql.slice(at - 1, at + 2)).toEqual([
-      'GRANT "owner_a" TO "app" WITH INHERIT TRUE, SET TRUE GRANTED BY "app"',
-      'ALTER TABLE "app"."t" OWNER TO "owner_b"',
-      'GRANT "owner_a" TO "app" WITH INHERIT FALSE, SET TRUE GRANTED BY "app"',
-    ]);
-  });
-
   test("an ACL statement runs as the owner when another inherited role holds a grant option", () => {
     const acl = (grantee: string, grantable: string[]): Fact => ({
       id: { kind: "acl", target: table, grantee },

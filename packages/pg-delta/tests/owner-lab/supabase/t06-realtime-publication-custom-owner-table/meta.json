@@ -1,1 +1,3 @@
-{ "notes": "custom-owned table added to supabase_realtime with replica identity full" }
+{
+  "notes": "custom-owned table added to supabase_realtime with replica identity full"
+}

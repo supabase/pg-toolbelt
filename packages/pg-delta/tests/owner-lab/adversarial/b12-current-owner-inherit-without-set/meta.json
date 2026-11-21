@@ -1,8 +1,8 @@
 {
- "minVersion": 16,
- "notes": "current owner cur: the applier inherits it (INHERIT TRUE) but cannot SET to it; cur was created by the superuser. ALTER OWNER only needs the privileges of the current owner, so b.sql itself proves Postgres runs it as the applier.",
- "ideal": {
-  "forward": "converge",
-  "reverse": "refuse"
- }
+  "minVersion": 16,
+  "notes": "current owner cur: the applier inherits it (INHERIT TRUE) but cannot SET to it; cur was created by the superuser. ALTER OWNER only needs the privileges of the current owner, so b.sql itself proves Postgres runs it as the applier.",
+  "ideal": {
+    "forward": "converge",
+    "reverse": "refuse"
+  }
 }

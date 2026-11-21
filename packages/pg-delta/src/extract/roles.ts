@@ -17,13 +17,16 @@ const ROLES_SQL = `
 // PG16+ also reads the member's own grant row (grantor = member): the row a
 // CREATEROLE role adds to use a role it created (`GRANT r TO me`). Only that
 // row's INHERIT / SET are modelled; every other row stays deduped to `admin`.
+// The bootstrap superuser (oid 10) is the recorded grantor of every grant a
+// superuser makes, so its own memberships are ordinary rows, not own-grant
+// rows.
 function membershipsSql(pgMajor: number): string {
   const self =
     pgMajor >= 16
       ? `,
-           bool_or(m.grantor = m.member) AS has_self,
-           bool_or(m.inherit_option) FILTER (WHERE m.grantor = m.member) AS self_inherit,
-           bool_or(m.set_option) FILTER (WHERE m.grantor = m.member) AS self_set`
+           bool_or(m.grantor = m.member AND m.grantor <> 10) AS has_self,
+           bool_or(m.inherit_option) FILTER (WHERE m.grantor = m.member AND m.grantor <> 10) AS self_inherit,
+           bool_or(m.set_option) FILTER (WHERE m.grantor = m.member AND m.grantor <> 10) AS self_set`
       : "";
   return `
     SELECT r1.rolname AS role, r2.rolname AS member,

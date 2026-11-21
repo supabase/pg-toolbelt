@@ -1,8 +1,6 @@
 {
- "minVersion": 16,
- "notes": "g was created by the superuser; the applier has no ADMIN on g. h_hold (opened only because the plan alters its table) has ADMIN on g. The membership statements for g -> m then run with grantor h_hold.",
- "ideal": "refuse",
- "tags": [
-  "decision:membership-provenance"
- ]
+  "minVersion": 16,
+  "notes": "g was created by the superuser; the applier has no ADMIN on g. h_hold (opened only because the plan alters its table) has ADMIN on g. The membership statements for g -> m then run with grantor h_hold.",
+  "ideal": "refuse",
+  "tags": ["decision:membership-provenance"]
 }

@@ -1,6 +1,4 @@
 {
- "notes": "PostgREST role switching: custom role granted to authenticator (NOINHERIT member).",
- "tags": [
-  "decision:profile-platform-memberships"
- ]
+  "notes": "PostgREST role switching: custom role granted to authenticator (NOINHERIT member).",
+  "tags": ["decision:profile-platform-memberships"]
 }

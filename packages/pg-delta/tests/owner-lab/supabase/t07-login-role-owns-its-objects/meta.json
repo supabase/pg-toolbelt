@@ -1,1 +1,3 @@
-{ "notes": "a login role with a password creates and owns its own table (identity), policy, function, and keeps CREATE on public" }
+{
+  "notes": "a login role with a password creates and owns its own table (identity), policy, function, and keeps CREATE on public"
+}

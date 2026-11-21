@@ -1,1 +1,3 @@
-{ "notes": "new security definer RPC owned by a custom role, argument type in a private schema app_owner cannot use; EXECUTE revoked from anon/PUBLIC" }
+{
+  "notes": "new security definer RPC owned by a custom role, argument type in a private schema app_owner cannot use; EXECUTE revoked from anon/PUBLIC"
+}

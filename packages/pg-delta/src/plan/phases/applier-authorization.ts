@@ -23,9 +23,7 @@
  *     targets and inheritance children; an owner change's new owner) that the
  *     applier lacks but can grant itself is granted to it after the role
  *     exists (OPEN), and its own-grantor row is restored at the end (CLOSE).
- *     `union` opens with INHERIT and SET; `runas` (PG16+) opens with SET only
- *     and runs every action on an envelope role's object as that role
- *     (`Action.runAs`).
+ *     The row is opened with INHERIT and SET.
  *  3. Grantor: an ACL statement whose grantor could differ from the owner's
  *     (another role the applier inherits holds a grant option on the object)
  *     runs as the owner; a membership statement whose grantor the envelope
@@ -52,10 +50,12 @@ import { qid } from "../render.ts";
 import { ruleFlag } from "../rule-flags.ts";
 import { renderGrantSql } from "../rules/helpers.ts";
 
-/** How the applier gets the privileges of a role it opens: `union` inherits
- *  it for the whole plan; `runas` (PG16+) may only SET to it and runs each
- *  statement on that role's objects as that role. */
-export type OwnerMode = "union" | "runas";
+/** PoC measurement knob: `union` is the pass; each other value switches one
+ *  mechanism off so the owner-lab can count the scenarios that need it.
+ *  `nopin`: no `Action.runAs` (a grantor hazard is a blocker instead);
+ *  `nowrap`: no temporary schema CREATE for a new owner; `nomoves`: no
+ *  reordering. */
+export type OwnerMode = "union" | "nopin" | "nowrap" | "nomoves";
 
 export interface AuthorizationInput {
   capability: ApplierCapability;
@@ -170,8 +170,7 @@ export function authorizeForApplier(
   const { capability: cap, source, desired } = ctx;
   const applier = cap.role;
   const modern = cap.pgMajor !== undefined && cap.pgMajor >= 16;
-  // `runas` differs only where a grant carries its own INHERIT (PG16+)
-  const runas = ctx.mode === "runas" && modern;
+  const pin = ctx.mode !== "nopin";
   const views = [source, desired];
 
   const inheritedSet = new Set(cap.inheritedRoles ?? cap.memberOf);
@@ -335,7 +334,7 @@ export function authorizeForApplier(
     (a) => movable(a) && directionOf(a) === "earlier",
   );
   const later = list.filter((a) => movable(a) && directionOf(a) === "later");
-  for (const a of earlier) {
+  for (const a of ctx.mode === "nomoves" ? [] : earlier) {
     const from = list.indexOf(a);
     let to = from;
     // passing an action that opens a segment would move `a` into the
@@ -351,7 +350,7 @@ export function authorizeForApplier(
       list.splice(to, 0, a);
     }
   }
-  for (const a of [...later].reverse()) {
+  for (const a of ctx.mode === "nomoves" ? [] : [...later].reverse()) {
     const from = list.indexOf(a);
     let to = from;
     while (
@@ -544,9 +543,9 @@ export function authorizeForApplier(
     [...needed].filter((r) => !planSelf.has(r) && selfGrantable(r).ok).sort(),
   );
   // roles the applier inherits through the envelope (every membership of an
-  // envelope role, transitively); none under `runas`, which does not inherit
+  // envelope role, transitively)
   const viaEnvelope = new Set<string>();
-  if (!runas) {
+  {
     const queue = [...envelope];
     while (queue.length > 0) {
       const r = queue.pop() as string;
@@ -642,7 +641,7 @@ export function authorizeForApplier(
       "privileges",
       consumes,
     );
-    if (so !== applier) {
+    if (so !== applier && pin) {
       runAsOf.set(grant, so);
       runAsOf.set(revoke, so);
     }
@@ -653,20 +652,7 @@ export function authorizeForApplier(
 
   const walk = tracker();
   for (const a of list) {
-    const owner = ownerRoleOf(a, walk.ownerNow);
     const newOwner = a.change?.kind === "owner" ? a.change.to : undefined;
-
-    // runas: statements on an envelope role's object run as that role; an
-    // owner change away from it inherits it for that one statement
-    if (runas && owner !== undefined && envelope.has(owner)) {
-      // a non-transactional statement cannot take SET LOCAL ROLE
-      if (newOwner === undefined && a.transactionality !== "nonTransactional")
-        runAsOf.set(a, owner);
-      else {
-        push(before, a, selfGrant(owner, true, true));
-        push(after, a, selfGrant(owner, false, true));
-      }
-    }
 
     // object ACL statements: the grantor must be the owner, as under a
     // superuser. Postgres picks the owner unless another role the applier
@@ -680,7 +666,7 @@ export function authorizeForApplier(
           (h) => h !== o && (inherited(h) || viaEnvelope.has(h)),
         );
         if (hazard.length > 0) {
-          if (canSet(o)) runAsOf.set(a, o);
+          if (pin && canSet(o)) runAsOf.set(a, o);
           else {
             for (const h of hazard.filter((x) => viaEnvelope.has(x))) {
               block(
@@ -765,7 +751,8 @@ export function authorizeForApplier(
           newOwner !== so &&
           !creators.has(newOwner) &&
           !creators.has("PUBLIC") &&
-          canSet(so)
+          canSet(so) &&
+          ctx.mode !== "nowrap"
         ) {
           wrapSchemaPrivilege(a, schema.name, "CREATE", newOwner, so);
         }
@@ -780,7 +767,7 @@ export function authorizeForApplier(
   const tail: Action[] = [];
   for (const r of envelope) {
     const open = modern
-      ? selfGrant(r, !runas, true)
+      ? selfGrant(r, true, true)
       : synthetic(
           `GRANT ${qid(r)} TO ${qid(applier)}`,
           selfId(r),

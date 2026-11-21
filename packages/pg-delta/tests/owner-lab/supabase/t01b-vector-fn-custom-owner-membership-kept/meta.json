@@ -1,1 +1,3 @@
-{ "notes": "t01 with postgres keeping its app_owner membership on both sides (no envelope). On main the REVOKEs run as postgres inheriting app_owner; with the PoC they run under SET ROLE app_owner, which cannot resolve extensions.vector." }
+{
+  "notes": "t01 with postgres keeping its app_owner membership on both sides (no envelope). On main the REVOKEs run as postgres inheriting app_owner; with the PoC they run under SET ROLE app_owner, which cannot resolve extensions.vector."
+}

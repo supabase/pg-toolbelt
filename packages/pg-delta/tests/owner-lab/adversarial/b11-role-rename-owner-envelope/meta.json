@@ -1,7 +1,5 @@
 {
- "renames": "auto",
- "notes": "role renamed (accepted rename) while the plan alters a table it owns",
- "tags": [
-  "limit:role-rename"
- ]
+  "renames": "auto",
+  "notes": "role renamed (accepted rename) while the plan alters a table it owns",
+  "tags": ["limit:role-rename"]
 }

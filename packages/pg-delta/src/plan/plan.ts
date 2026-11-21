@@ -315,10 +315,8 @@ export interface PlanOptions {
    *  view. Omit for an unrestricted view (bare `plan()`). Probe with
    *  `probeApplierCapability`, or take it from `resolveProfile`. */
   capability?: ApplierCapability;
-  /** PoC: how a non-superuser applier gets the privileges of an owner it
-   *  cannot use yet (`union`: inherit it for the whole plan; `runas`: SET only,
-   *  statements on its objects run as it). Default `union`, or
-   *  `PGDELTA_OWNER_MODE`. */
+  /** PoC measurement knob for the applier authorization pass (see
+   *  `OwnerMode`). Default `union`, or `PGDELTA_OWNER_MODE`. */
   ownerMode?: OwnerMode;
   /** the integration profile id to stamp on the plan artifact (set by the
    *  resolved profile's `planOptions`), so `apply`/`prove` can reconstruct the
@@ -873,9 +871,9 @@ export function plan(
     // PoC only: the owner-lab picks the mode from the environment
     ownerMode:
       options?.ownerMode ??
-      (typeof process !== "undefined" &&
-      process.env["PGDELTA_OWNER_MODE"] === "runas"
-        ? "runas"
+      (typeof process !== "undefined"
+        ? ((process.env["PGDELTA_OWNER_MODE"] as OwnerMode | undefined) ??
+          "union")
         : "union"),
   });
   const { safetyReport } = finalized;

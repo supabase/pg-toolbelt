@@ -9,8 +9,8 @@ name: Owner lab (PoC)
 
 # Shards the owner-lab measuring stick (packages/pg-delta/tests/owner-lab)
 # across runners. Each shard records a baseline on the BASE tree (the lab
-# files are copied into it) and then runs the PoC tree twice (union, runas)
-# against that baseline. The lab exiting 1 (SILENT / REGRESSION / PLAN_CHANGED)
+# files are copied into it) and then runs the PoC tree once per mode (union, plus
+# the nopin / nowrap / nomoves ablations on some configs) against that baseline. The lab exiting 1 (SILENT / REGRESSION / PLAN_CHANGED)
 # is a result, not a CI failure; the `summary` job judges the merged results.
 
 on:
@@ -56,8 +56,9 @@ jobs:
           // Shards per config group: change the counts here.
           const STOCK_SHARDS = 4;
           const SUPA_SHARDS = 32;
-          const ALL = "union runas";
-          const stock = (v, extra, modes = ALL) => ({
+          const UNION = "union";
+          const ABLATE = "union nopin nowrap nomoves";
+          const stock = (v, extra, modes = UNION) => ({
             image: `postgres:${v}-alpine`,
             flags: `--image postgres:${v}-alpine --applier createrole${extra}`,
             modes,
@@ -69,24 +70,24 @@ jobs:
             modes: "union",
             shards: STOCK_SHARDS,
           });
-          const supa = (image) => ({
+          const supa = (image, modes = UNION) => ({
             image,
             flags: `--supabase --image ${image}`,
-            modes: ALL,
+            modes,
             shards: SUPA_SHARDS,
           });
           const configs = {
             pg14: stock(14, ""),
-            pg15: stock(15, ""),
+            pg15: stock(15, "", ABLATE),
             pg16: stock(16, ""),
-            pg17: stock(17, ""),
+            pg17: stock(17, "", ABLATE),
             pg18: stock(18, ""),
             "pg17-stepdown": stock(17, " --login stepdown"),
             "pg15-stepdown": stock(15, " --login stepdown"),
             "pg17-script": stock(17, " --via script"),
             "pg17-superuser": superuser(17),
             "pg15-superuser": superuser(15),
-            supa17: supa("supabase/postgres:17.11.0.018"),
+            supa17: supa("supabase/postgres:17.11.0.018", "union nopin"),
             supa15: supa("public.ecr.aws/supabase/postgres:15.19.0.018"),
           };
           let want = process.env.CONFIGS.trim();

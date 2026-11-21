@@ -1,6 +1,4 @@
 {
- "notes": "custom roles granted built-in API roles and the reverse; memberships between two non-applier roles.",
- "tags": [
-  "decision:profile-platform-memberships"
- ]
+  "notes": "custom roles granted built-in API roles and the reverse; memberships between two non-applier roles.",
+  "tags": ["decision:profile-platform-memberships"]
 }

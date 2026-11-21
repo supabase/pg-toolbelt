@@ -3,10 +3,14 @@
  *
  *   bun tests/owner-lab/ci-summary.ts <dir>   # Markdown report on stdout
  *
- * <dir> holds the downloaded artifacts: `lab-<config>-<i>of<n>/{base,union,runas}.jsonl`.
+ * <dir> holds the downloaded artifacts: `lab-<config>-<i>of<n>/<kind>.jsonl`,
+ * where kind is `base`, `union` (the real pass) or an ablation mode (`nopin`,
+ * `nowrap`, `nomoves`, ...) that switches one mechanism off. Modes are
+ * discovered from the files present, `union` first, the rest sorted by name.
  * Merged per-config files are written to `<dir>/merged/<kind>-<config>.jsonl`.
- * Exit code 1 on a missing shard or when BOTH modes have a SILENT or
- * REGRESSION run in a non-superuser config; PLAN_CHANGED is only counted.
+ * Exit code 1 on a missing shard or when `union` has a SILENT or REGRESSION
+ * run in a non-superuser config. Ablation modes and PLAN_CHANGED never affect
+ * the exit code.
  */
 import {
   existsSync,
@@ -17,9 +21,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-const KINDS = ["base", "union", "runas"] as const;
-type Kind = (typeof KINDS)[number];
-type Mode = "union" | "runas";
+type Kind = string;
 
 interface Run {
   scenario: string;
@@ -28,6 +30,7 @@ interface Run {
   verdict: string;
   detail: string;
   flags: string[];
+  plan: string[];
 }
 
 const COLUMNS = [
@@ -76,6 +79,7 @@ function readJsonl(path: string): Run[] {
         verdict: String(d.verdict ?? "?"),
         detail: String(d.detail ?? ""),
         flags: Array.isArray(d.flags) ? d.flags.map(String) : [],
+        plan: Array.isArray(d.plan) ? d.plan.map(String) : [],
       });
     } catch {
       // a truncated last line from a killed shard: skip it
@@ -103,9 +107,10 @@ for (const name of readdirSync(dir).sort()) {
   const kinds = new Set<Kind>();
   shards.set(Number(i), kinds);
   shardTotal.set(config, Math.max(shardTotal.get(config) ?? 0, Number(n)));
-  for (const kind of KINDS) {
-    const file = join(dir, name, `${kind}.jsonl`);
-    if (!existsSync(file)) continue;
+  for (const f of readdirSync(join(dir, name)).sort()) {
+    if (!f.endsWith(".jsonl")) continue;
+    const kind = f.slice(0, -".jsonl".length);
+    const file = join(dir, name, f);
     const lines = readFileSync(file, "utf8")
       .split("\n")
       .filter((l) => l.trim());
@@ -129,8 +134,17 @@ for (const [key, lines] of rawLines) {
 }
 const get = (kind: Kind, config: string): Run[] =>
   runs.get(`${kind}\0${config}`) ?? [];
-const modesOf = (config: string): Mode[] =>
-  isSuperuser(config) ? ["union"] : ["union", "runas"];
+// Modes (everything but base) are whatever any shard of the config produced;
+// union is always expected and always first.
+const modesOf = (config: string): Kind[] => {
+  const found = new Set<Kind>();
+  for (const kinds of shardsSeen.get(config)?.values() ?? [])
+    for (const k of kinds) if (k !== "base") found.add(k);
+  found.delete("union");
+  return ["union", ...[...found].sort()];
+};
+const ablationsOf = (config: string): Kind[] =>
+  modesOf(config).filter((m) => m !== "union");
 const kindsOf = (config: string): Kind[] => ["base", ...modesOf(config)];
 
 // Missing shards. The expected count is the largest `n` seen for the group.
@@ -272,85 +286,123 @@ for (const c of configs) {
   }
 }
 
-// 3. union vs runas
-emit("## union vs runas");
+// 3. What each mechanism buys
+const key = (r: Run) => `${r.scenario}\0${r.direction}`;
+emit("## What each mechanism buys (union vs ablation)");
 emit();
-let anyDiff = false;
-for (const c of configs) {
-  if (isSuperuser(c)) continue;
-  const u = new Map(
-    get("union", c).map((r) => [`${r.scenario}\0${r.direction}`, r]),
-  );
-  const r2 = new Map(
-    get("runas", c).map((r) => [`${r.scenario}\0${r.direction}`, r]),
-  );
-  if (u.size === 0 || r2.size === 0) continue;
-  const groups = new Map<string, string[]>();
-  for (const [key, a] of u) {
-    const b = r2.get(key);
-    if (!b) continue;
-    const [scenario, direction] = key.split("\0");
-    const label = `${scenario} (${direction})`;
-    if (a.verdict === "PASS" && b.verdict !== "PASS") {
-      const g = `union PASS, runas ${b.verdict}: ${norm(b.detail)}`;
-      groups.set(g, [...(groups.get(g) ?? []), label]);
-    } else if (b.verdict === "PASS" && a.verdict !== "PASS") {
-      const g = `runas PASS, union ${a.verdict}: ${norm(a.detail)}`;
-      groups.set(g, [...(groups.get(g) ?? []), label]);
-    }
-  }
-  if (groups.size === 0) continue;
-  anyDiff = true;
-  const total = [...groups.values()].reduce((s, l) => s + l.length, 0);
-  emit(`<details><summary>${c}: ${total} scenarios differ</summary>`);
-  emit();
-  for (const [g, list] of [...groups].sort(
-    (a, b) => b[1].length - a[1].length,
-  )) {
-    emit(`- ${list.length}x ${oneLine(g)}`);
-    for (const l of list.slice(0, 5)) emit(`  - \`${l}\``);
-    if (list.length > 5) emit(`  - ... ${list.length - 5} more`);
-  }
-  emit();
-  emit("</details>");
+const ablationModes = [
+  ...new Set(configs.flatMap((c) => ablationsOf(c))),
+].sort();
+if (ablationModes.length === 0) {
+  emit("No ablation mode ran.");
   emit();
 }
-if (!anyDiff) {
-  emit("No scenario passes in one mode and not the other.");
+const summaryRows: string[] = [];
+for (const m of ablationModes) {
+  for (const c of configs) {
+    if (!ablationsOf(c).includes(m)) continue;
+    const u = new Map(get("union", c).map((r) => [key(r), r]));
+    const a = new Map(get(m, c).map((r) => [key(r), r]));
+    if (u.size === 0 || a.size === 0) continue;
+    const groups = new Map<string, string[]>();
+    let uOnly = 0;
+    let aOnly = 0;
+    for (const [k, ur] of u) {
+      const ar = a.get(k);
+      if (!ar || ur.verdict === ar.verdict) continue;
+      const [scenario, direction] = k.split("\0");
+      const label = `${scenario} ${direction}`;
+      if (ur.verdict === "PASS") uOnly++;
+      if (ar.verdict === "PASS") aOnly++;
+      const g = `union ${ur.verdict}, ${m} ${ar.verdict}: ${norm(
+        ar.verdict === "PASS" ? ur.detail : ar.detail,
+      )}`;
+      groups.set(g, [...(groups.get(g) ?? []), label]);
+    }
+    const mc = counts(get(m, c));
+    summaryRows.push(
+      `| ${m} | ${c} | ${counts(get("union", c)).get("PASS") ?? 0} | ${mc.get("PASS") ?? 0} | ${uOnly} | ${aOnly} | ${mc.get("SILENT") ?? 0} | ${mc.get("REGRESSION") ?? 0} |`,
+    );
+    if (groups.size === 0) continue;
+    const total = [...groups.values()].reduce((n, l) => n + l.length, 0);
+    emit(
+      `<details><summary>${m} / ${c}: ${total} runs where union and ${m} differ</summary>`,
+    );
+    emit();
+    for (const [g, list] of [...groups].sort(
+      (x, y) => y[1].length - x[1].length,
+    )) {
+      emit(`- ${list.length}x ${oneLine(g)}`);
+      for (const l of list.slice(0, 5)) emit(`  - \`${l}\``);
+      if (list.length > 5) emit(`  - ... ${list.length - 5} more`);
+    }
+    emit();
+    emit("</details>");
+    emit();
+  }
+}
+if (summaryRows.length) {
+  emit(
+    "| ablation | config | union PASS | M PASS | runs union passes and M does not | runs M passes and union does not | M SILENT | M REGRESSION |",
+  );
+  emit("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |");
+  for (const row of summaryRows) emit(row);
   emit();
 }
 
-// 4. Verdict
-const unsound: Record<Mode, number> = { union: 0, runas: 0 };
+// 4. Plans that use run-as
+emit("## Plans that use run-as (union)");
+emit();
+const usesRunAs = (r: Run) => r.plan.some((e) => e.startsWith("[as "));
+for (const c of configs) {
+  const hit = get("union", c).filter(usesRunAs);
+  const names = [...new Set(hit.map((r) => r.scenario))].sort();
+  emit(
+    `- ${c}: ${hit.length} runs, ${names.length} scenarios${names.length ? ` (${names.slice(0, 40).join(", ")}${names.length > 40 ? `, ... ${names.length - 40} more` : ""})` : ""}`,
+  );
+}
+emit();
+
+// 5. Verdict
+const unsound = new Map<Kind, number>();
 for (const c of configs) {
   if (isSuperuser(c)) continue;
-  for (const mode of ["union", "runas"] as const) {
-    unsound[mode] += get(mode, c).filter(
-      (r) => r.verdict === "SILENT" || r.verdict === "REGRESSION",
-    ).length;
+  for (const mode of modesOf(c)) {
+    unsound.set(
+      mode,
+      (unsound.get(mode) ?? 0) +
+        get(mode, c).filter(
+          (r) => r.verdict === "SILENT" || r.verdict === "REGRESSION",
+        ).length,
+    );
   }
 }
+const unionUnsound = unsound.get("union") ?? 0;
 const planChanged = configs
   .filter(isSuperuser)
   .reduce(
-    (s, c) =>
-      s +
+    (n, c) =>
+      n +
       get("union", c).filter((r) => r.flags.includes("PLAN_CHANGED")).length,
     0,
   );
-const bothUnsound = unsound.union > 0 && unsound.runas > 0;
-const fail = missing.length > 0 || bothUnsound;
+const fail = missing.length > 0 || unionUnsound > 0;
+const ablationInfo = [...unsound]
+  .filter(([m]) => m !== "union")
+  .sort((a, b) => a[0].localeCompare(b[0]))
+  .map(([m, n]) => `${m} ${n}`)
+  .join(", ");
 
 emit("## Verdict");
 emit();
 emit(
-  `SILENT+REGRESSION (non-superuser configs): union ${unsound.union}, runas ${unsound.runas}. PLAN_CHANGED in superuser configs: ${planChanged} (informational).`,
+  `SILENT+REGRESSION (non-superuser configs): union ${unionUnsound}${ablationInfo ? `; ablations (informational): ${ablationInfo}` : ""}. PLAN_CHANGED in superuser configs: ${planChanged} (informational).`,
 );
 emit();
 emit(
   fail
-    ? `**FAIL**: ${[missing.length ? `${missing.length} missing shard file(s)` : "", bothUnsound ? "both modes are unsound" : ""].filter(Boolean).join("; ")}`
-    : "**OK**: no missing shards and at least one mode is free of SILENT / REGRESSION.",
+    ? `**FAIL**: ${[missing.length ? `${missing.length} missing shard file(s)` : "", unionUnsound > 0 ? `union has ${unionUnsound} SILENT/REGRESSION run(s)` : ""].filter(Boolean).join("; ")}`
+    : "**OK**: no missing shards and union is free of SILENT / REGRESSION.",
 );
 
 console.log(out.join("\n"));

@@ -69,7 +69,9 @@ Already present in the PoC; keep.
 
 Membership facts stay as on the base branch (`admin` only), plus ONE new payload field on
 PG16+: `self: { inherit, set } | null`, taken from the row whose grantor equals the member
-(the row a CREATEROLE user creates to use a role it made). Rendering of a `self` change:
+(the row a CREATEROLE user creates to use a role it made). The bootstrap superuser (oid 10)
+is excluded: it is the recorded grantor of every grant a superuser makes, so its own
+memberships are ordinary rows. Rendering of a `self` change:
 `GRANT r TO m WITH INHERIT x, SET y GRANTED BY m`, and `REVOKE r FROM m GRANTED BY m` to
 remove it. Capability projection keeps hiding the implicit creator row only when `self`
 is null. Remove revision 3's `set` / `inherit` effective options, its option alters, its
@@ -79,9 +81,9 @@ is byte-identical to the base branch.
 ### 3. `Action.runAs`
 
 New optional field `runAs?: string` on an action: the role that must execute it. Set only
-by the authorization pass. `apply()` executes `SET ROLE "<runAs>"` before and
-`SET ROLE "<applier>"` after (never `RESET ROLE`), both inside the action's transaction;
-on any error path it restores `SET ROLE "<applier>"`. `renderApplyScript` prints the same
+by the authorization pass. `apply()` executes `SET LOCAL ROLE "<runAs>"` before the
+statement and restores the session's own role setting after it (never `RESET ROLE`), both
+inside the action's transaction. `renderApplyScript` prints the same
 two statements. Splitting, segmenting and compaction never see separate role statements.
 `runAs` participates in the plan id when present.
 
@@ -105,17 +107,18 @@ new owner: already in `settableRoles`).
 superuser, not reserved, applier inherits; 16+: direct ADMIN or created by this plan, not
 reserved) gets an OPEN after the role exists and a CLOSE that restores the applier's
 own-grantor row exactly, both `GRANTED BY <applier>` on 16+. Roles it cannot grant itself
-are skipped silently. Mode decides the options:
+are skipped silently. The row is opened `WITH INHERIT TRUE, SET TRUE`.
 
-- `union` (default): `INHERIT TRUE, SET TRUE`.
-- `runas`: `INHERIT FALSE, SET TRUE` on PG16+; every action whose root owner-now is an
-  envelope role gets `runAs` = that owner; an owner change away from an envelope role
-  flips INHERIT on for that one statement.
+A second strategy was built and measured, then deleted: open the row SET-only and run every
+statement on a foreign-owned object as its owner (`runas`). On CI run 44910949799 it was as
+sound as inheriting but passed 61 fewer runs on PG16-18 and regressed 3 on Supabase 17
+(`SET ROLE <owner>` changes name resolution and needs the owner to have USAGE everywhere).
 
-The mode is a planner option (`PGDELTA_OWNER_MODE` in the lab). Both exist so the suite can
-compare them; one will be deleted.
+`PGDELTA_OWNER_MODE` is now a measurement knob only: `union` is the pass; `nopin`, `nowrap`
+and `nomoves` each switch one mechanism off (4d run-as pin, 4f temporary CREATE, 4g moves)
+so the suite can count the scenarios that need it.
 
-**4d. Non-interference (the soundness core, both modes; on ≤15 `runas` inherits too).**
+**4d. Non-interference (the soundness core).**
 For every grant-family action, the grantor must be the one a superuser would get.
 
 - Object ACL (`subject.kind === "acl"`, incl. merged GRANTs whose `produces` lists more
@@ -133,7 +136,7 @@ For every grant-family action, the grantor must be the one a superuser would get
 
 **4e. Blockers for owner changes (exact).** New owner neither settable nor self-grantable;
 current owner (of an object that exists in the source) neither inherited nor
-self-grantable; in `runas` mode on ≤15 nothing extra.
+self-grantable.
 
 **4f. New owner's CREATE on the schema.** If the new owner is not the schema's owner-now
 and has no CREATE there (direct entry, or PUBLIC, in the simulated raw state), wrap the
