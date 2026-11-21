@@ -1,0 +1,15 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:table-rls",
+    "transition:r1-to-r2",
+    "membership:none",
+    "schema:public",
+    "create:public-grant",
+    "acl:none",
+    "modifier:none"
+  ],
+  "notes": "table-rls: r1-to-r2; applier membership none; schema public; new owner CREATE public-grant; acl none",
+  "minVersion": 15
+}

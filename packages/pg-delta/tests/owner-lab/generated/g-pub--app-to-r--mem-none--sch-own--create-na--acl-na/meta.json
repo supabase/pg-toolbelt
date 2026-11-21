@@ -1,0 +1,15 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:core",
+    "kind:publication",
+    "transition:app-to-r",
+    "membership:none",
+    "schema:own",
+    "create:na",
+    "acl:na",
+    "modifier:none",
+    "needs-db-create"
+  ],
+  "notes": "publication: app-to-r; applier membership none; schema own; new owner CREATE na; acl na"
+}

@@ -1,4 +1,7 @@
 {
-  "expect": "refuse",
-  "notes": "Desired function in public owned by a platform role (set as supabase_admin). Profile may filter instead of refusing; record which."
+ "notes": "Desired function in public owned by a platform role (set as supabase_admin). Profile may filter instead of refusing; record which.",
+ "ideal": "refuse",
+ "tags": [
+  "decision:profile-hides-platform-owner"
+ ]
 }

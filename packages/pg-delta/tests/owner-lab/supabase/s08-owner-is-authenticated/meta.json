@@ -1,3 +1,6 @@
 {
-  "notes": "postgres is already a member of authenticated on Supabase. Record what happens."
+ "notes": "postgres is already a member of authenticated on Supabase. Record what happens.",
+ "tags": [
+  "decision:profile-hides-platform-owner"
+ ]
 }

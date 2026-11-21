@@ -1,4 +1,7 @@
 {
-  "minVersion": 16,
-  "notes": "The applier holds ADMIN on g only through mid (superuser-made, permanent). Desired adds g -> m. b.sql proves Postgres runs GRANT g TO m as the applier (grantor mid). The design converges effective options, not grantor rows, so main converges; the PoC renders GRANTED BY lab_applier and blocks."
+ "minVersion": 16,
+ "notes": "The applier holds ADMIN on g only through mid (superuser-made, permanent). Desired adds g -> m. b.sql proves Postgres runs GRANT g TO m as the applier (grantor mid). The design converges effective options, not grantor rows, so main converges; the PoC renders GRANTED BY lab_applier and blocks.",
+ "tags": [
+  "decision:membership-provenance"
+ ]
 }

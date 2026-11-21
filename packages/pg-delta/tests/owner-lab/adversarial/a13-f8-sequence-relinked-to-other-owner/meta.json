@@ -1,1 +1,6 @@
-{ "notes": "F8: owned sequence is relinked to a table with a different owner" }
+{
+ "notes": "F8: owned sequence is relinked to a table with a different owner",
+ "tags": [
+  "preexisting:sequence-relink-order"
+ ]
+}

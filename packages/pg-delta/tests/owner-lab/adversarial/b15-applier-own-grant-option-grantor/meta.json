@@ -1,3 +1,6 @@
 {
-  "notes": "control (no envelope): the applier is a permanent member of the owner and also holds SELECT WITH GRANT OPTION; GRANT picks the applier as grantor. Pre-existing behavior, not the pass."
+ "notes": "control (no envelope): the applier is a permanent member of the owner and also holds SELECT WITH GRANT OPTION; GRANT picks the applier as grantor. Pre-existing behavior, not the pass.",
+ "tags": [
+  "preexisting:applier-grant-option-grantor"
+ ]
 }

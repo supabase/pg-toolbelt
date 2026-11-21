@@ -1,4 +1,8 @@
 {
-  "minVersion": 16,
-  "notes": "s.t is owned by o_foreign (superuser-created, not assumable on PG16+); the applier owns schema s, so DROP TABLE s.t is allowed. h_hold owns schema s2 where the applier has CREATE; creating s2.newtab touches h_hold, so the envelope opens it. h_hold holds SELECT WITH GRANT OPTION on s.t. A DROP has no grantor semantics, yet it destroys acl ids, so it is classified as an ACL statement that cannot run as its owner and gets a capability_acl_grantor blocker. On main both statements run as the applier."
+ "minVersion": 16,
+ "notes": "s.t is owned by o_foreign (superuser-created, not assumable on PG16+); the applier owns schema s, so DROP TABLE s.t is allowed. h_hold owns schema s2 where the applier has CREATE; creating s2.newtab touches h_hold, so the envelope opens it. h_hold holds SELECT WITH GRANT OPTION on s.t. A DROP has no grantor semantics, yet it destroys acl ids, so it is classified as an ACL statement that cannot run as its owner and gets a capability_acl_grantor blocker. On main both statements run as the applier.",
+ "ideal": {
+  "forward": "converge",
+  "reverse": "refuse"
+ }
 }

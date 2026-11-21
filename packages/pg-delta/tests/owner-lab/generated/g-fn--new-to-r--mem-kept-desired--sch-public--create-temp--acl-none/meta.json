@@ -1,0 +1,15 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:function",
+    "transition:new-to-r",
+    "membership:kept-desired",
+    "schema:public",
+    "create:temp",
+    "acl:none",
+    "modifier:none"
+  ],
+  "notes": "function: new-to-r; applier membership kept-desired; schema public; new owner CREATE temp; acl none",
+  "minVersion": 15
+}

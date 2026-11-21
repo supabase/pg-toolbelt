@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:function",
+    "transition:r-modify",
+    "membership:kept-source",
+    "schema:own",
+    "create:direct",
+    "acl:holder",
+    "modifier:none"
+  ],
+  "notes": "function: r-modify; applier membership kept-source; schema own; new owner CREATE direct; acl holder"
+}

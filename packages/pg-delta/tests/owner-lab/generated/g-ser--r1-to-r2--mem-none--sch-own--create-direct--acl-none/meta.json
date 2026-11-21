@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:serial",
+    "transition:r1-to-r2",
+    "membership:none",
+    "schema:own",
+    "create:direct",
+    "acl:none",
+    "modifier:none"
+  ],
+  "notes": "serial: r1-to-r2; applier membership none; schema own; new owner CREATE direct; acl none"
+}

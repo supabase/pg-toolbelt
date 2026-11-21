@@ -1,4 +1,7 @@
 {
-  "minVersion": 15,
-  "notes": "C28: reverse of E1, desired owner is pg_database_owner"
+ "minVersion": 15,
+ "notes": "C28: reverse of E1, desired owner is pg_database_owner",
+ "tags": [
+  "decision:public-owner-edge"
+ ]
 }

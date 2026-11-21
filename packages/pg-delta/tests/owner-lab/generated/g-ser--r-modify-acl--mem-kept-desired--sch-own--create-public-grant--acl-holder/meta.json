@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:serial",
+    "transition:r-modify-acl",
+    "membership:kept-desired",
+    "schema:own",
+    "create:public-grant",
+    "acl:holder",
+    "modifier:none"
+  ],
+  "notes": "serial: r-modify-acl; applier membership kept-desired; schema own; new owner CREATE public-grant; acl holder"
+}

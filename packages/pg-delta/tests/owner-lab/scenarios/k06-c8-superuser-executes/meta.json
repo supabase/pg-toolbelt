@@ -1,5 +1,5 @@
 {
-  "executeAs": "superuser",
-  "expect": "refuse",
-  "notes": "C8: plan made with the applier capability but executed by a superuser. Must not silently delete the applier bootstrap ADMIN row (PG16+). Either refuse or converge with clean catalog truth."
+ "executeAs": "superuser",
+ "notes": "C8: plan made with the applier capability but executed by a superuser. Must not silently delete the applier bootstrap ADMIN row (PG16+). Either refuse or converge with clean catalog truth.",
+ "ideal": "refuse"
 }

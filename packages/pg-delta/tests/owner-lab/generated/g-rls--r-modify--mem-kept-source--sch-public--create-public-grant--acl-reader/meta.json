@@ -1,0 +1,15 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:table-rls",
+    "transition:r-modify",
+    "membership:kept-source",
+    "schema:public",
+    "create:public-grant",
+    "acl:reader",
+    "modifier:none"
+  ],
+  "notes": "table-rls: r-modify; applier membership kept-source; schema public; new owner CREATE public-grant; acl reader",
+  "minVersion": 15
+}

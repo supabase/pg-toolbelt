@@ -1,0 +1,15 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:serial",
+    "transition:r1-to-r2",
+    "membership:none",
+    "schema:r-owned",
+    "create:na",
+    "acl:reader",
+    "modifier:none",
+    "needs-db-create"
+  ],
+  "notes": "serial: r1-to-r2; applier membership none; schema r-owned; new owner CREATE na; acl reader"
+}

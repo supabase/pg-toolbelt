@@ -1,1 +1,6 @@
-{ "notes": "F8: owned sequence is unlinked and handed to another owner" }
+{
+ "notes": "F8: owned sequence is unlinked and handed to another owner",
+ "tags": [
+  "preexisting:sequence-relink-order"
+ ]
+}

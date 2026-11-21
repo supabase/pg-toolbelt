@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:table-rls",
+    "transition:r-modify-acl",
+    "membership:kept",
+    "schema:own",
+    "create:temp",
+    "acl:reader",
+    "modifier:none"
+  ],
+  "notes": "table-rls: r-modify-acl; applier membership kept; schema own; new owner CREATE temp; acl reader"
+}

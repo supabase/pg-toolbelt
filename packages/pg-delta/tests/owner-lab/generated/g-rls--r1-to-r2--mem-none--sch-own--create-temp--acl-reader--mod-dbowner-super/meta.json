@@ -1,0 +1,15 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:modifiers",
+    "kind:table-rls",
+    "transition:r1-to-r2",
+    "membership:none",
+    "schema:own",
+    "create:temp",
+    "acl:reader",
+    "modifier:dbowner-super"
+  ],
+  "notes": "table-rls: r1-to-r2; applier membership none; schema own; new owner CREATE temp; acl reader; modifier dbowner-super",
+  "dbOwner": "superuser"
+}

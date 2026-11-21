@@ -1,3 +1,6 @@
 {
-  "notes": "Publication owned by a login role. Expected to fail loudly today; record how."
+ "notes": "Publication owned by a login role. Expected to fail loudly today; record how.",
+ "tags": [
+  "limit:publication-db-create"
+ ]
 }

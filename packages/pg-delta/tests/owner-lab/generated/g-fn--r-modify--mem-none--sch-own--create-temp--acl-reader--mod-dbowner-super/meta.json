@@ -1,0 +1,15 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:modifiers",
+    "kind:function",
+    "transition:r-modify",
+    "membership:none",
+    "schema:own",
+    "create:temp",
+    "acl:reader",
+    "modifier:dbowner-super"
+  ],
+  "notes": "function: r-modify; applier membership none; schema own; new owner CREATE temp; acl reader; modifier dbowner-super",
+  "dbOwner": "superuser"
+}

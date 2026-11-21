@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:core",
+    "kind:matview",
+    "transition:r-to-app-drop-role",
+    "membership:none",
+    "schema:own",
+    "create:temp",
+    "acl:reader",
+    "modifier:none"
+  ],
+  "notes": "matview: r-to-app-drop-role; applier membership none; schema own; new owner CREATE temp; acl reader"
+}

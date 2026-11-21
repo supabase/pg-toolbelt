@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:modifiers",
+    "kind:table-rls",
+    "transition:r-modify",
+    "membership:none",
+    "schema:own",
+    "create:temp",
+    "acl:reader",
+    "modifier:two-objects"
+  ],
+  "notes": "table-rls: r-modify; applier membership none; schema own; new owner CREATE temp; acl reader; modifier two-objects"
+}

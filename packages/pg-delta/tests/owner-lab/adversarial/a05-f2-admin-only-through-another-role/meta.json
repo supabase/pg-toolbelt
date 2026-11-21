@@ -1,4 +1,7 @@
 {
-  "minVersion": 16,
-  "notes": "F2: the applier has ADMIN on rr only by inheriting role mid. A temp self-grant would be recorded under grantor mid and never revoked. Acceptable outcomes: converge with clean catalog truth, or refuse. Never CATALOG_DRIFT."
+ "minVersion": 16,
+ "notes": "F2: the applier has ADMIN on rr only by inheriting role mid. A temp self-grant would be recorded under grantor mid and never revoked. Acceptable outcomes: converge with clean catalog truth, or refuse. Never CATALOG_DRIFT.",
+ "tags": [
+  "decision:membership-provenance"
+ ]
 }

@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:core",
+    "kind:identity",
+    "transition:r-modify-acl",
+    "membership:none",
+    "schema:own",
+    "create:temp",
+    "acl:reader",
+    "modifier:none"
+  ],
+  "notes": "identity: r-modify-acl; applier membership none; schema own; new owner CREATE temp; acl reader"
+}

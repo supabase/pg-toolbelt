@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:core",
+    "kind:procedure",
+    "transition:new-to-r",
+    "membership:none",
+    "schema:own",
+    "create:temp",
+    "acl:reader",
+    "modifier:none"
+  ],
+  "notes": "procedure: new-to-r; applier membership none; schema own; new owner CREATE temp; acl reader"
+}

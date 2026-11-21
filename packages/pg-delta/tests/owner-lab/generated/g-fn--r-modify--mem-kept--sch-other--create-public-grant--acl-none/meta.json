@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:function",
+    "transition:r-modify",
+    "membership:kept",
+    "schema:other-owned",
+    "create:public-grant",
+    "acl:none",
+    "modifier:none"
+  ],
+  "notes": "function: r-modify; applier membership kept; schema other-owned; new owner CREATE public-grant; acl none"
+}

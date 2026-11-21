@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:core",
+    "kind:sequence",
+    "transition:r-to-app-drop-role",
+    "membership:none",
+    "schema:own",
+    "create:temp",
+    "acl:reader",
+    "modifier:none"
+  ],
+  "notes": "sequence: r-to-app-drop-role; applier membership none; schema own; new owner CREATE temp; acl reader"
+}

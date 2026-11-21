@@ -1,27 +1,40 @@
 /**
  * owner-lab: run a scenario (a.sql -> b.sql) END TO END as a NON-superuser
- * applier on real Postgres and classify the outcome, including drift the fact
- * model cannot see (raw catalog comparison by name).
+ * applier on real Postgres, classify the outcome, judge it (verdict) and compare
+ * raw catalogs by name (drift the fact model cannot see), data preservation,
+ * session state and failure atomicity.
  *
  *   cd packages/pg-delta
+ *   bun tests/owner-lab/lab.ts --image postgres:17-alpine --suite --direction both
  *   bun tests/owner-lab/lab.ts --image postgres:17-alpine <scenarioDir>...
- *   bun tests/owner-lab/lab.ts --image postgres:17-alpine --all
- *   bun tests/owner-lab/lab.ts --image postgres:17-alpine --corpus [--filter <substr>]
  *
  * Flags: --json <file>  --verbose  --direction forward|reverse|both
  *        --applier createrole|superuser
+ *        --login direct|stepdown   (stepdown: log in as `lab_login`, then
+ *                                   SET SESSION ROLE <applier>, like the CLI)
+ *        --via apply|script        (script: renderApplyScript, ONE simple query)
+ *        --suite | --all | --corpus [--filter <substr>]  --shard i/n
+ *        --record-baseline <f.jsonl>  --compare-baseline <f.jsonl>
  *        --supabase  (two fresh supabase/postgres containers PER RUN; applier =
  *                     `postgres`, desired/source in database `postgres`, plan
  *                     through the supabase integration profile; --image must be
  *                     a supabase image)
- * See tests/owner-lab/README.md for the scenario directory contract.
+ * The lab imports nothing PoC-specific, so it runs unchanged on a source tree
+ * without the applier-authorization work. See README.md.
  */
-import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
 import pg from "pg";
-import { apply } from "../../src/apply/apply.ts";
+import { apply, segmentActions } from "../../src/apply/apply.ts";
 import { extract } from "../../src/extract/extract.ts";
 import { planSettled } from "../../src/frontends/settle-desired.ts";
+import { renderApplyScript } from "../../src/frontends/render-apply-script.ts";
 import { plan, type Plan } from "../../src/plan/plan.ts";
 import {
   resolveProfile,
@@ -29,28 +42,40 @@ import {
 } from "../../src/integrations/index.ts";
 import type { ResolvedProfile } from "../../src/integrations/index.ts";
 import type { RenameMode } from "../../src/plan/renames.ts";
-import {
-  ApplierIdentityError,
-  CapabilityError,
-  probeApplierCapability,
-} from "../../src/policy/capability.ts";
+import { probeApplierCapability } from "../../src/policy/capability.ts";
 import { GenericContainer, Wait } from "testcontainers";
 import type { Cluster as ClusterT } from "../containers.ts";
+import {
+  baselineKey,
+  computeVerdict,
+  resolveIdeal,
+  statementDiff,
+  type Ideal,
+  type IdealMeta,
+} from "./verdict.ts";
 
 // ── args ─────────────────────────────────────────────────────────────────────
 interface Args {
   image: string;
   dirs: string[];
   all: boolean;
+  suite: boolean;
   corpus: boolean;
   filter?: string;
   json?: string;
   verbose: boolean;
   direction: "forward" | "reverse" | "both";
   applier: "createrole" | "superuser";
+  login: "direct" | "stepdown";
+  via: "apply" | "script";
+  /** --stepdown-setup: with --login stepdown, also run a.sql/b.sql over stepdown connections */
+  stepdownSetup: boolean;
   supabase: boolean;
   /** --no-profile (with --supabase): plan with the raw probed capability only */
   noProfile: boolean;
+  shard?: { i: number; n: number };
+  recordBaseline?: string;
+  compareBaseline?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -58,10 +83,14 @@ function parseArgs(argv: string[]): Args {
     image: process.env["PGDELTA_TEST_IMAGE"] ?? "postgres:17-alpine",
     dirs: [],
     all: false,
+    suite: false,
     corpus: false,
     verbose: false,
     direction: "forward",
     applier: "createrole",
+    login: "direct",
+    via: "apply",
+    stepdownSetup: false,
     supabase: false,
     noProfile: false,
   };
@@ -74,13 +103,22 @@ function parseArgs(argv: string[]): Args {
     };
     if (a === "--image") args.image = next();
     else if (a === "--all") args.all = true;
+    else if (a === "--suite") args.suite = true;
     else if (a === "--corpus") args.corpus = true;
     else if (a === "--filter") args.filter = next();
     else if (a === "--json") args.json = next();
+    else if (a === "--record-baseline") args.recordBaseline = next();
+    else if (a === "--compare-baseline") args.compareBaseline = next();
     else if (a === "--verbose") args.verbose = true;
     else if (a === "--supabase") args.supabase = true;
+    else if (a === "--stepdown-setup") args.stepdownSetup = true;
     else if (a === "--no-profile") args.noProfile = true;
-    else if (a === "--direction") {
+    else if (a === "--shard") {
+      const m = /^(\d+)\/(\d+)$/.exec(next());
+      if (!m || Number(m[1]) < 1 || Number(m[1]) > Number(m[2]))
+        throw new Error("bad --shard (want i/n, 1-based)");
+      args.shard = { i: Number(m[1]), n: Number(m[2]) };
+    } else if (a === "--direction") {
       const v = next();
       if (v !== "forward" && v !== "reverse" && v !== "both")
         throw new Error(`bad --direction ${v}`);
@@ -90,6 +128,15 @@ function parseArgs(argv: string[]): Args {
       if (v !== "createrole" && v !== "superuser")
         throw new Error(`bad --applier ${v}`);
       args.applier = v;
+    } else if (a === "--login") {
+      const v = next();
+      if (v !== "direct" && v !== "stepdown")
+        throw new Error(`bad --login ${v}`);
+      args.login = v;
+    } else if (a === "--via") {
+      const v = next();
+      if (v !== "apply" && v !== "script") throw new Error(`bad --via ${v}`);
+      args.via = v;
     } else if (a.startsWith("--")) throw new Error(`unknown flag ${a}`);
     else args.dirs.push(a);
   }
@@ -105,10 +152,12 @@ const { isolatedClusterPair, stopAllClusters, Cluster } =
 type Cluster = ClusterT;
 
 // ── scenarios ────────────────────────────────────────────────────────────────
-interface Meta {
+interface Meta extends IdealMeta {
   minVersion?: number;
   maxVersion?: number;
-  expect?: "converge" | "refuse";
+  tags?: string[];
+  /** passed to plan() as `params` (e.g. `{ "concurrentIndexes": true }`) */
+  planParams?: Record<string, unknown>;
   applierInherit?: boolean;
   dbOwner?: "applier" | "superuser";
   executeAs?: "applier" | "superuser";
@@ -118,6 +167,7 @@ interface Meta {
   settleDesired?: boolean;
 }
 interface Scenario {
+  /** path relative to tests/owner-lab (baseline key, display) */
   name: string;
   a: string;
   b: string;
@@ -125,6 +175,8 @@ interface Scenario {
   preB?: string;
   postA?: string;
   postB?: string;
+  seedA?: string;
+  seedB?: string;
   meta: Meta;
 }
 
@@ -141,7 +193,7 @@ function loadScenario(dir: string): Scenario {
   if (a === undefined || b === undefined)
     throw new Error(`${abs}: a.sql and b.sql are required`);
   const s: Scenario = {
-    name: basename(abs),
+    name: relative(HERE, abs),
     a,
     b,
     meta: metaText ? (JSON.parse(metaText) as Meta) : {},
@@ -151,6 +203,8 @@ function loadScenario(dir: string): Scenario {
     ["preB", "pre-b.sql"],
     ["postA", "post-a.sql"],
     ["postB", "post-b.sql"],
+    ["seedA", "seed-a.sql"],
+    ["seedB", "seed-b.sql"],
   ] as const) {
     const v = readOpt(abs, f);
     if (v !== undefined) s[k] = v;
@@ -165,6 +219,16 @@ function listDirs(root: string): string[] {
     .map((e) => join(root, e.name))
     .sort();
 }
+/** Scenario dirs under `root`: a dir holding a.sql, else recurse. */
+function listScenarioDirs(root: string): string[] {
+  if (!existsSync(root)) return [];
+  const out: string[] = [];
+  for (const d of listDirs(root)) {
+    if (existsSync(join(d, "a.sql"))) out.push(d);
+    else out.push(...listScenarioDirs(d));
+  }
+  return out;
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const APPLIER = "lab_applier";
@@ -172,8 +236,42 @@ const APPLIER_PW = "lab";
 const SRC_DB = "lab_src";
 const DST_DB = "lab_dst";
 
-function mkPool(uri: string): pg.Pool {
-  const p = new pg.Pool({ connectionString: uri, max: 4 });
+const LOGIN = "lab_login";
+const LOGIN_PW = "lab";
+
+/** A client that, once connected, runs `SET SESSION ROLE <role>` before the
+ *  pool hands it out (what the Supabase CLI does after login). */
+function stepdownClient(role: string): typeof pg.Client {
+  return class extends pg.Client {
+    // pg.Pool calls connect(cb); direct callers use the promise form.
+    // oxlint-disable-next-line typescript/no-explicit-any
+    override connect(cb?: any): any {
+      const init = async (): Promise<void> => {
+        await super.connect();
+        await this.query(`SET SESSION ROLE ${q(role)}`);
+      };
+      if (cb === undefined) return init();
+      init().then(
+        () => cb(),
+        (e) => cb(e),
+      );
+      return undefined;
+    }
+  };
+}
+
+function mkPool(
+  uri: string,
+  opts: { max?: number; stepdownTo?: string } = {},
+): pg.Pool {
+  const p = new pg.Pool({
+    connectionString: uri,
+    max: opts.max ?? 4,
+    idleTimeoutMillis: 0,
+    ...(opts.stepdownTo !== undefined
+      ? { Client: stepdownClient(opts.stepdownTo) as never }
+      : {}),
+  });
   p.on("error", () => {});
   return p;
 }
@@ -310,12 +408,16 @@ const SUPA_PLATFORM_SCHEMAS = [
 const lit = (s: string): string => `'${s.replaceAll("'", "''")}'`;
 
 // ── catalog truth ────────────────────────────────────────────────────────────
+function nsFilterFor(col: string, supa: boolean): string {
+  return supa
+    ? `${col} NOT IN (${SUPA_PLATFORM_SCHEMAS.map(lit).join(",")}, 'information_schema')
+    AND ${col} NOT LIKE 'pg\\_%'`
+    : `${col} NOT IN ('pg_catalog','information_schema')
+    AND ${col} NOT LIKE 'pg\\_toast%' AND ${col} NOT LIKE 'pg\\_temp%'`;
+}
+
 function dbCatalogSql(supa: boolean): string {
-  const nsFilter = supa
-    ? `nspname NOT IN (${SUPA_PLATFORM_SCHEMAS.map(lit).join(",")}, 'information_schema')
-    AND nspname NOT LIKE 'pg\\_%'`
-    : `nspname NOT IN ('pg_catalog','information_schema')
-    AND nspname NOT LIKE 'pg\\_toast%' AND nspname NOT LIKE 'pg\\_temp%'`;
+  const nsFilter = nsFilterFor("nspname", supa);
   return `
 WITH ns AS (
   SELECT oid, nspname FROM pg_namespace
@@ -447,6 +549,115 @@ function multisetDiff(
   return { onlyDesired: onlyDesired.sort(), onlyResult: onlyResult.sort() };
 }
 
+// ── data preservation ───────────────────────────────────────────────────────
+interface TableSnap {
+  cols: string;
+  n: number;
+  md5: string;
+}
+
+async function listTables(
+  pool: pg.Pool,
+  supa: boolean,
+): Promise<{ schema: string; name: string; cols: string }[]> {
+  const r = await pool.query<{ schema: string; name: string; cols: string }>(`
+    SELECT n.nspname AS schema, c.relname AS name,
+           coalesce((SELECT string_agg(a.attname, ',' ORDER BY a.attnum)
+                       FROM pg_attribute a
+                      WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped), '') AS cols
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind IN ('r','p') AND ${nsFilterFor("n.nspname", supa)}
+     ORDER BY 1, 2`);
+  return r.rows;
+}
+
+/** As SUPERUSER: one default row per table that accepts it, then the
+ *  scenario's own seed file. */
+async function seedData(
+  pool: pg.Pool,
+  supa: boolean,
+  seedSql: string | undefined,
+  seedFile: string,
+): Promise<void> {
+  for (const t of await listTables(pool, supa))
+    await pool
+      .query(`INSERT INTO ${q(t.schema)}.${q(t.name)} DEFAULT VALUES`)
+      .catch(() => {});
+  await runSql(pool, seedSql, seedFile);
+}
+
+async function snapTables(
+  pool: pg.Pool,
+  supa: boolean,
+): Promise<Map<string, TableSnap>> {
+  const out = new Map<string, TableSnap>();
+  for (const t of await listTables(pool, supa)) {
+    try {
+      const r = await pool.query<{ n: number; h: string }>(
+        `SELECT count(*)::int AS n,
+                md5(coalesce(string_agg(t::text, E'\n' ORDER BY t::text), '')) AS h
+           FROM ${q(t.schema)}.${q(t.name)} AS t`,
+      );
+      out.set(`${t.schema}.${t.name}`, {
+        cols: t.cols,
+        n: r.rows[0]!.n,
+        md5: r.rows[0]!.h,
+      });
+    } catch {
+      // unreadable table: not recorded
+    }
+  }
+  return out;
+}
+
+function dataLoss(
+  before: Map<string, TableSnap>,
+  after: Map<string, TableSnap>,
+  desiredTables: Set<string>,
+): string[] {
+  const lost: string[] = [];
+  for (const [key, b] of before) {
+    if (b.n < 1 || !desiredTables.has(key)) continue;
+    const a = after.get(key);
+    if (a === undefined)
+      lost.push(`${key} (missing from result, had ${b.n} row(s))`);
+    else if (a.n !== b.n) lost.push(`${key} (rows ${b.n} -> ${a.n})`);
+    else if (a.cols === b.cols && a.md5 !== b.md5)
+      lost.push(`${key} (row content changed)`);
+  }
+  return lost;
+}
+
+// ── session state ───────────────────────────────────────────────────────────
+interface Queryable {
+  query: (sql: string) => Promise<{ rows: Record<string, string>[] }>;
+}
+async function sessionState(c: Queryable): Promise<string> {
+  const r = await c.query(
+    `SELECT current_user AS cu, session_user AS su, current_setting('role') AS role`,
+  );
+  const x = r.rows[0]!;
+  return `current_user=${x["cu"]} session_user=${x["su"]} role=${x["role"]}`;
+}
+async function sessionStateSafe(c: Queryable): Promise<string> {
+  try {
+    return await sessionState(c);
+  } catch (e) {
+    return `unreadable: ${errInfo(e).message}`;
+  }
+}
+
+/** Typed capability / identity refusals, detected structurally so the lab
+ *  runs on trees that do not have those classes. */
+function isTypedRefusal(info: { name: string; code?: string }): boolean {
+  return (
+    info.name === "CapabilityError" ||
+    info.name === "ApplierIdentityError" ||
+    info.code === "capability_blocked" ||
+    info.code === "applier_identity"
+  );
+}
+
 // ── run ──────────────────────────────────────────────────────────────────────
 type Direction = "forward" | "reverse";
 
@@ -454,15 +665,40 @@ interface RunRecord {
   image: string;
   scenario: string;
   direction: Direction;
+  /** role name the applier connections use (display) */
   applier: string;
+  /** --applier value (baseline key) */
+  applierMode: string;
+  login: string;
+  via: string;
+  supabase: boolean;
   outcome: string;
   detail: string;
-  expect: "converge" | "refuse";
-  expectMet: boolean;
+  verdict: string;
+  /** DATA_LOSS | ROLE_LEFT | PLAN_CHANGED */
+  flags: string[];
+  /** verdict before a baseline REGRESSION override */
+  rawVerdict?: string;
+  baseline?: "no-baseline" | "compared";
+  baselineVerdict?: string;
+  ideal: Ideal;
+  tags: string[];
+  /** transaction segments in the plan */
+  segments: number;
+  /** APPLY_FAIL only: did the source catalog stay as it was? */
+  failClean?: "clean" | "dirty";
+  roleBefore?: string;
+  roleAfter?: string;
   plan: string[];
   lines: string[];
   error?: { name: string; code?: string; message: string };
   failedAction?: { index: number; sql: string; message: string };
+  timings: {
+    setupMs?: number;
+    planMs?: number;
+    applyMs?: number;
+    verifyMs?: number;
+  };
   ms: number;
   resetMs?: number;
 }
@@ -484,6 +720,19 @@ async function prepareCluster(
   await c.adminPool.query(
     `CREATE ROLE ${q(APPLIER)} LOGIN PASSWORD '${APPLIER_PW}' CREATEROLE NOSUPERUSER ${inherit ? "INHERIT" : "NOINHERIT"}`,
   );
+  if (ARGS.login === "stepdown") await createLoginRole(c, APPLIER);
+}
+
+/** `lab_login`: the role the CLI connects as; it steps down to `applier`. */
+async function createLoginRole(c: Cluster, applier: string): Promise<void> {
+  await c.adminPool.query(
+    `CREATE ROLE ${q(LOGIN)} LOGIN PASSWORD '${LOGIN_PW}' NOSUPERUSER NOINHERIT`,
+  );
+  const grant =
+    (await c.pgMajor()) >= 16
+      ? `GRANT ${q(applier)} TO ${q(LOGIN)} WITH INHERIT FALSE, SET TRUE`
+      : `GRANT ${q(applier)} TO ${q(LOGIN)}`;
+  await c.adminPool.query(grant);
 }
 
 async function createDatabase(
@@ -537,42 +786,72 @@ async function resetClusters(ctx: Ctx): Promise<Ctx> {
   }
 }
 
+function blankRecord(
+  scenario: string,
+  direction: Direction,
+  meta: Meta,
+  pgMajor: number,
+): RunRecord {
+  return {
+    image: ARGS.image,
+    scenario,
+    direction,
+    applier: ARGS.applier,
+    applierMode: ARGS.applier,
+    login: ARGS.login,
+    via: ARGS.via,
+    supabase: ARGS.supabase,
+    outcome: "OK",
+    detail: "",
+    verdict: "NA",
+    flags: [],
+    // a superuser applier can do anything: `refuse` is meaningless there
+    ideal:
+      ARGS.applier === "superuser"
+        ? "converge"
+        : resolveIdeal(meta, pgMajor, direction),
+    tags: meta.tags ?? [],
+    segments: 0,
+    plan: [],
+    lines: [],
+    timings: {},
+    ms: 0,
+  };
+}
+
 async function runOne(
   ctx: Ctx,
   sc: Scenario,
   direction: Direction,
 ): Promise<RunRecord> {
   const started = Date.now();
-  const meta = sc.meta;
-  const expect = meta.expect ?? "converge";
-  const kind = ARGS.applier;
-  const rec: RunRecord = {
-    image: ARGS.image,
-    scenario: sc.name,
-    direction,
-    applier: ARGS.supabase
-      ? kind === "superuser"
-        ? "supabase_admin"
-        : "postgres"
-      : kind,
-    outcome: "OK",
-    detail: "",
-    expect,
-    expectMet: false,
-    plan: [],
-    lines: [],
-    ms: 0,
+  let mark = started;
+  const lap = (): number => {
+    const now = Date.now();
+    const d = now - mark;
+    mark = now;
+    return d;
   };
+  const meta = sc.meta;
+  const kind = ARGS.applier;
+  const rec = blankRecord(sc.name, direction, meta, ctx.pgMajor);
+  rec.applier = ARGS.supabase
+    ? kind === "superuser"
+      ? "supabase_admin"
+      : "postgres"
+    : kind;
+  let typedError = false;
   const finish = (outcome: string, detail: string): RunRecord => {
     rec.outcome = outcome;
     rec.detail = detail;
-    rec.expectMet =
-      outcome === "SKIPPED" ||
-      (expect === "refuse"
-        ? outcome === "BLOCKED" ||
-          outcome === "REFUSED_IDENTITY" ||
-          (outcome === "PLAN_THROW" && rec.error?.name === "CapabilityError")
-        : outcome === "OK");
+    rec.verdict = computeVerdict({
+      outcome,
+      flags: rec.flags,
+      ideal: rec.ideal,
+      segments: rec.segments,
+      ...(rec.failClean ? { failClean: rec.failClean } : {}),
+      typedError,
+    });
     rec.ms = Date.now() - started;
     return rec;
   };
@@ -591,17 +870,21 @@ async function runOne(
           pre: sc.preA,
           main: sc.a,
           post: sc.postA,
+          seed: sc.seedA,
           preF: "pre-a.sql",
           mainF: "a.sql",
           postF: "post-a.sql",
+          seedF: "seed-a.sql",
         }
       : {
           pre: sc.preB,
           main: sc.b,
           post: sc.postB,
+          seed: sc.seedB,
           preF: "pre-b.sql",
           mainF: "b.sql",
           postF: "post-b.sql",
+          seedF: "seed-b.sql",
         };
   };
   const srcSide = side("a");
@@ -627,12 +910,33 @@ async function runOne(
       sd.pre = fix(sd.pre);
       sd.main = fix(sd.main) ?? "";
       sd.post = fix(sd.post);
+      sd.seed = fix(sd.seed);
     }
   }
   const SRC = supa ? "postgres" : SRC_DB;
   const DST = supa ? "postgres" : DST_DB;
   const applierName = supa ? "postgres" : APPLIER;
   const applierPw = supa ? "postgres" : APPLIER_PW;
+  // stepdown only makes sense for a non-superuser applier
+  const stepdown = ARGS.login === "stepdown" && kind === "createrole";
+  const stepdownTo = stepdown ? applierName : undefined;
+  const apPool = (
+    cl: Cluster,
+    db: string,
+    max?: number,
+    direct = false,
+  ): pg.Pool =>
+    track(
+      mkPool(
+        stepdown && !direct
+          ? uriAs(cl.uriFor(db), LOGIN, LOGIN_PW)
+          : uriAs(cl.uriFor(db), applierName, applierPw),
+        {
+          ...(max !== undefined ? { max } : {}),
+          ...(stepdownTo !== undefined && !direct ? { stepdownTo } : {}),
+        },
+      ),
+    );
 
   try {
     if (!supa) {
@@ -644,6 +948,11 @@ async function runOne(
         createDatabase(ctx.a, SRC_DB, kind, dbOwner),
         createDatabase(ctx.b, DST_DB, kind, dbOwner),
       ]);
+    } else if (stepdown) {
+      await Promise.all([
+        createLoginRole(ctx.a, "postgres"),
+        createLoginRole(ctx.b, "postgres"),
+      ]);
     }
     const su = {
       src: track(mkPool(ctx.a.uriFor(SRC))),
@@ -652,24 +961,30 @@ async function runOne(
     const ap =
       kind === "superuser"
         ? su
-        : {
-            src: track(
-              mkPool(uriAs(ctx.a.uriFor(SRC), applierName, applierPw)),
-            ),
-            dst: track(
-              mkPool(uriAs(ctx.b.uriFor(DST), applierName, applierPw)),
-            ),
-          };
+        : { src: apPool(ctx.a, SRC), dst: apPool(ctx.b, DST) };
 
-    // 3. setup
-    for (const [s, label, suPool, apPool] of [
-      [srcSide, "source", su.src, ap.src],
-      [dstSide, "desired", su.dst, ap.dst],
+    // 3. setup. Scenario SQL may use session_user / SET ROLE, which mean
+    // something else behind a login role, so by default it runs over direct
+    // applier connections; only extract/probe/plan/apply step down.
+    const setupAp =
+      stepdown && !ARGS.stepdownSetup
+        ? {
+            src: apPool(ctx.a, SRC, undefined, true),
+            dst: apPool(ctx.b, DST, undefined, true),
+          }
+        : ap;
+    for (const [s, label, suPool, apPool2] of [
+      [srcSide, "source", su.src, setupAp.src],
+      [dstSide, "desired", su.dst, setupAp.dst],
     ] as const) {
       await runSql(suPool, s.pre, `${s.preF} (${label}, superuser)`);
-      await runSql(apPool, s.main, `${s.mainF} (${label}, applier)`);
+      await runSql(apPool2, s.main, `${s.mainF} (${label}, applier)`);
       await runSql(suPool, s.post, `${s.postF} (${label}, superuser)`);
     }
+    // 3b. seed the source with data (superuser) for the data-preservation oracle
+    await seedData(su.src, supa, srcSide.seed, srcSide.seedF);
+    const dataBefore = await snapTables(su.src, supa);
+    rec.timings.setupMs = lap();
 
     // 4. extract + plan
     const profile: ResolvedProfile | undefined =
@@ -684,6 +999,7 @@ async function runOne(
     const planOptions = {
       ...(profile ? profile.planOptions : { capability }),
       renames: meta.renames ?? "off",
+      ...(meta.planParams ? { params: meta.planParams } : {}),
     };
     let thePlan: Plan;
     let desiredFacts = desiredState.factBase;
@@ -706,57 +1022,170 @@ async function runOne(
       }
     } catch (e) {
       const info = errInfo(e);
+      typedError = isTypedRefusal(info);
       rec.error = {
         name: info.name,
         message: info.message,
         ...(info.code ? { code: info.code } : {}),
       };
+      rec.timings.planMs = lap();
       return finish(
         "PLAN_THROW",
         `${info.name}${info.code ? `[${info.code}]` : ""}: ${info.message}`,
       );
     }
+    rec.timings.planMs = lap();
     rec.plan = thePlan.actions.map((a) => a.sql);
-    if ((thePlan.blockers?.length ?? 0) > 0) {
+    rec.segments = segmentActions(thePlan.actions).length;
+    // `blockers` exists only on trees with the applier-authorization pass
+    const blockers =
+      (
+        thePlan as {
+          blockers?: {
+            code: string;
+            role: string;
+            reason: string;
+            objects: string[];
+          }[];
+        }
+      ).blockers ?? [];
+    if (blockers.length > 0) {
       rec.lines.push(
-        ...(thePlan.blockers ?? []).map(
+        ...blockers.map(
           (b) =>
             `blocker ${b.code}: role "${b.role}" — ${b.reason} (${b.objects.join(", ")})`,
         ),
       );
       return finish(
         "BLOCKED",
-        (thePlan.blockers ?? [])
-          .map((b) => `${b.role}: ${b.reason}`)
-          .join("; "),
+        blockers.map((b) => `${b.role}: ${b.reason}`).join("; "),
       );
     }
 
-    // 5. apply
-    let report: Awaited<ReturnType<typeof apply>>;
-    try {
-      report = await apply(thePlan, execAs === "superuser" ? su.src : ap.src, {
-        ...(profile ? profile.applyOptions : {}),
-        fingerprintGate: false,
-      });
-    } catch (e) {
-      const info = errInfo(e);
-      if (e instanceof ApplierIdentityError)
-        return finish("REFUSED_IDENTITY", info.message);
-      if (e instanceof CapabilityError) return finish("BLOCKED", info.message);
-      throw e;
+    // 5. apply, on ONE connection whose session state is recorded around it
+    let scriptText = "";
+    if (ARGS.via === "script") {
+      try {
+        scriptText = renderApplyScript(thePlan);
+      } catch (e) {
+        const info = errInfo(e);
+        rec.error = {
+          name: info.name,
+          message: info.message,
+          ...(info.code ? { code: info.code } : {}),
+        };
+        return finish("BLOCKED", `render refused: ${info.message}`);
+      }
     }
-    if (report.status !== "applied") {
-      const e = report.error;
+    const beforeLines = await catalogLines(
+      su.src,
+      ctx.pgMajor,
+      ctx.builtinRoles,
+    );
+    const beforeHash = sourceState.factBase.rootHash;
+    const applyAsSuper = kind === "superuser" || execAs === "superuser";
+    const applyPool = applyAsSuper
+      ? track(mkPool(ctx.a.uriFor(SRC), { max: 1 }))
+      : apPool(ctx.a, SRC, 1);
+
+    interface ApplyResult {
+      status: "applied" | "failed";
+      error?: { actionIndex: number; sql: string; message: string };
+    }
+    let report: ApplyResult | undefined;
+    let thrown: unknown;
+    if (ARGS.via === "apply") {
+      rec.roleBefore = await sessionState(applyPool);
+      try {
+        report = await apply(thePlan, applyPool, {
+          ...(profile ? profile.applyOptions : {}),
+          fingerprintGate: false,
+        });
+      } catch (e) {
+        thrown = e;
+      }
+      rec.roleAfter = await sessionStateSafe(applyPool);
+    } else {
+      const client = await applyPool.connect();
+      try {
+        rec.roleBefore = await sessionState(client);
+        try {
+          await client.query(scriptText);
+          report = { status: "applied" };
+        } catch (e) {
+          const info = errInfo(e);
+          const pos = Number((e as { position?: unknown }).position);
+          const near =
+            Number.isFinite(pos) && pos > 0
+              ? scriptText.slice(Math.max(0, pos - 1), pos + 80)
+              : "(script)";
+          report = {
+            status: "failed",
+            error: { actionIndex: -1, sql: near, message: info.message },
+          };
+          // a failed explicit BEGIN block leaves the session aborted
+          await client.query("ROLLBACK").catch(() => {});
+        }
+        rec.roleAfter = await sessionStateSafe(client);
+      } finally {
+        client.release();
+      }
+    }
+    rec.timings.applyMs = lap();
+    if (rec.roleBefore !== rec.roleAfter) {
+      rec.flags.push("ROLE_LEFT");
+      rec.lines.push(
+        `ROLE_LEFT before: ${rec.roleBefore}`,
+        `ROLE_LEFT after:  ${rec.roleAfter}`,
+      );
+    }
+    if (thrown !== undefined) {
+      const info = errInfo(thrown);
+      rec.error = {
+        name: info.name,
+        message: info.message,
+        ...(info.code ? { code: info.code } : {}),
+      };
+      if (
+        info.name === "ApplierIdentityError" ||
+        info.code === "applier_identity"
+      )
+        return finish("REFUSED_IDENTITY", info.message);
+      if (isTypedRefusal(info)) return finish("BLOCKED", info.message);
+      throw thrown;
+    }
+    if (report === undefined || report.status !== "applied") {
+      const e = report?.error;
       if (e)
         rec.failedAction = {
           index: e.actionIndex,
           sql: e.sql,
           message: e.message,
         };
+      // fail-clean: did the SOURCE database change anyway?
+      const afterLines = await catalogLines(
+        su.src,
+        ctx.pgMajor,
+        ctx.builtinRoles,
+      );
+      const d = multisetDiff(beforeLines, afterLines);
+      const diffLines = [
+        ...d.onlyDesired.map((l) => `dirty - ${l}`),
+        ...d.onlyResult.map((l) => `dirty + ${l}`),
+      ];
+      try {
+        const st = await doExtract(ap.src);
+        if (st.factBase.rootHash !== beforeHash)
+          diffLines.push("dirty: source fact base changed");
+      } catch (err) {
+        diffLines.push(`dirty?: re-extract failed: ${errInfo(err).message}`);
+      }
+      rec.failClean = diffLines.length === 0 ? "clean" : "dirty";
+      rec.lines.push(...diffLines);
+      rec.timings.verifyMs = lap();
       return finish(
         "APPLY_FAIL",
-        `action ${e?.actionIndex}: ${e?.message} -- ${e?.sql}`,
+        `${rec.failClean} (${rec.segments} segment(s)) action ${e?.actionIndex}: ${e?.message} -- ${e?.sql}`,
       );
     }
 
@@ -804,7 +1233,23 @@ async function runOne(
         ...d.onlyResult.map((l) => `+ ${l}`),
       );
     }
-    if (outcomes.length === 0) return finish("OK", "");
+
+    // 8. data preservation
+    const desiredTables = new Set(
+      (await listTables(su.dst, supa)).map((t) => `${t.schema}.${t.name}`),
+    );
+    const lost = dataLoss(
+      dataBefore,
+      await snapTables(su.src, supa),
+      desiredTables,
+    );
+    if (lost.length > 0) {
+      rec.flags.push("DATA_LOSS");
+      details.push(`DATA_LOSS: ${lost.join("; ")}`);
+      rec.lines.push(...lost.map((l) => `DATA_LOSS ${l}`));
+    }
+    rec.timings.verifyMs = lap();
+    if (outcomes.length === 0) return finish("OK", details.join("; "));
     return finish(outcomes.join("+"), details.join("; "));
   } catch (e) {
     if (e instanceof SetupError)
@@ -817,32 +1262,95 @@ async function runOne(
   }
 }
 
+// ── baselines ────────────────────────────────────────────────────────────────
+interface BaselineLine {
+  scenario: string;
+  direction: string;
+  image: string;
+  applierMode: string;
+  login: string;
+  via: string;
+  supabase: boolean;
+  outcome: string;
+  verdict: string;
+  flags: string[];
+  plan: string[];
+}
+
+function recKey(r: {
+  scenario: string;
+  direction: string;
+  image: string;
+  applierMode: string;
+  login: string;
+  via: string;
+  supabase: boolean;
+}): string {
+  return baselineKey({
+    scenario: r.scenario,
+    direction: r.direction,
+    image: r.image,
+    applier: r.applierMode,
+    login: r.login,
+    via: r.via,
+    supabase: r.supabase,
+  });
+}
+
+function loadBaseline(file: string): Map<string, BaselineLine> {
+  const m = new Map<string, BaselineLine>();
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    if (line.trim() === "") continue;
+    const b = JSON.parse(line) as BaselineLine;
+    m.set(recKey(b), b);
+  }
+  return m;
+}
+
+function judgeAgainst(
+  baseline: Map<string, BaselineLine> | undefined,
+  rec: RunRecord,
+): void {
+  if (baseline === undefined) return;
+  const b = baseline.get(recKey(rec));
+  if (b === undefined) {
+    rec.baseline = "no-baseline";
+    return;
+  }
+  rec.baseline = "compared";
+  rec.baselineVerdict = b.verdict;
+  if (b.verdict === "PASS" && rec.verdict !== "PASS") {
+    rec.rawVerdict = rec.verdict;
+    rec.verdict = "REGRESSION";
+  }
+  if (
+    ARGS.applier === "superuser" &&
+    JSON.stringify(b.plan) !== JSON.stringify(rec.plan)
+  ) {
+    rec.flags.push("PLAN_CHANGED");
+    rec.lines.push(...statementDiff(b.plan, rec.plan));
+  }
+}
+
 // ── reporting ────────────────────────────────────────────────────────────────
-function normalizeMsg(s: string): string {
-  return s
-    .replace(/"[^"]*"/g, '"_"')
-    .replace(/'[^']*'/g, "'_'")
-    .replace(/\(near:.*$/s, "")
-    .replace(/ -- .*$/s, "")
-    .replace(/\b\d+\b/g, "N")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 200);
+function oneLine(s: string, max = 160): string {
+  const t = s.replaceAll("\n", " ");
+  return t.length > max ? `${t.slice(0, max - 3)}...` : t;
 }
 
-function groupKey(r: RunRecord): string {
-  const msg = r.failedAction?.message ?? r.error?.message ?? r.detail ?? "";
-  return normalizeMsg(msg);
+function verdictLabel(r: RunRecord): string {
+  return r.verdict === "REGRESSION"
+    ? `REGRESSION(now ${r.rawVerdict})`
+    : r.verdict;
 }
 
-function printRun(r: RunRecord, isCorpus: boolean): void {
-  const short =
-    r.detail.length > 160 ? `${r.detail.slice(0, 157)}...` : r.detail;
+function printRun(r: RunRecord): void {
+  const flags = r.flags.length > 0 ? ` [${r.flags.join(",")}]` : "";
   console.log(
-    `[${r.image}] ${r.scenario} ${r.direction} → ${r.outcome}${short ? ` ${short.replaceAll("\n", " ")}` : ""}`,
+    `[${r.image}] ${r.scenario} ${r.direction} → ${r.outcome} ${verdictLabel(r)}${flags}${r.detail ? ` ${oneLine(r.detail)}` : ""}`,
   );
-  const interesting = r.outcome !== "OK" && r.outcome !== "SKIPPED";
-  const noisy = isCorpus && r.outcome === "SETUP_FAIL";
+  const interesting = r.verdict !== "PASS" && r.outcome !== "SKIPPED";
+  const noisy = ARGS.corpus && r.outcome === "SETUP_FAIL";
   if (ARGS.verbose || (interesting && !noisy)) {
     r.plan.forEach((sql, i) =>
       console.log(`    ${i}: ${sql.replaceAll("\n", "\n       ")}`),
@@ -858,7 +1366,13 @@ function printRun(r: RunRecord, isCorpus: boolean): void {
 // ── main ─────────────────────────────────────────────────────────────────────
 async function main(): Promise<number> {
   let dirs: string[] = [...ARGS.dirs];
-  if (ARGS.all) dirs.push(...listDirs(join(HERE, "scenarios")));
+  if (ARGS.all || ARGS.suite)
+    dirs.push(...listScenarioDirs(join(HERE, "scenarios")));
+  if (ARGS.suite) {
+    dirs.push(...listScenarioDirs(join(HERE, "adversarial")));
+    dirs.push(...listScenarioDirs(join(HERE, "generated")));
+    if (ARGS.supabase) dirs.push(...listScenarioDirs(join(HERE, "supabase")));
+  }
   if (ARGS.corpus) {
     const root = resolve(HERE, "../../corpus");
     dirs.push(
@@ -867,16 +1381,24 @@ async function main(): Promise<number> {
       ),
     );
   }
-  dirs = [...new Set(dirs)];
+  dirs = [...new Set(dirs.map((d) => resolve(d)))].sort();
+  if (ARGS.shard)
+    dirs = dirs.filter((_, i) => i % ARGS.shard!.n === ARGS.shard!.i - 1);
   if (dirs.length === 0) {
-    console.error("no scenarios: pass dirs, --all, or --corpus");
+    console.error("no scenarios: pass dirs, --suite, --all, or --corpus");
     return 2;
   }
   const directions: Direction[] =
     ARGS.direction === "both" ? ["forward", "reverse"] : [ARGS.direction];
+  const baseline = ARGS.compareBaseline
+    ? loadBaseline(ARGS.compareBaseline)
+    : undefined;
+  if (ARGS.json) writeFileSync(ARGS.json, "");
+  if (ARGS.recordBaseline) writeFileSync(ARGS.recordBaseline, "");
 
   let ctx: Ctx;
   let pgMajor: number;
+  const modes = `applier=${ARGS.applier} login=${ARGS.login} via=${ARGS.via}${ARGS.shard ? ` shard=${ARGS.shard.i}/${ARGS.shard.n}` : ""}`;
   if (ARGS.supabase) {
     // fresh containers per run; this first pair is only used to report the
     // version and is reused by the first run.
@@ -890,7 +1412,7 @@ async function main(): Promise<number> {
     );
     console.log(`# image ${ARGS.image}: ${ver.rows[0]?.version}`);
     console.log(
-      `# supabase mode applier=${ARGS.applier === "superuser" ? "supabase_admin" : "postgres"} scenarios=${dirs.length} directions=${directions.join(",")}`,
+      `# supabase mode ${modes} (applier role ${ARGS.applier === "superuser" ? "supabase_admin" : "postgres"}) scenarios=${dirs.length} directions=${directions.join(",")}`,
     );
     ctx = {
       a: sa.cluster,
@@ -906,22 +1428,52 @@ async function main(): Promise<number> {
     );
     console.log(`# image ${ARGS.image}: ${ver.rows[0]?.version}`);
     console.log(
-      `# applier=${ARGS.applier} scenarios=${dirs.length} directions=${directions.join(",")}`,
+      `# ${modes} scenarios=${dirs.length} directions=${directions.join(",")}`,
     );
     ctx = { a, b, pgMajor };
   }
+  if (ARGS.login === "stepdown" && ARGS.applier === "superuser")
+    console.log("# note: --login stepdown is ignored with --applier superuser");
   let fresh = ARGS.supabase; // supabase: the pair in ctx has not been used yet
 
   const records: RunRecord[] = [];
+  const emit = (rec: RunRecord): void => {
+    judgeAgainst(baseline, rec);
+    records.push(rec);
+    printRun(rec);
+    if (ARGS.json)
+      appendFileSync(ARGS.json, `${JSON.stringify({ ...rec, pgMajor })}\n`);
+    if (ARGS.recordBaseline) {
+      const line: BaselineLine & { tags: string[]; ideal: Ideal } = {
+        scenario: rec.scenario,
+        direction: rec.direction,
+        image: rec.image,
+        applierMode: rec.applierMode,
+        login: rec.login,
+        via: rec.via,
+        supabase: rec.supabase,
+        outcome: rec.outcome,
+        verdict: rec.rawVerdict ?? rec.verdict,
+        flags: rec.flags.filter((f) => f !== "PLAN_CHANGED"),
+        plan: rec.plan,
+        tags: rec.tags,
+        ideal: rec.ideal,
+      };
+      appendFileSync(ARGS.recordBaseline, `${JSON.stringify(line)}\n`);
+    }
+  };
   try {
     for (const dir of dirs) {
       let sc: Scenario;
       try {
         sc = loadScenario(dir);
       } catch (e) {
-        console.log(
-          `[${ARGS.image}] ${basename(dir)} → HARNESS_ERROR ${errInfo(e).message}`,
-        );
+        for (const direction of directions) {
+          const rec = blankRecord(relative(HERE, dir), direction, {}, pgMajor);
+          rec.outcome = "HARNESS_ERROR";
+          rec.detail = errInfo(e).message;
+          emit(rec);
+        }
         continue;
       }
       for (const direction of directions) {
@@ -942,19 +1494,10 @@ async function main(): Promise<number> {
           rec = await runOne(ctx, sc, direction);
         } catch (e) {
           const info = errInfo(e);
-          rec = {
-            image: ARGS.image,
-            scenario: sc.name,
-            direction,
-            applier: ARGS.applier,
-            outcome: "HARNESS_ERROR",
-            detail: info.message,
-            expect: sc.meta.expect ?? "converge",
-            expectMet: false,
-            plan: [],
-            lines: [info.stack ?? info.message],
-            ms: 0,
-          };
+          rec = blankRecord(sc.name, direction, sc.meta, pgMajor);
+          rec.outcome = "HARNESS_ERROR";
+          rec.detail = info.message;
+          rec.lines = [info.stack ?? info.message];
         }
         const resetStart = Date.now();
         if (ARGS.supabase) {
@@ -962,10 +1505,7 @@ async function main(): Promise<number> {
           fresh = false;
         } else ctx = await resetClusters(ctx);
         rec.resetMs = Date.now() - resetStart;
-        records.push(rec);
-        printRun(rec, ARGS.corpus);
-        if (ARGS.json)
-          appendFileSync(ARGS.json, `${JSON.stringify({ ...rec, pgMajor })}\n`);
+        emit(rec);
       }
     }
   } finally {
@@ -974,30 +1514,52 @@ async function main(): Promise<number> {
   }
 
   // summary
-  const counts = new Map<string, number>();
-  for (const r of records)
-    counts.set(r.outcome, (counts.get(r.outcome) ?? 0) + 1);
-  console.log("\n== summary ==");
-  for (const [k, v] of [...counts].sort((x, y) => x[0].localeCompare(y[0])))
+  const count = (key: (r: RunRecord) => string): [string, number][] => {
+    const m = new Map<string, number>();
+    for (const r of records) m.set(key(r), (m.get(key(r)) ?? 0) + 1);
+    return [...m].sort((x, y) => x[0].localeCompare(y[0]));
+  };
+  console.log(`\n== summary (${modes}${ARGS.supabase ? " supabase" : ""}) ==`);
+  console.log("-- verdicts --");
+  for (const [k, v] of count((r) => r.verdict))
     console.log(`${String(v).padStart(5)}  ${k}`);
-  const groups = new Map<string, Map<string, RunRecord[]>>();
+  console.log("-- outcomes --");
+  for (const [k, v] of count((r) => r.outcome))
+    console.log(`${String(v).padStart(5)}  ${k}`);
+  if (baseline) {
+    for (const [k, v] of count((r) => r.baseline ?? "-"))
+      console.log(`${String(v).padStart(5)}  baseline:${k}`);
+    const changed = records.filter((r) => r.flags.includes("PLAN_CHANGED"));
+    if (ARGS.applier === "superuser")
+      console.log(`${String(changed.length).padStart(5)}  PLAN_CHANGED`);
+  }
+  const byVerdict = new Map<string, RunRecord[]>();
   for (const r of records) {
-    if (r.outcome === "OK" || r.outcome === "SKIPPED") continue;
-    const og = groups.get(r.outcome) ?? new Map<string, RunRecord[]>();
-    const key = groupKey(r);
-    og.set(key, [...(og.get(key) ?? []), r]);
-    groups.set(r.outcome, og);
+    if (
+      r.verdict === "PASS" ||
+      (r.verdict === "NA" && r.outcome !== "HARNESS_ERROR")
+    )
+      continue;
+    const k = r.outcome === "HARNESS_ERROR" ? "HARNESS_ERROR" : r.verdict;
+    byVerdict.set(k, [...(byVerdict.get(k) ?? []), r]);
   }
-  for (const [outcome, og] of groups) {
-    console.log(`\n-- ${outcome} --`);
-    for (const [key, rs] of [...og].sort((x, y) => y[1].length - x[1].length)) {
-      console.log(`  (${rs.length}) ${key}`);
-      if (outcome !== "SETUP_FAIL" || !ARGS.corpus)
-        console.log(`      ${rs.map((r) => r.scenario).join(", ")}`);
-    }
+  for (const [verdict, rs] of [...byVerdict].sort((x, y) =>
+    x[0].localeCompare(y[0]),
+  )) {
+    console.log(`\n-- ${verdict} (${rs.length}) --`);
+    for (const r of rs)
+      console.log(
+        `  ${r.scenario} ${r.direction}: ${r.outcome}${r.flags.length ? ` [${r.flags.join(",")}]` : ""} ${oneLine(r.detail, 120)}`,
+      );
   }
-  if (ARGS.corpus) return 0;
-  return records.every((r) => r.expectMet) ? 0 : 1;
+  return records.some(
+    (r) =>
+      r.verdict === "SILENT" ||
+      r.verdict === "REGRESSION" ||
+      r.flags.includes("PLAN_CHANGED"),
+  )
+    ? 1
+    : 0;
 }
 
 main().then(

@@ -1,0 +1,16 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:modifiers",
+    "kind:enum",
+    "transition:new-to-r",
+    "membership:none",
+    "schema:own",
+    "create:temp",
+    "acl:reader",
+    "modifier:noinherit"
+  ],
+  "notes": "enum: new-to-r; applier membership none; schema own; new owner CREATE temp; acl reader; modifier noinherit",
+  "applierInherit": false,
+  "minVersion": 16
+}

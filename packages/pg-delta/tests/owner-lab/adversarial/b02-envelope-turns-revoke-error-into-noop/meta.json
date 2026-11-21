@@ -1,4 +1,5 @@
 {
-  "minVersion": 16,
-  "notes": "s.t is owned by o_foreign (created by the superuser; not assumable on PG16+). The plan revokes x_reader's SELECT. Without the envelope the applier has no privilege on s.t and REVOKE fails loudly. The envelope opens h_hold (it owns the altered s.u), which holds SELECT WITH GRANT OPTION on s.t, so REVOKE runs as grantor h_hold and revokes nothing."
+ "minVersion": 16,
+ "notes": "s.t is owned by o_foreign (created by the superuser; not assumable on PG16+). The plan revokes x_reader's SELECT. Without the envelope the applier has no privilege on s.t and REVOKE fails loudly. The envelope opens h_hold (it owns the altered s.u), which holds SELECT WITH GRANT OPTION on s.t, so REVOKE runs as grantor h_hold and revokes nothing.",
+ "ideal": "refuse"
 }

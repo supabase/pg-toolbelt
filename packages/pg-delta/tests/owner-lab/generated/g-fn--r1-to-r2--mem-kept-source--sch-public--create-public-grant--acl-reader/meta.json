@@ -1,0 +1,15 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:function",
+    "transition:r1-to-r2",
+    "membership:kept-source",
+    "schema:public",
+    "create:public-grant",
+    "acl:reader",
+    "modifier:none"
+  ],
+  "notes": "function: r1-to-r2; applier membership kept-source; schema public; new owner CREATE public-grant; acl reader",
+  "minVersion": 15
+}

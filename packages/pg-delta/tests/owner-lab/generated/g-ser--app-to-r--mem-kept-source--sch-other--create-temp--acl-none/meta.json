@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:serial",
+    "transition:app-to-r",
+    "membership:kept-source",
+    "schema:other-owned",
+    "create:temp",
+    "acl:none",
+    "modifier:none"
+  ],
+  "notes": "serial: app-to-r; applier membership kept-source; schema other-owned; new owner CREATE temp; acl none"
+}

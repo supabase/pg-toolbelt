@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:view",
+    "transition:r-modify",
+    "membership:kept-desired",
+    "schema:other-owned",
+    "create:direct",
+    "acl:reader",
+    "modifier:none"
+  ],
+  "notes": "view: r-modify; applier membership kept-desired; schema other-owned; new owner CREATE direct; acl reader"
+}

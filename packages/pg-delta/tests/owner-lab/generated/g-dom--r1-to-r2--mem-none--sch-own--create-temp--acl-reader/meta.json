@@ -1,0 +1,14 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:core",
+    "kind:domain",
+    "transition:r1-to-r2",
+    "membership:none",
+    "schema:own",
+    "create:temp",
+    "acl:reader",
+    "modifier:none"
+  ],
+  "notes": "domain: r1-to-r2; applier membership none; schema own; new owner CREATE temp; acl reader"
+}

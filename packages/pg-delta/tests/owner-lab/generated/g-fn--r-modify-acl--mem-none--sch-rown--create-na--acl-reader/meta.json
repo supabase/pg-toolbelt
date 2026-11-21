@@ -1,0 +1,15 @@
+{
+  "ideal": "converge",
+  "tags": [
+    "bucket:pairwise",
+    "kind:function",
+    "transition:r-modify-acl",
+    "membership:none",
+    "schema:r-owned",
+    "create:na",
+    "acl:reader",
+    "modifier:none",
+    "needs-db-create"
+  ],
+  "notes": "function: r-modify-acl; applier membership none; schema r-owned; new owner CREATE na; acl reader"
+}
