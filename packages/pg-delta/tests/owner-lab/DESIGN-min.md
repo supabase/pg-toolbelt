@@ -56,14 +56,16 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    throws for this, so a read-only diff always renders:
    - an owner change whose new owner the applier can neither `SET ROLE` to nor borrow, or
      whose current owner it can neither act as nor borrow;
-   - a borrowed role (or a role it is a member of) that holds a grant option on an object
-     the plan has a GRANT / REVOKE on, or that holds ADMIN on a role the plan grants or
-     revokes: Postgres could record it, instead of the owner, as the grantor. (Postgres
-     picks the grantor from that object's ACL only, so a grant option on any other
-     object is harmless.)
-   - the mirror case: the applier, or a role it already had, holds a grant option on an
-     object whose owner the plan must borrow, and the plan has a GRANT / REVOKE on that
-     object: Postgres could record the owner instead of the role that granted before.
+   - a GRANT / REVOKE on an object where Postgres could record someone else than the
+     owner as the grantor. Postgres picks the executing role when it owns the object,
+     else the first role, among the executing role and those it inherits, that holds the
+     grant options in THAT object's ACL (the owner holds them all); a superuser always
+     records the owner. So the plan is refused when a role the applier acts through,
+     other than the owner, holds a grant option on that very object and either the
+     applier also has the owner's privileges, or that role is one the plan borrows. A
+     grant option on any other object is harmless and ignored.
+   - a membership GRANT / REVOKE on a role where a borrowed role holds ADMIN and the
+     applier holds none directly (same reason, for `pg_auth_members`).
 
 "Can grant itself": PG ≤15 the applier has CREATEROLE and inherits, the role is not a
 superuser; PG16+ the applier holds ADMIN on the role directly or the plan creates it; on
@@ -89,8 +91,8 @@ Likelihood is my estimate of how often a real project migration hits it.
 | Limit | Result | Likelihood |
 |---|---|---|
 | Owner role the applier cannot borrow: PG16+ a role it neither created nor holds ADMIN on; reserved by supautils; a superuser role | blocker | plausible on PG16+ for roles created by another role |
-| A borrowed role holds WITH GRANT OPTION or ADMIN | blocker, with the workaround in the message | rare |
-| The applier ALREADY inherits (before the plan) a role holding a grant option on the object, or holds one itself | GRANT is recorded with that grantor, as on `main` today | rare; unchanged behaviour |
+| A role the applier acts through, other than the owner, holds a grant option on an object the plan grants or revokes on (or ADMIN on a role it grants) | blocker: apply as a superuser. Refuses 3 lab scenarios that silently record the wrong grantor on `main` today | rare |
+| The plan itself makes the applier inherit such a role (it grants the holder to the applier or to a role the applier inherits) | GRANT recorded with that grantor, as on `main` today | rare; unchanged behaviour |
 | Publication owner (new owner needs CREATE on the database); FDW, event trigger, all-tables publication (superuser) | Postgres error | rare |
 | Role rename in the same plan as work on objects it owns | Postgres error | rare |
 | Owner change of schema `public` itself | not planned, on any applier | rare |
