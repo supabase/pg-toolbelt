@@ -34,8 +34,10 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    itself is created or altered; the new owner of an owner change. If the applier had already granted itself that
    role with other options (PG16+), the row goes back exactly as the capability probe saw
    it. If the plan itself revokes that membership, its REVOKE is the one at the end.
-   A GRANT / REVOKE the applier can already make through a grant option it (or a role
-   it has) holds borrows nothing: it runs as it does today.
+   A GRANT / REVOKE the applier can already make borrows nothing and runs as it does
+   today. Judged narrowly: before the plan, on exactly that object (or column), the
+   applier or a role it has holds the grant option for every privilege the ACL item has
+   on either side. In any doubt the owner is borrowed.
 2. **Lend.** A new owner without CREATE on the schema gets it before the first owner change
    of a run and loses it after the last. Decided from the two end states: nothing when the
    role (or PUBLIC) holds CREATE before the plan and the plan does not take it away; no
@@ -69,7 +71,8 @@ superuser; PG16+ the applier holds ADMIN on the role directly or the plan create
 every version the role is not reserved by supautils and is not a member of the applier.
 
 A plan that borrows or lends is bound to its applier: `apply()` refuses to run it as
-another role.
+another role, and a rendered script starts with a `DO` block that raises unless
+`current_user` is that role.
 
 ## What was built, measured and cut
 
@@ -98,4 +101,5 @@ Likelihood is my estimate of how often a real project migration hits it.
 | Membership rows granted by another role, and their INHERIT / SET options | not modelled, as on `main`; a REVOKE of a row the applier did not grant is a no-op with a warning | rare |
 | A plan with several transactions that fails in a later one (for example a failed `CREATE INDEX CONCURRENTLY`) | the migration fails loudly and the borrowed role stays granted; `REVOKE <role> FROM <applier>` by hand. Borrowing per transaction would remove this at the cost of a GRANT / REVOKE pair per transaction | rare |
 | Which roles the applier has granted itself (PG16+): a `GRANT app_owner TO postgres` kept in the desired database | not compared, not planned: `CREATE ROLE` gives the creator an ADMIN-only row, so the membership fact exists on both sides and INHERIT / SET are not facts. A borrowed role is always given back, and a role the applier already held is left as found. Follow-up for the engine: INHERIT / SET as membership attributes (extract, diff, export together); the plan's own GRANT then keeps the role, as on PG ≤15, with no change to this pass | common, harmless: a migration that needs the role borrows it; `GRANT app_owner TO postgres` once on the target gives plain DDL from then on |
-| A table-level `REVOKE ALL` while a role the applier acts through holds grant options on that table's columns only | Postgres picks a grantor per column for the implicit column revokes; not checked | rare |
+| Grant options on columns: the refusal looks at the whole table, so a borrowed role's option on column `a` refuses a planned grant on column `b` | blocker where the plan would have been fine | rare |
+| `createrole_self_grant` set for the applier (off by default, empty on Supabase) and the plan creates a role it also borrows | the closing REVOKE removes the automatic self-grant | rare |

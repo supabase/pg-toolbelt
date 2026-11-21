@@ -522,14 +522,29 @@ export function authorizeForApplier(
     // a default privilege belongs to a role (defaclrole)
     if (a.subject.kind === "defaultPrivilege") add(a.subject.role);
     const root = rootOf(a.subject);
-    // a GRANT / REVOKE the applier can already make, through a grant option
-    // it or a role it has holds, runs as it does today: no owner needed
-    const target = satelliteTarget(a.subject);
+    // a GRANT / REVOKE the applier can already make runs as it does today,
+    // without the owner. Judged narrowly: before the plan, on exactly this
+    // ACL item's object (or column), the applier or a role it has holds the
+    // grant option for every privilege the item has on either side.
     const grantsAlready =
-      target !== undefined &&
-      [applier, ...inheritedSet].some((h) => {
-        const held = holdersOf(target).get(h);
-        return held !== undefined && covers(held, a.subject);
+      a.subject.kind === "acl" &&
+      [a.subject, ...a.produces].every((id) => {
+        if (id.kind !== "acl") return false;
+        const item = [source, desired].flatMap(
+          (fb) =>
+            (fb.get(id)?.payload["privileges"] as string[] | undefined) ?? [],
+        );
+        return (
+          item.length > 0 &&
+          [applier, ...inheritedSet].some((h) => {
+            const held = source.get({ ...id, grantee: h })?.payload[
+              "grantable"
+            ];
+            return item.every((x) =>
+              ((held as string[] | undefined) ?? []).includes(x),
+            );
+          })
+        );
       });
     if (root !== undefined && !grantsAlready) {
       add(ownerNow(root));
