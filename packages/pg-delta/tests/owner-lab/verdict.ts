@@ -164,3 +164,136 @@ export function statementDiff(
   });
   return out;
 }
+
+// ── reference (superuser) comparison ─────────────────────────────────────────
+
+/** Normalise a catalog-truth line for the main-vs-reference comparison: in
+ *  `member` lines the grantor is the applier or the bootstrap superuser (same
+ *  token), and rows whose MEMBER is the bootstrap superuser are dropped (null).
+ *  Owner and ACL lines (including grantors) are untouched. */
+export function normalizeRefLine(
+  line: string,
+  applier: string,
+  bootstrap: string,
+): string | null {
+  if (!line.startsWith("member ")) return line;
+  const m = /^member (.+?) <- (.+?) (admin=.*?)(?: grantor=(.+))?$/.exec(line);
+  if (!m) return line;
+  const [, role, member, opts, grantor] = m;
+  if (member === bootstrap) return null;
+  const g =
+    grantor === undefined
+      ? ""
+      : grantor === applier || grantor === bootstrap
+        ? " grantor=*"
+        : ` grantor=${grantor}`;
+  return `member ${role} <- ${member} ${opts}${g}`;
+}
+
+export function normalizeRefLines(
+  lines: readonly string[],
+  applier: string,
+  bootstrap: string,
+): Set<string> {
+  const out = new Set<string>();
+  for (const l of lines) {
+    const n = normalizeRefLine(l, applier, bootstrap);
+    if (n !== null) out.add(n);
+  }
+  return out;
+}
+
+export interface RefineInput {
+  verdict: string;
+  outcome: string;
+  flags: readonly string[];
+  /** reference outcome: REF_OK | REF_NONCONVERGED | REF_APPLY_FAIL | REF_PLAN_THROW */
+  refOutcome: string;
+  /** main result == reference result after normalisation */
+  sameResult: boolean;
+  /** same DATA_LOSS table set in main and reference */
+  sameDataLoss: boolean;
+}
+
+/** Re-judge a createrole run against the superuser reference. */
+export function refineVerdict(i: RefineInput): {
+  verdict: string;
+  addFlags: string[];
+} {
+  const refApplied =
+    i.refOutcome === "REF_OK" || i.refOutcome === "REF_NONCONVERGED";
+  const applied = APPLIED.has(i.outcome);
+  if (applied) {
+    if (i.flags.includes("ROLE_LEFT"))
+      return { verdict: i.verdict, addFlags: [] };
+    if (i.verdict === "NONCONVERGED")
+      return {
+        verdict: i.verdict,
+        addFlags: i.sameResult && refApplied ? ["SAME_AS_SUPERUSER"] : [],
+      };
+    if (i.verdict === "SILENT") {
+      if (refApplied && i.sameResult && i.sameDataLoss)
+        return { verdict: "ENGINE_GAP", addFlags: [] };
+      return { verdict: "SILENT", addFlags: [] };
+    }
+    return { verdict: i.verdict, addFlags: [] };
+  }
+  if (
+    i.verdict === "LOUD" &&
+    (i.refOutcome === "REF_APPLY_FAIL" || i.refOutcome === "REF_PLAN_THROW")
+  )
+    return { verdict: "LOUD_ENGINE", addFlags: [] };
+  return { verdict: i.verdict, addFlags: [] };
+}
+
+/** Split SQL text into statements the way psql does: on `;` outside quotes,
+ *  dollar quotes and comments. The `;` stays with its statement. */
+export function splitSqlStatements(text: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const c = text[i]!;
+    const c2 = text[i + 1];
+    if (c === "-" && c2 === "-") {
+      while (i < n && text[i] !== "\n") i++;
+    } else if (c === "/" && c2 === "*") {
+      let depth = 1;
+      i += 2;
+      while (i < n && depth > 0) {
+        if (text[i] === "/" && text[i + 1] === "*") {
+          depth++;
+          i += 2;
+        } else if (text[i] === "*" && text[i + 1] === "/") {
+          depth--;
+          i += 2;
+        } else i++;
+      }
+    } else if (c === "'" || c === '"') {
+      i++;
+      while (i < n) {
+        if (text[i] === c) {
+          if (text[i + 1] === c) i += 2;
+          else break;
+        } else i++;
+      }
+      i++;
+    } else if (c === "$") {
+      const m = /^\$[A-Za-z_\u0080-￿]*[A-Za-z0-9_\u0080-￿]*\$/.exec(
+        text.slice(i, i + 80),
+      );
+      if (m && (i === 0 || !/[A-Za-z0-9_]/.test(text[i - 1]!))) {
+        const end = text.indexOf(m[0], i + m[0].length);
+        i = end === -1 ? n : end + m[0].length;
+      } else i++;
+    } else if (c === ";") {
+      i++;
+      out.push(text.slice(start, i));
+      start = i;
+    } else i++;
+  }
+  const rest = text.slice(start);
+  if (rest.replace(/--[^\n]*/g, "").trim() !== "") out.push(rest);
+  return out;
+}

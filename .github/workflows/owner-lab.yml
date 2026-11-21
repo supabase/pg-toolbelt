@@ -1,0 +1,208 @@
+name: Owner lab (PoC)
+
+# What a push runs is chosen by the head commit message:
+#   (nothing)            run every config
+#   [lab:skip]           run nothing
+#   [lab:pg17,supa17]    run only the named configs (comma list of config names)
+# workflow_dispatch can only be used once this file is on the default branch;
+# its `configs` input (when not `all`) takes precedence over the commit message.
+
+# Shards the owner-lab measuring stick (packages/pg-delta/tests/owner-lab)
+# across runners. Each shard records a baseline on the BASE tree (the lab
+# files are copied into it) and then runs the PoC tree twice (union, runas)
+# against that baseline. The lab exiting 1 (SILENT / REGRESSION / PLAN_CHANGED)
+# is a result, not a CI failure; the `summary` job judges the merged results.
+
+on:
+  push:
+    branches:
+      - avallete/owner-envelope-poc
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Base commit the baselines are recorded on
+        default: 5200cc7c80749c29617de70c1438375f8b4ebc85
+      configs:
+        description: "Comma list of config names to run (default: all)"
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEFAULT_BASE_REF: 5200cc7c80749c29617de70c1438375f8b4ebc85
+
+jobs:
+  matrix:
+    name: Build matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      run: ${{ steps.gen.outputs.run }}
+    steps:
+      - name: Generate matrix
+        id: gen
+        env:
+          CONFIGS: ${{ inputs.configs || 'all' }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          node <<'JS'
+          const fs = require("node:fs");
+          // Shards per config group: change the counts here.
+          const STOCK_SHARDS = 4;
+          const SUPA_SHARDS = 32;
+          const ALL = "union runas";
+          const stock = (v, extra, modes = ALL) => ({
+            image: `postgres:${v}-alpine`,
+            flags: `--image postgres:${v}-alpine --applier createrole${extra}`,
+            modes,
+            shards: STOCK_SHARDS,
+          });
+          const superuser = (v) => ({
+            image: `postgres:${v}-alpine`,
+            flags: `--image postgres:${v}-alpine --applier superuser`,
+            modes: "union",
+            shards: STOCK_SHARDS,
+          });
+          const supa = (image) => ({
+            image,
+            flags: `--supabase --image ${image}`,
+            modes: ALL,
+            shards: SUPA_SHARDS,
+          });
+          const configs = {
+            pg14: stock(14, ""),
+            pg15: stock(15, ""),
+            pg16: stock(16, ""),
+            pg17: stock(17, ""),
+            pg18: stock(18, ""),
+            "pg17-stepdown": stock(17, " --login stepdown"),
+            "pg15-stepdown": stock(15, " --login stepdown"),
+            "pg17-script": stock(17, " --via script"),
+            "pg17-superuser": superuser(17),
+            "pg15-superuser": superuser(15),
+            supa17: supa("supabase/postgres:17.11.0.018"),
+            supa15: supa("public.ecr.aws/supabase/postgres:15.19.0.018"),
+          };
+          let want = process.env.CONFIGS.trim();
+          const tag = /\[lab:([^\]]*)\]/.exec(process.env.COMMIT_MESSAGE ?? "");
+          if (tag && (want === "all" || want === "")) want = tag[1].trim();
+          if (want === "skip") {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "run=false\nmatrix={\"include\":[]}\n");
+            console.log("[lab:skip]: nothing to run");
+            process.exit(0);
+          }
+          const names = want === "all" || want === "" ? Object.keys(configs) : want.split(",").map((s) => s.trim()).filter(Boolean);
+          const unknown = names.filter((n) => !configs[n]);
+          if (unknown.length) throw new Error(`unknown configs: ${unknown.join(", ")}`);
+          const include = [];
+          for (const name of names) {
+            const c = configs[name];
+            for (let i = 1; i <= c.shards; i++) {
+              include.push({ config: name, shard: `${i}/${c.shards}`, shard_name: `${i}of${c.shards}`, image: c.image, flags: c.flags, modes: c.modes });
+            }
+          }
+          if (!include.length) throw new Error("empty matrix");
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `run=true\nmatrix=${JSON.stringify({ include })}\n`);
+          console.log(`${include.length} jobs`);
+          JS
+
+  lab:
+    needs: matrix
+    if: needs.matrix.outputs.run == 'true'
+    name: "lab: ${{ matrix.config }} ${{ matrix.shard }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout PoC
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Output directory
+        run: echo "OUT=$RUNNER_TEMP/out" >> "$GITHUB_ENV"
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Checkout base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.base_ref || env.DEFAULT_BASE_REF }}
+          path: base
+      # The setup composite lives in the PoC tree and installs from the root
+      # lockfile; the base tree gets the equivalent install inline. The lab
+      # imports src/ as TypeScript, so no build is needed on either side.
+      - name: Install base dependencies
+        working-directory: base
+        run: bun install --frozen-lockfile
+      - name: Copy lab into base
+        run: |
+          rsync -a --delete --exclude baselines \
+            packages/pg-delta/tests/owner-lab/ base/packages/pg-delta/tests/owner-lab/
+      - name: Pre-pull image
+        run: docker pull "${{ matrix.image }}" || (sleep 20 && docker pull "${{ matrix.image }}")
+      - name: Record baseline (base tree)
+        working-directory: base/packages/pg-delta
+        run: |
+          mkdir -p "$OUT"
+          bun tests/owner-lab/lab.ts ${{ matrix.flags }} --suite --direction both \
+            --shard "${{ matrix.shard }}" --record-baseline "$OUT/base.jsonl" || true
+          test -s "$OUT/base.jsonl" || { echo "base.jsonl missing or empty"; exit 1; }
+      - name: Run PoC
+        working-directory: packages/pg-delta
+        run: |
+          for mode in ${{ matrix.modes }}; do
+            PGDELTA_OWNER_MODE="$mode" bun tests/owner-lab/lab.ts ${{ matrix.flags }} --suite --direction both \
+              --shard "${{ matrix.shard }}" --compare-baseline "$OUT/base.jsonl" \
+              --json "$OUT/$mode.jsonl" || true
+            test -s "$OUT/$mode.jsonl" || { echo "$mode.jsonl missing or empty"; exit 1; }
+          done
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: lab-${{ matrix.config }}-${{ matrix.shard_name }}
+          path: ${{ runner.temp }}/out/
+          retention-days: 7
+          if-no-files-found: warn
+
+  summary:
+    needs: [matrix, lab]
+    if: always() && needs.matrix.outputs.run == 'true'
+    name: Summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PoC
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Download shard artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: lab-*
+          path: ${{ runner.temp }}/results
+      - name: Build report
+        id: report
+        run: |
+          set +e
+          bun packages/pg-delta/tests/owner-lab/ci-summary.ts "$RUNNER_TEMP/results" > "$RUNNER_TEMP/results/report.md"
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/results/report.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload merged results
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: owner-lab-results
+          path: |
+            ${{ runner.temp }}/results/merged/
+            ${{ runner.temp }}/results/report.md
+          retention-days: 14
+      - name: Verdict
+        if: steps.report.outputs.code != '0'
+        run: |
+          echo "ci-summary exited ${{ steps.report.outputs.code }}"
+          exit 1

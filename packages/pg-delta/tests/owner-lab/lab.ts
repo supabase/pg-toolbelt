@@ -48,7 +48,10 @@ import type { Cluster as ClusterT } from "../containers.ts";
 import {
   baselineKey,
   computeVerdict,
+  normalizeRefLines,
+  refineVerdict,
   resolveIdeal,
+  splitSqlStatements,
   statementDiff,
   type Ideal,
   type IdealMeta,
@@ -70,6 +73,8 @@ interface Args {
   via: "apply" | "script";
   /** --stepdown-setup: with --login stepdown, also run a.sql/b.sql over stepdown connections */
   stepdownSetup: boolean;
+  /** --no-reference: skip the superuser reference run */
+  reference: boolean;
   supabase: boolean;
   /** --no-profile (with --supabase): plan with the raw probed capability only */
   noProfile: boolean;
@@ -91,6 +96,7 @@ function parseArgs(argv: string[]): Args {
     login: "direct",
     via: "apply",
     stepdownSetup: false,
+    reference: true,
     supabase: false,
     noProfile: false,
   };
@@ -112,6 +118,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--verbose") args.verbose = true;
     else if (a === "--supabase") args.supabase = true;
     else if (a === "--stepdown-setup") args.stepdownSetup = true;
+    else if (a === "--no-reference") args.reference = false;
     else if (a === "--no-profile") args.noProfile = true;
     else if (a === "--shard") {
       const m = /^(\d+)\/(\d+)$/.exec(next());
@@ -687,6 +694,17 @@ interface RunRecord {
   segments: number;
   /** APPLY_FAIL only: did the source catalog stay as it was? */
   failClean?: "clean" | "dirty";
+  /** createrole modes: the superuser reference run (same diff, no capability) */
+  reference?: {
+    outcome: string;
+    detail: string;
+    dataLoss: string[];
+    plan: string[];
+    /** main's deviations from desired are all also in the reference's */
+    sameResult: boolean;
+    strictlyIdentical: boolean;
+    diffLines: number;
+  };
   roleBefore?: string;
   roleAfter?: string;
   plan: string[];
@@ -819,10 +837,22 @@ function blankRecord(
   };
 }
 
+/** What a run leaves behind for the reference comparison (kept out of the JSON). */
+interface RunInternals {
+  resLines: string[];
+  desLines: string[];
+  lost: string[];
+  bootstrap: string;
+}
+const internals = new WeakMap<RunRecord, RunInternals>();
+
+/** `ref`: rebuild the same source/desired, plan WITHOUT any applier capability
+ *  and apply as the cluster superuser. Its outcome is REF_*. */
 async function runOne(
   ctx: Ctx,
   sc: Scenario,
   direction: Direction,
+  mode: "main" | "ref" = "main",
 ): Promise<RunRecord> {
   const started = Date.now();
   let mark = started;
@@ -842,6 +872,22 @@ async function runOne(
     : kind;
   let typedError = false;
   const finish = (outcome: string, detail: string): RunRecord => {
+    if (mode === "ref") {
+      rec.outcome =
+        outcome === "PLAN_THROW"
+          ? "REF_PLAN_THROW"
+          : outcome === "OK" || outcome === "CATALOG_DRIFT"
+            ? "REF_OK"
+            : outcome.includes("FACT_DRIFT")
+              ? "REF_NONCONVERGED"
+              : outcome === "APPLY_FAIL"
+                ? "REF_APPLY_FAIL"
+                : outcome;
+      rec.detail = detail;
+      rec.verdict = "NA";
+      rec.ms = Date.now() - started;
+      return rec;
+    }
     rec.outcome = outcome;
     rec.detail = detail;
     rec.verdict = computeVerdict({
@@ -961,7 +1007,10 @@ async function runOne(
     const ap =
       kind === "superuser"
         ? su
-        : { src: apPool(ctx.a, SRC), dst: apPool(ctx.b, DST) };
+        : {
+            src: apPool(ctx.a, SRC, undefined, mode === "ref"),
+            dst: apPool(ctx.b, DST, undefined, mode === "ref"),
+          };
 
     // 3. setup. Scenario SQL may use session_user / SET ROLE, which mean
     // something else behind a login role, so by default it runs over direct
@@ -972,7 +1021,9 @@ async function runOne(
             src: apPool(ctx.a, SRC, undefined, true),
             dst: apPool(ctx.b, DST, undefined, true),
           }
-        : ap;
+        : stepdown && mode === "ref"
+          ? { src: apPool(ctx.a, SRC), dst: apPool(ctx.b, DST) }
+          : ap;
     for (const [s, label, suPool, apPool2] of [
       [srcSide, "source", su.src, setupAp.src],
       [dstSide, "desired", su.dst, setupAp.dst],
@@ -989,15 +1040,20 @@ async function runOne(
     // 4. extract + plan
     const profile: ResolvedProfile | undefined =
       supa && !ARGS.noProfile
-        ? await resolveProfile(ap.src, supabaseProfile)
+        ? await resolveProfile(
+            ap.src,
+            supabaseProfile,
+            mode === "ref" ? { restrictToApplier: false } : {},
+          )
         : undefined;
     const doExtract = (p: pg.Pool) =>
       profile ? profile.extract(p) : extract(p);
     const sourceState = await doExtract(ap.src);
     const desiredState = await doExtract(ap.dst);
-    const capability = await probeApplierCapability(ap.src);
+    const capability =
+      mode === "ref" ? undefined : await probeApplierCapability(ap.src);
     const planOptions = {
-      ...(profile ? profile.planOptions : { capability }),
+      ...(profile ? profile.planOptions : capability ? { capability } : {}),
       renames: meta.renames ?? "off",
       ...(meta.planParams ? { params: meta.planParams } : {}),
     };
@@ -1062,6 +1118,111 @@ async function runOne(
       );
     }
 
+    const verifyAfterApply = async (): Promise<RunRecord> => {
+      // 6. fact drift
+      const outcomes: string[] = [];
+      const details: string[] = [];
+      try {
+        const profile2 =
+          supa && !ARGS.noProfile
+            ? await resolveProfile(
+                ap.src,
+                supabaseProfile,
+                mode === "ref" ? { restrictToApplier: false } : {},
+              )
+            : undefined;
+        const resultState = await (profile2
+          ? profile2.extract(ap.src)
+          : extract(ap.src));
+        const cap2 =
+          mode === "ref" ? undefined : await probeApplierCapability(ap.src);
+        const replan = plan(resultState.factBase, desiredFacts, {
+          ...(profile2
+            ? profile2.planOptions
+            : cap2
+              ? { capability: cap2 }
+              : {}),
+          renames: meta.renames ?? "off",
+        });
+        if (replan.actions.length > 0) {
+          outcomes.push("FACT_DRIFT");
+          details.push(
+            `${replan.actions.length} leftover action(s): ${replan.actions.map((a) => a.sql).join(" ; ")}`,
+          );
+          rec.lines.push(...replan.actions.map((a) => `leftover: ${a.sql}`));
+        }
+      } catch (e) {
+        outcomes.push("FACT_DRIFT");
+        details.push(`replan threw: ${errInfo(e).message}`);
+      }
+
+      // 7. catalog truth
+      const [resLines, desLines] = await Promise.all([
+        catalogLines(su.src, ctx.pgMajor, ctx.builtinRoles),
+        catalogLines(su.dst, ctx.pgMajor, ctx.builtinRoles),
+      ]);
+      const d = multisetDiff(desLines, resLines);
+      if (d.onlyDesired.length + d.onlyResult.length > 0) {
+        outcomes.push("CATALOG_DRIFT");
+        details.push(
+          `${d.onlyDesired.length} only in desired, ${d.onlyResult.length} only in result`,
+        );
+        rec.lines.push(
+          ...d.onlyDesired.map((l) => `- ${l}`),
+          ...d.onlyResult.map((l) => `+ ${l}`),
+        );
+      }
+
+      // 8. data preservation
+      const desiredTables = new Set(
+        (await listTables(su.dst, supa)).map((t) => `${t.schema}.${t.name}`),
+      );
+      const lost = dataLoss(
+        dataBefore,
+        await snapTables(su.src, supa),
+        desiredTables,
+      );
+      internals.set(rec, {
+        resLines,
+        desLines,
+        lost,
+        bootstrap: (
+          await su.src.query<{ rolname: string }>(
+            `SELECT rolname FROM pg_roles WHERE oid = 10`,
+          )
+        ).rows[0]!.rolname,
+      });
+      if (lost.length > 0) {
+        rec.flags.push("DATA_LOSS");
+        details.push(`DATA_LOSS: ${lost.join("; ")}`);
+        rec.lines.push(...lost.map((l) => `DATA_LOSS ${l}`));
+      }
+      rec.timings.verifyMs = lap();
+      if (outcomes.length === 0) return finish("OK", details.join("; "));
+      return finish(outcomes.join("+"), details.join("; "));
+    };
+
+    if (mode === "ref") {
+      const refPool = track(mkPool(ctx.a.uriFor(SRC), { max: 1 }));
+      let refReport: Awaited<ReturnType<typeof apply>>;
+      try {
+        refReport = await apply(thePlan, refPool, {
+          ...(profile ? profile.applyOptions : {}),
+          fingerprintGate: false,
+        });
+      } catch (e) {
+        return finish("APPLY_FAIL", errInfo(e).message);
+      }
+      if (refReport.status !== "applied") {
+        const e = refReport.error;
+        return finish(
+          "APPLY_FAIL",
+          `action ${e?.actionIndex}: ${e?.message} -- ${e?.sql}`,
+        );
+      }
+      return await verifyAfterApply();
+    }
+
     // 5. apply, on ONE connection whose session state is recorded around it
     let scriptText = "";
     if (ARGS.via === "script") {
@@ -1109,22 +1270,26 @@ async function runOne(
       const client = await applyPool.connect();
       try {
         rec.roleBefore = await sessionState(client);
-        try {
-          await client.query(scriptText);
-          report = { status: "applied" };
-        } catch (e) {
-          const info = errInfo(e);
-          const pos = Number((e as { position?: unknown }).position);
-          const near =
-            Number.isFinite(pos) && pos > 0
-              ? scriptText.slice(Math.max(0, pos - 1), pos + 80)
-              : "(script)";
-          report = {
-            status: "failed",
-            error: { actionIndex: -1, sql: near, message: info.message },
-          };
-          // a failed explicit BEGIN block leaves the session aborted
-          await client.query("ROLLBACK").catch(() => {});
+        // as the script's header says: one statement at a time, in order, on
+        // one session, stopping at the first error (BEGIN/COMMIT are statements)
+        const statements = splitSqlStatements(scriptText);
+        report = { status: "applied" };
+        for (const [i, stmt] of statements.entries()) {
+          try {
+            await client.query(stmt);
+          } catch (e) {
+            report = {
+              status: "failed",
+              error: {
+                actionIndex: i,
+                sql: stmt.trim(),
+                message: errInfo(e).message,
+              },
+            };
+            // the script runner would exit here; do not leave an aborted block
+            await client.query("ROLLBACK").catch(() => {});
+            break;
+          }
         }
         rec.roleAfter = await sessionStateSafe(client);
       } finally {
@@ -1189,68 +1354,7 @@ async function runOne(
       );
     }
 
-    // 6. fact drift
-    const outcomes: string[] = [];
-    const details: string[] = [];
-    try {
-      const profile2 =
-        supa && !ARGS.noProfile
-          ? await resolveProfile(ap.src, supabaseProfile)
-          : undefined;
-      const resultState = await (profile2
-        ? profile2.extract(ap.src)
-        : extract(ap.src));
-      const cap2 = await probeApplierCapability(ap.src);
-      const replan = plan(resultState.factBase, desiredFacts, {
-        ...(profile2 ? profile2.planOptions : { capability: cap2 }),
-        renames: meta.renames ?? "off",
-      });
-      if (replan.actions.length > 0) {
-        outcomes.push("FACT_DRIFT");
-        details.push(
-          `${replan.actions.length} leftover action(s): ${replan.actions.map((a) => a.sql).join(" ; ")}`,
-        );
-        rec.lines.push(...replan.actions.map((a) => `leftover: ${a.sql}`));
-      }
-    } catch (e) {
-      outcomes.push("FACT_DRIFT");
-      details.push(`replan threw: ${errInfo(e).message}`);
-    }
-
-    // 7. catalog truth
-    const [resLines, desLines] = await Promise.all([
-      catalogLines(su.src, ctx.pgMajor, ctx.builtinRoles),
-      catalogLines(su.dst, ctx.pgMajor, ctx.builtinRoles),
-    ]);
-    const d = multisetDiff(desLines, resLines);
-    if (d.onlyDesired.length + d.onlyResult.length > 0) {
-      outcomes.push("CATALOG_DRIFT");
-      details.push(
-        `${d.onlyDesired.length} only in desired, ${d.onlyResult.length} only in result`,
-      );
-      rec.lines.push(
-        ...d.onlyDesired.map((l) => `- ${l}`),
-        ...d.onlyResult.map((l) => `+ ${l}`),
-      );
-    }
-
-    // 8. data preservation
-    const desiredTables = new Set(
-      (await listTables(su.dst, supa)).map((t) => `${t.schema}.${t.name}`),
-    );
-    const lost = dataLoss(
-      dataBefore,
-      await snapTables(su.src, supa),
-      desiredTables,
-    );
-    if (lost.length > 0) {
-      rec.flags.push("DATA_LOSS");
-      details.push(`DATA_LOSS: ${lost.join("; ")}`);
-      rec.lines.push(...lost.map((l) => `DATA_LOSS ${l}`));
-    }
-    rec.timings.verifyMs = lap();
-    if (outcomes.length === 0) return finish("OK", details.join("; "));
-    return finish(outcomes.join("+"), details.join("; "));
+    return await verifyAfterApply();
   } catch (e) {
     if (e instanceof SetupError)
       return finish("SETUP_FAIL", `${e.file}: ${e.message}`);
@@ -1260,6 +1364,91 @@ async function runOne(
   } finally {
     await Promise.all(pools.map((p) => p.end().catch(() => {})));
   }
+}
+
+// ── reference comparison ─────────────────────────────────────────────────────
+/** Only runs whose verdict depends on the reference get one: a non-superuser
+ *  result that drifted or is NONCONVERGED, or a loud failure. Clean passes,
+ *  role-leaks and dirty failures never change verdict, so they skip it. */
+function needsReference(rec: RunRecord): boolean {
+  if (!ARGS.reference || ARGS.applier !== "createrole") return false;
+  if (rec.flags.includes("ROLE_LEFT")) return false;
+  return (
+    rec.verdict === "LOUD" ||
+    rec.verdict === "NONCONVERGED" ||
+    (rec.verdict === "SILENT" && rec.outcome !== "APPLY_FAIL")
+  );
+}
+
+function attachReference(rec: RunRecord, ref: RunRecord): void {
+  const mi = internals.get(rec);
+  const ri = internals.get(ref);
+  let sameResult = false;
+  let strict = false;
+  let diff: string[] = [];
+  if (mi && ri) {
+    const applier = rec.supabase ? "postgres" : APPLIER;
+    const a = normalizeRefLines(mi.resLines, applier, mi.bootstrap);
+    const b = normalizeRefLines(ri.resLines, applier, ri.bootstrap);
+    diff = [
+      ...[...b]
+        .filter((l) => !a.has(l))
+        .sort()
+        .map((l) => `vs-superuser - ${l}`),
+      ...[...a]
+        .filter((l) => !b.has(l))
+        .sort()
+        .map((l) => `vs-superuser + ${l}`),
+    ];
+    // Main is "no worse than the superuser" when every way it deviates from
+    // the desired state is one the superuser result deviates in too. (A stricter
+    // identical-sets test would flag main when it is CLOSER to desired, e.g.
+    // it revokes the applier's own memberships and the superuser plan keeps them.)
+    const des = normalizeRefLines(mi.desLines, applier, mi.bootstrap);
+    const drift = (x: Set<string>): Set<string> =>
+      new Set([
+        ...[...des].filter((l) => !x.has(l)).map((l) => `- ${l}`),
+        ...[...x].filter((l) => !des.has(l)).map((l) => `+ ${l}`),
+      ]);
+    const da = drift(a);
+    const db = drift(b);
+    sameResult = [...da].every((l) => db.has(l));
+    strict = diff.length === 0;
+  }
+  const tables = (xs: string[]): string =>
+    JSON.stringify(
+      xs
+        .map((x) => x.split(" (")[0])
+        .sort((p, q) => (p ?? "").localeCompare(q ?? "")),
+    );
+  const sameDataLoss = tables(mi?.lost ?? []) === tables(ri?.lost ?? []);
+  rec.reference = {
+    outcome: ref.outcome,
+    detail:
+      ref.detail.length > 400 ? `${ref.detail.slice(0, 397)}...` : ref.detail,
+    dataLoss: ri?.lost ?? [],
+    plan: ref.plan,
+    sameResult,
+    strictlyIdentical: strict,
+    diffLines: diff.length,
+  };
+  const r = refineVerdict({
+    verdict: rec.verdict,
+    outcome: rec.outcome,
+    flags: rec.flags,
+    refOutcome: ref.outcome,
+    sameResult,
+    sameDataLoss,
+  });
+  rec.verdict = r.verdict;
+  rec.flags.push(...r.addFlags);
+  if (
+    diff.length > 0 &&
+    (r.verdict === "SILENT" || r.verdict === "NONCONVERGED")
+  )
+    rec.lines.push(...diff);
+  if (ref.outcome === "REF_APPLY_FAIL" || ref.outcome === "REF_PLAN_THROW")
+    rec.lines.push(`reference ${ref.outcome}: ${oneLine(ref.detail, 300)}`);
 }
 
 // ── baselines ────────────────────────────────────────────────────────────────
@@ -1500,10 +1689,37 @@ async function main(): Promise<number> {
           rec.lines = [info.stack ?? info.message];
         }
         const resetStart = Date.now();
-        if (ARGS.supabase) {
-          await Promise.all([stopSupabase(ctx.a), stopSupabase(ctx.b)]);
-          fresh = false;
-        } else ctx = await resetClusters(ctx);
+        const doReset = async (): Promise<void> => {
+          if (ARGS.supabase) {
+            await Promise.all([stopSupabase(ctx.a), stopSupabase(ctx.b)]);
+            fresh = false;
+          } else ctx = await resetClusters(ctx);
+        };
+        await doReset();
+        if (needsReference(rec)) {
+          if (ARGS.supabase) {
+            const [sa, sb] = await Promise.all([
+              startSupabase(ARGS.image),
+              startSupabase(ARGS.image),
+            ]);
+            ctx = {
+              ...ctx,
+              a: sa.cluster,
+              b: sb.cluster,
+              builtinRoles: sa.builtinRoles,
+            };
+          }
+          let refRec: RunRecord;
+          try {
+            refRec = await runOne(ctx, sc, direction, "ref");
+          } catch (e) {
+            refRec = blankRecord(sc.name, direction, sc.meta, pgMajor);
+            refRec.outcome = "HARNESS_ERROR";
+            refRec.detail = errInfo(e).message;
+          }
+          await doReset();
+          attachReference(rec, refRec);
+        }
         rec.resetMs = Date.now() - resetStart;
         emit(rec);
       }
@@ -1543,9 +1759,53 @@ async function main(): Promise<number> {
     const k = r.outcome === "HARNESS_ERROR" ? "HARNESS_ERROR" : r.verdict;
     byVerdict.set(k, [...(byVerdict.get(k) ?? []), r]);
   }
+  const normalizeMsg = (m: string): string =>
+    m
+      .replace(/"[^"]*"/g, '"_"')
+      .replace(/'[^']*'/g, "'_'")
+      .replace(/ -- .*$/s, "")
+      .replace(/\b\d+\b/g, "N")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 160);
+  const engineKey = (r: RunRecord): string => {
+    if (r.verdict === "LOUD_ENGINE")
+      return normalizeMsg(
+        r.failedAction?.message ?? r.error?.message ?? r.detail,
+      );
+    return [
+      ...new Set(
+        r.lines
+          .filter((l) => /^[-+] |^DATA_LOSS /.test(l))
+          .map((l) =>
+            l
+              .replace(/[\w$]+\.[\w$]+(\([^)]*\))?/g, "<obj>")
+              .replace(/DATA_LOSS .*/, "DATA_LOSS"),
+          ),
+      ),
+    ]
+      .sort()
+      .join(" | ");
+  };
   for (const [verdict, rs] of [...byVerdict].sort((x, y) =>
     x[0].localeCompare(y[0]),
   )) {
+    if (verdict === "ENGINE_GAP" || verdict === "LOUD_ENGINE") {
+      const groups = new Map<string, RunRecord[]>();
+      for (const r of rs)
+        groups.set(engineKey(r), [...(groups.get(engineKey(r)) ?? []), r]);
+      console.log(
+        `\n-- ${verdict} (${rs.length} runs, ${groups.size} groups) --`,
+      );
+      for (const [k, g] of [...groups].sort(
+        (x, y) => y[1].length - x[1].length,
+      )) {
+        console.log(`  (${g.length}) ${k}`);
+        for (const r of g.slice(0, 3))
+          console.log(`      e.g. ${r.scenario} ${r.direction}`);
+      }
+      continue;
+    }
     console.log(`\n-- ${verdict} (${rs.length}) --`);
     for (const r of rs)
       console.log(
