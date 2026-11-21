@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:plausible", "round:f-realistic"],
+  "notes": "Schema owned by inventory_owner: new domain + column using it, CHECK added to an existing domain, new composite type and a new identity table using it."
+}

@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:plausible", "round:f-realistic"],
+  "notes": "A whole analytics schema (table, identity, sequence, index, view, function, grants) moves from the migration role to a new owner role created in the same migration; reverse moves it back and drops the role."
+}

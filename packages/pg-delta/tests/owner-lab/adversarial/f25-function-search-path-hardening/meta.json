@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Linter fix 'function_search_path_mutable': SET search_path = '' added to three functions in public owned by app_owner (no membership, no CREATE on public)."
+}

@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Trigger refactor on a table owned by app_owner (which keeps CREATE on app): old trigger + function dropped, a helper function and two trigger functions created and wired as two triggers."
+}

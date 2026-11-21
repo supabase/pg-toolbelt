@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:plausible", "round:f-realistic"],
+  "notes": "Materialized view owned by reporting_owner (in its own schema) over app tables owned by app_owner gains a column: drop + recreate with its unique index and analyst grant."
+}

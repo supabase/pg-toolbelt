@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:plausible", "round:f-realistic"],
+  "notes": "SECURITY DEFINER RPC owned by a definer role gets a new optional argument (signature change = drop + create, owner and EXECUTE grants restored)."
+}

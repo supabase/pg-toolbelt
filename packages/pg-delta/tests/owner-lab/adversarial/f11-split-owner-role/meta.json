@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:plausible", "round:f-realistic"],
+  "notes": "Split one owner role into two: a new billing_owner (created in the migration, USAGE only on app) takes invoices, payments and a function from app_owner, which the migration role already holds."
+}

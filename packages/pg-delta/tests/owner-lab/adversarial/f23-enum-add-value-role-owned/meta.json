@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Enum owned by app_owner gains two values, a new column and a partial index using the new value (needs a commit between); reverse removes values (type rebuild)."
+}

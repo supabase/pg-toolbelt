@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Two stacked views owned by app_owner (no CREATE on app, no membership) change their column list (drop + recreate both), reader grants restored."
+}

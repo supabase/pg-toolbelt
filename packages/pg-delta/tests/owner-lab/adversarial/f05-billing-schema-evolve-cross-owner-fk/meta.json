@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Later billing migration: new column with a foreign key to public.organizations (owned by app_owner), index, new column, RLS + policy; migration role is a member of neither owner."
+}

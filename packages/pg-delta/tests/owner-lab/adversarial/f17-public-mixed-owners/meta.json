@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "public holds tables of the migration role next to a table owned by a sync-service role: column added to the service table, view joining both and a SECURITY DEFINER function owned by the migration role."
+}

@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Read-only / read-write roles on tables owned by app_owner: grants widened to a second table, DELETE added, audit_log SELECT revoked from readonly, INSERT + sequence USAGE granted to readwrite; migration role not a member."
+}

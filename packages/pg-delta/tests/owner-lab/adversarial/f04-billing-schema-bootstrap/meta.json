@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "First migration of a billing service: owner role, schema AUTHORIZATION, enum, sequence, two tables with FK, indexes, trigger + function, view and reader grants, all in one go; reverse tears it down."
+}

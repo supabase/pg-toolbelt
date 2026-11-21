@@ -51,6 +51,9 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    - a borrowed role (or a role it is a member of) that holds privileges WITH GRANT OPTION
      while the plan has GRANT / REVOKE statements, or that holds ADMIN on a role the plan
      grants or revokes: Postgres could record it, instead of the owner, as the grantor.
+   - the mirror case: the applier, or a role it already had, holds a grant option on an
+     object whose owner the plan must borrow, and the plan has a GRANT / REVOKE on that
+     object: Postgres could record the owner instead of the role that granted before.
 
 "Can grant itself": PG ≤15 the applier has CREATEROLE and inherits, the role is not a
 superuser; PG16+ the applier holds ADMIN on the role directly or the plan creates it; on

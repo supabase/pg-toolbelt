@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "RLS policies on a table owned by app_owner, migration role already a member (granted by hand): select policy replaced, insert/update policies added, delete policy dropped, new column."
+}

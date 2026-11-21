@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "ALTER DEFAULT PRIVILEGES FOR ROLE app_owner (tables/sequences in schema, functions globally) plus explicit grants on the existing table and a new table that picks the defaults up; migration role not a member."
+}

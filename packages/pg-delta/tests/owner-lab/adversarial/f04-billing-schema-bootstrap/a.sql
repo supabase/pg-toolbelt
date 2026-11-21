@@ -1,0 +1,1 @@
+CREATE ROLE app_reader NOLOGIN;

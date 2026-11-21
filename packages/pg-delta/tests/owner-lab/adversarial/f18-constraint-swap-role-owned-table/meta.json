@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Constraint swap on a table owned by app_owner: unique(user_id) replaced by unique(org, user), CHECK widened, FK gets ON DELETE CASCADE, column type text -> varchar(20) and SET NOT NULL."
+}

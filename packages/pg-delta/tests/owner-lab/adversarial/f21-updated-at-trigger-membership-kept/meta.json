@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Shared updated_at trigger function owned by the migration role attached to two tables owned by app_owner, which the migration role already holds (granted by hand), plus an FK index."
+}

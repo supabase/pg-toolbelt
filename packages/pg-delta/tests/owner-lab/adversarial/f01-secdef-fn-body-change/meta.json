@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "SECURITY DEFINER RPC owned by a dedicated definer role (no CREATE on its schema, no membership for the migration role): body changed."
+}

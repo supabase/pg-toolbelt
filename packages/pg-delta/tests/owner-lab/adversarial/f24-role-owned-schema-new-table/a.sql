@@ -1,0 +1,10 @@
+CREATE ROLE app_owner NOLOGIN;
+CREATE ROLE reader NOLOGIN;
+GRANT app_owner TO current_user;
+CREATE SCHEMA app AUTHORIZATION app_owner;
+SET ROLE app_owner;
+GRANT USAGE ON SCHEMA app TO reader;
+CREATE TABLE app.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email text);
+GRANT SELECT ON app.users TO reader;
+RESET ROLE;
+REVOKE app_owner FROM current_user;

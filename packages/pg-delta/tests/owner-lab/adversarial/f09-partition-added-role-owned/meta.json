@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Monthly partition added to a partitioned table owned by app_owner (no CREATE on public, no membership) plus a new index on the parent."
+}

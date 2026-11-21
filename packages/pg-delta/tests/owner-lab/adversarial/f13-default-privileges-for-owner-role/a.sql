@@ -1,0 +1,11 @@
+CREATE ROLE app_owner NOLOGIN;
+CREATE ROLE reader NOLOGIN;
+CREATE ROLE writer NOLOGIN;
+CREATE SCHEMA app;
+GRANT USAGE ON SCHEMA app TO reader, writer;
+GRANT USAGE, CREATE ON SCHEMA app TO app_owner;
+GRANT app_owner TO current_user;
+SET ROLE app_owner;
+CREATE TABLE app.customers (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name text);
+RESET ROLE;
+REVOKE app_owner FROM current_user;

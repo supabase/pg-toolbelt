@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Supabase quickstart: SECURITY DEFINER handle_new_user() owned by the migration role and an AFTER INSERT trigger on a platform-owned users table (migration role has TRIGGER privilege, no membership)."
+}

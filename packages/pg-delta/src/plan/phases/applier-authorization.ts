@@ -472,7 +472,8 @@ export function authorizeForApplier(
     const throughout = (g: string) =>
       holds(source, schema, g, "CREATE") &&
       (!isPlanned(g) || holds(desired, schema, g, "CREATE"));
-    if (throughout(r) || throughout("PUBLIC")) return "nothing";
+    // itself, PUBLIC, or a role it is a member of
+    if ([...upward(r), "PUBLIC"].some(throughout)) return "nothing";
     return isPlanned(r) && holds(desired, schema, r, "CREATE")
       ? "keep"
       : "lend";
@@ -506,16 +507,23 @@ export function authorizeForApplier(
           a.verb === "drop" ||
           a.change?.kind === "rename");
       if (container !== undefined && usesSchema) {
+        const schemaName =
+          container.kind === "schema" ? container.name : undefined;
         const mayCreate =
-          container.kind === "schema" &&
-          (holds(source, container.name, applier, "CREATE") ||
-            holds(source, container.name, "PUBLIC", "CREATE"));
+          schemaName !== undefined &&
+          [applier, "PUBLIC", ...inheritedSet].some((g) =>
+            holds(source, schemaName, g, "CREATE"),
+          );
         if (!mayCreate) add(ownerNow(container));
       }
       // what the object references (a foreign key's table, a trigger's
       // function) and its inheritance children matter when the object itself
-      // is created or altered, not for a GRANT or a comment on it
-      for (const fb of satelliteTarget(a.subject) === undefined ? views : []) {
+      // is created or altered (dropping a column cascades to the children),
+      // not for a GRANT or a comment on it, nor to drop the object itself
+      const onObject =
+        satelliteTarget(a.subject) === undefined &&
+        !(a.verb === "drop" && encodeId(a.subject) === encodeId(root));
+      for (const fb of onObject ? views : []) {
         for (const e of fb.outgoingEdges(root)) {
           if (e.kind !== "depends") continue;
           const target = rootOf(e.to);
@@ -574,11 +582,27 @@ export function authorizeForApplier(
   const canInherit = (r: string) =>
     r === applier || inheritedSet.has(r) || viaBorrowed.has(r);
 
+  // The statements a person would write. PG16+ records the applier as the
+  // grantor of both (it holds ADMIN directly, or it could not borrow), so
+  // the REVOKE removes exactly the row the GRANT made. INHERIT / SET are
+  // spelled out only when the defaults would not give them.
+  const ownRow = (r: string) =>
+    modern ? (cap.selfGrants ?? []).find((g) => g.role === r) : undefined;
+  const withOptions = (r: string, inherit: boolean, set: boolean) =>
+    `GRANT ${qid(r)} TO ${qid(applier)} WITH INHERIT ${inherit ? "TRUE" : "FALSE"}, SET ${set ? "TRUE" : "FALSE"}`;
+  const borrowSql = (r: string) =>
+    ownRow(r) !== undefined
+      ? withOptions(r, true, true)
+      : modern && cap.inherit !== true
+        ? `GRANT ${qid(r)} TO ${qid(applier)} WITH INHERIT TRUE`
+        : `GRANT ${qid(r)} TO ${qid(applier)}`;
   // the plan's own REVOKE of a borrowed role from the applier would give the
-  // role back too early: the closing REVOKE replaces it
+  // role back too early: the closing REVOKE replaces it. Its own GRANT of
+  // that role, when it is the very statement the borrow writes, is the borrow.
   const list = without(planned, (a) => {
     const r = membershipOfApplier(a);
-    return r !== undefined && a.verb === "drop" && borrowed.has(r);
+    if (r === undefined || !borrowed.has(r)) return false;
+    return a.verb === "drop" || (a.verb === "create" && a.sql === borrowSql(r));
   });
 
   // ── 4. refuse: a borrowed role must not be able to become the grantor ──
@@ -590,6 +614,7 @@ export function authorizeForApplier(
   const newlyInherited = [...viaBorrowed].filter(
     (r) => r !== applier && !inheritedSet.has(r),
   );
+  const fresh = new Set(newlyInherited);
   if (newlyInherited.length > 0) {
     const aclAction = list.find((a) => a.subject.kind === "acl");
     const membershipActions = list.filter(
@@ -601,7 +626,6 @@ export function authorizeForApplier(
           createdByPlan.has(a.subject.role)
         ),
     );
-    const fresh = new Set(newlyInherited);
     for (const fb of views) {
       for (const fact of fb.facts()) {
         if (
@@ -656,12 +680,42 @@ export function authorizeForApplier(
   const renamedSchemas = new Set<string>();
   for (const a of list) {
     if (a.subject.kind === "schema" && a.change?.kind === "rename")
-      renamedSchemas.add(a.subject.name);
+      renamedSchemas
+        .add(a.subject.name)
+        .add((a.change.from as { name: string }).name);
   }
   const walk = tracker();
   for (const a of list) {
     if (a.newSegmentBefore || a.transactionality !== "transactional") endRuns();
     if (a.subject.kind === "schema") endRuns(a.subject.name);
+
+    // The mirror case of the refusal above: the applier (or a role it already
+    // had) holds a grant option on this object and granted through it; once
+    // the owner is borrowed Postgres may pick the owner instead.
+    if (a.subject.kind === "acl") {
+      const target = a.subject.target;
+      const root = rootOf(target);
+      const o = root === undefined ? undefined : walk.ownerNow(root);
+      if (o !== undefined && fresh.has(o)) {
+        for (const fb of views) {
+          for (const child of fb.childrenOf(target)) {
+            const h = (child.id as { grantee?: string }).grantee;
+            if (h === undefined || (h !== applier && !inheritedSet.has(h)))
+              continue;
+            if (
+              ((child.payload["grantable"] as string[] | undefined) ?? [])
+                .length > 0
+            )
+              block(
+                "capability_acl_grantor",
+                h,
+                `holds a grant option on an object owned by "${o}", which the plan must borrow; Postgres could then record "${o}" instead of "${h}" as the grantor. Grant "${o}" to "${applier}" beforehand, or apply as a superuser`,
+                target,
+              );
+          }
+        }
+      }
+    }
 
     if (a.change?.kind === "owner") {
       const newOwner = a.change.to;
@@ -691,6 +745,7 @@ export function authorizeForApplier(
         if (
           so !== undefined &&
           so !== newOwner &&
+          newOwner !== applier &&
           canInherit(so) &&
           !renamedSchemas.has(schema.name) &&
           lendKind(schema.name, newOwner) !== "nothing"
@@ -760,20 +815,6 @@ export function authorizeForApplier(
       { kind: "role", name: r },
       { kind: "role", name: applier },
     ]);
-  // The statements a person would write. PG16+ records the applier as the
-  // grantor of both (it holds ADMIN directly, or it could not borrow), so
-  // the REVOKE removes exactly the row the GRANT made. INHERIT / SET are
-  // spelled out only when the defaults would not give them.
-  const ownRow = (r: string) =>
-    modern ? (cap.selfGrants ?? []).find((g) => g.role === r) : undefined;
-  const withOptions = (r: string, inherit: boolean, set: boolean) =>
-    `GRANT ${qid(r)} TO ${qid(applier)} WITH INHERIT ${inherit ? "TRUE" : "FALSE"}, SET ${set ? "TRUE" : "FALSE"}`;
-  const borrowSql = (r: string) =>
-    ownRow(r) !== undefined
-      ? withOptions(r, true, true)
-      : modern && cap.inherit !== true
-        ? `GRANT ${qid(r)} TO ${qid(applier)} WITH INHERIT TRUE`
-        : `GRANT ${qid(r)} TO ${qid(applier)}`;
   const head: Action[] = [];
   const tail: Action[] = [];
   for (const r of borrowed) {
@@ -781,7 +822,11 @@ export function authorizeForApplier(
     const createdAt = list.find(
       (a) => a.verb === "create" && roleSubject(a) === r,
     );
-    if (createdAt === undefined) head.push(openAction);
+    // nothing to grant when the applier already has full use of the role and
+    // only the plan's REVOKE is postponed
+    if (inheritedSet.has(r) && settableSet.has(r)) {
+      // no statement
+    } else if (createdAt === undefined) head.push(openAction);
     else after.set(createdAt, [openAction, ...(after.get(createdAt) ?? [])]);
     // a role the plan drops takes the membership with it; one the plan
     // grants to the applier stays granted

@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Same policy rework on a table owned by app_owner in an app schema, migration role not a member, plus FORCE ROW LEVEL SECURITY."
+}

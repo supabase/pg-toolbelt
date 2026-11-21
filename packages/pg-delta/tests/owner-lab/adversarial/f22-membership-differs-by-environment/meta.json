@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:plausible", "round:f-realistic"],
+  "notes": "The migration role holds app_owner in one environment (hand grant) and not in the other; the migration adds a column and an index to app_owner's table."
+}

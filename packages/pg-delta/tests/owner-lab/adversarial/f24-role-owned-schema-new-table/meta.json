@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Schema created with AUTHORIZATION app_owner (migration role has no CREATE there, no membership): new table with FK, index, comment and reader grant."
+}

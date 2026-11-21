@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:plausible", "round:f-realistic"],
+  "notes": "Initial migration creating two service owner roles and their schemas (auth, storage) with cross-owner foreign keys, an RLS policy calling the other service's function, and grants."
+}

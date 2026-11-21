@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Supabase's most common shape: tables owned by the migration role get foreign keys to a platform-owned users table (owner role created by the superuser, migration role has REFERENCES only)."
+}

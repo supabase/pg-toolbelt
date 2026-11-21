@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:plausible", "round:f-realistic"],
+  "notes": "Retire a legacy owner role: its table (serial), view, function and reader grants in public are re-owned by the migration role and the role is dropped; reverse re-creates the role and hands them back."
+}

@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:plausible", "round:f-realistic"],
+  "notes": "A table and function in public owned by app_owner are handed back to the migration role (role kept, e.g. it still owns other things); public is owned by pg_database_owner as on PG15+ / Supabase."
+}

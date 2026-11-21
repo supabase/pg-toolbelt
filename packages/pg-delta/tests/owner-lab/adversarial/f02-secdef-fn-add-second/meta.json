@@ -1,0 +1,4 @@
+{
+  "tags": ["likelihood:common", "round:f-realistic"],
+  "notes": "Second SECURITY DEFINER RPC added for the same definer role (EXECUTE revoked from PUBLIC, granted to app_user); reverse drops it."
+}
