@@ -1,0 +1,4 @@
+CREATE ROLE r NOLOGIN;
+GRANT r TO current_user;
+CREATE SCHEMA s AUTHORIZATION r;
+REVOKE r FROM current_user;

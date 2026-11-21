@@ -1,0 +1,4 @@
+{
+  "notes": "r5 (Codex): the schema owner is itself a member of the applier, so the envelope's GRANT r TO applier is circular. The base plan (CREATE TABLE with an existing CREATE grant) applies.",
+  "tags": ["r5", "envelope-open-fails"]
+}

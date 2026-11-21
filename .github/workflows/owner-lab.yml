@@ -17,6 +17,7 @@ on:
   push:
     branches:
       - avallete/owner-envelope-poc
+      - avallete/owner-envelope-r5
   workflow_dispatch:
     inputs:
       base_ref:
@@ -145,7 +146,14 @@ jobs:
           rsync -a --delete --exclude baselines \
             packages/pg-delta/tests/owner-lab/ base/packages/pg-delta/tests/owner-lab/
       - name: Pre-pull image
-        run: docker pull "${{ matrix.image }}" || (sleep 20 && docker pull "${{ matrix.image }}")
+        # 32 runners pulling the same public.ecr.aws image at once get
+        # throttled: back off with jitter instead of failing the shard
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            docker pull "${{ matrix.image }}" && exit 0
+            sleep $(( attempt * 20 + RANDOM % 40 ))
+          done
+          docker pull "${{ matrix.image }}"
       - name: Record baseline (base tree)
         working-directory: base/packages/pg-delta
         run: |

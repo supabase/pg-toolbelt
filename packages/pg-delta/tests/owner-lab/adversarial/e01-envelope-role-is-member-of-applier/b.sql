@@ -1,0 +1,6 @@
+CREATE ROLE r NOLOGIN;
+GRANT r TO current_user;
+CREATE SCHEMA s AUTHORIZATION r;
+GRANT USAGE, CREATE ON SCHEMA s TO lab_applier;
+REVOKE r FROM current_user;
+CREATE TABLE s.t (id integer);

@@ -1,0 +1,4 @@
+{
+  "notes": "r5 (Codex): an empty schema owned by a role the same plan creates. Nothing else needs r, so the SET requirement of CREATE SCHEMA ... AUTHORIZATION / ALTER SCHEMA ... OWNER TO must be found from the schema action itself.",
+  "tags": ["r5", "needed-roles"]
+}

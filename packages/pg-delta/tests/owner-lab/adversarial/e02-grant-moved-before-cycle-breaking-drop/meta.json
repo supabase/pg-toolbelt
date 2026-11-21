@@ -1,0 +1,4 @@
+{
+  "notes": "r5 (Codex): GRANT rc TO ra moved ahead of DROP ROLE rb would be circular while ra -> rb -> rc still exists.",
+  "tags": ["r5", "moves"]
+}

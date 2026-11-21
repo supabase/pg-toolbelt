@@ -1,0 +1,4 @@
+{
+  "notes": "r5 (Codex): a schema GRANT compacted over two grantees is tracked for its subject grantee only; the temporary CREATE wrapper for the new owner then revokes the CREATE the desired state wants.",
+  "tags": ["r5", "wrap"]
+}

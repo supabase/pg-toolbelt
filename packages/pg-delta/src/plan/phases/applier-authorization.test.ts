@@ -1,6 +1,6 @@
 /**
- * Applier authorization pass (revision 4): what a non-superuser applier's
- * plan gains over the superuser plan, per identity mode. The owner-lab
+ * Applier authorization pass (revision 5): what a non-superuser applier's
+ * plan gains over the superuser plan. The owner-lab
  * (tests/owner-lab) judges the results on real Postgres; these pin the shape.
  */
 import { describe, expect, test } from "bun:test";

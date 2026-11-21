@@ -1,5 +1,5 @@
 /**
- * Applier authorization pass (revision 4).
+ * Applier authorization pass (revision 5).
  *
  * A plan is run by ONE role, the applier. For a non-superuser applier
  * Postgres decides per statement, from WHO runs it, (1) whether it may run
@@ -14,25 +14,33 @@
  * options) is read from the RAW source and desired fact bases: a grant the
  * policy filters out still exists in the database.
  *
- *  1. Ordering: role creates, membership widenings and schema-ACL widenings
- *     move earlier; membership narrowings, role drops and schema-ACL
- *     narrowings move later, each stopping at the first action it conflicts
- *     with.
- *  2. Envelope: every role whose privileges an action needs (owner of the
+ * The pass inserts statements and removes the ones an inserted statement
+ * replaces. The only statements it moves are schema GRANT / REVOKE, and only
+ * in the direction that keeps a privilege longer (step 0):
+ *
+ *  0. Schema ACL placement: a schema ACL statement that only adds privileges
+ *     moves earlier, one that only removes them moves later, each stopping at
+ *     the first statement that writes something it names. Holding a schema
+ *     privilege longer can only let a crossed statement succeed, never change
+ *     the result of one that succeeded.
+ *  1. Envelope: every role whose privileges an action needs (owner of the
  *     action's root object and of the schema it lives in, of its dependency
  *     targets and inheritance children; an owner change's new owner) that the
  *     applier lacks but can grant itself is granted to it after the role
- *     exists (OPEN), and its own-grantor row is restored at the end (CLOSE).
- *     The row is opened with INHERIT and SET.
- *  3. Grantor: an ACL statement whose grantor could differ from the owner's
+ *     exists (OPEN, `WITH INHERIT TRUE, SET TRUE`), and the applier's own
+ *     row on that role is put in its final state at the end (CLOSE). The
+ *     plan's own statements on that row are removed: CLOSE writes the desired
+ *     row instead, so the applier keeps the role for the whole plan.
+ *  2. Grantor: an ACL statement whose grantor could differ from the owner's
  *     (another role the applier inherits holds a grant option on the object)
- *     runs as the owner; a membership statement whose grantor the envelope
- *     could pick is a blocker.
- *  4. Owner changes: blockers when the new owner cannot be set or the current
- *     owner's privileges cannot be had; a temporary schema CREATE for a new
- *     owner that lacks it.
+ *     runs as the owner (`Action.runAs`); a membership statement whose
+ *     grantor the envelope could change is a blocker.
+ *  3. Owner changes: blockers when the new owner cannot be set or the current
+ *     owner's privileges cannot be had; `GRANT CREATE ON SCHEMA` to the new
+ *     owner right before, revoked right after unless the plan itself grants
+ *     it. Decided from the two states only, never from a simulated ACL.
  *
- * Declared limits: tests/owner-lab/DESIGN-v4.md.
+ * Declared limits: tests/owner-lab/DESIGN-v5.md.
  */
 import type { FactBase } from "../../core/fact.ts";
 import {
@@ -53,8 +61,8 @@ import { renderGrantSql } from "../rules/helpers.ts";
 /** PoC measurement knob: `union` is the pass; each other value switches one
  *  mechanism off so the owner-lab can count the scenarios that need it.
  *  `nopin`: no `Action.runAs` (a grantor hazard is a blocker instead);
- *  `nowrap`: no temporary schema CREATE for a new owner; `nomoves`: no
- *  reordering. */
+ *  `nowrap`: no temporary schema CREATE for a new owner; `nomoves`: schema
+ *  ACL statements stay where the base plan put them. */
 export type OwnerMode = "union" | "nopin" | "nowrap" | "nomoves";
 
 export interface AuthorizationInput {
@@ -96,12 +104,12 @@ const selfRowOf = (
   role: string,
   member: string,
 ): SelfRow | undefined =>
-  fb.get({ kind: "membership", role, member })?.payload["self"] as
-    | SelfRow
-    | undefined;
+  (fb.get({ kind: "membership", role, member })?.payload["self"] ??
+    undefined) as SelfRow | undefined;
 
-/** What a move may not cross: every id an action's ordering edges carry,
- *  its subject, and the ids its change names, plus the roles inside them. */
+/** What a moved statement may not cross: every id an action's ordering
+ *  edges carry, its subject, and the ids its change names, plus the roles
+ *  and targets inside them. */
 function namedKeys(a: Action): Set<string> {
   const ids: StableId[] = [
     a.subject,
@@ -117,10 +125,6 @@ function namedKeys(a: Action): Set<string> {
     keys.add(encodeId(id));
     const target = satelliteTarget(id);
     if (target !== undefined) keys.add(encodeId(target));
-    if (id.kind === "membership") {
-      keys.add(encodeId({ kind: "role", name: id.role }));
-      keys.add(encodeId({ kind: "role", name: id.member }));
-    }
     if (id.kind === "acl")
       keys.add(encodeId({ kind: "role", name: id.grantee }));
   }
@@ -139,6 +143,27 @@ const intersects = (a: ReadonlySet<string>, b: ReadonlySet<string>) => {
   for (const k of a) if (b.has(k)) return true;
   return false;
 };
+
+/** Remove actions; a segment boundary a removed action opened moves to the
+ *  next one that stays. */
+function without(
+  actions: readonly Action[],
+  drop: (a: Action) => boolean,
+): Action[] {
+  const out: Action[] = [];
+  let carry = false;
+  for (const a of actions) {
+    if (drop(a)) {
+      carry ||= a.newSegmentBefore;
+      continue;
+    }
+    out.push(
+      carry && !a.newSegmentBefore ? { ...a, newSegmentBefore: true } : a,
+    );
+    carry = false;
+  }
+  return out;
+}
 
 function synthetic(
   sql: string,
@@ -175,8 +200,6 @@ export function authorizeForApplier(
 
   const inheritedSet = new Set(cap.inheritedRoles ?? cap.memberOf);
   const settableSet = new Set(cap.settableRoles ?? cap.memberOf);
-  const inherited = (r: string) => r === applier || inheritedSet.has(r);
-  const settable = (r: string) => r === applier || settableSet.has(r);
 
   const roleSubject = (a: Action): string | undefined =>
     a.subject.kind === "role" ? a.subject.name : undefined;
@@ -186,20 +209,32 @@ export function authorizeForApplier(
     if (r !== undefined && a.verb === "create") createdByPlan.add(r);
   }
 
-  // Roles whose membership of the applier the plan manages itself. The
-  // envelope leaves them alone; what the desired state gives the applier on
-  // them counts, once the plan's own (moved earlier) statements ran.
-  const planSelf = new Set<string>();
-  for (const a of input) {
-    if (a.subject.kind === "membership" && a.subject.member === applier)
-      planSelf.add(a.subject.role);
+  // membership graph over BOTH states (member → roles): every membership the
+  // plan could see at any step is in one of them
+  const rolesOfMember = new Map<string, Set<string>>();
+  for (const fb of views) {
+    for (const fact of fb.facts()) {
+      if (fact.id.kind !== "membership") continue;
+      const set = rolesOfMember.get(fact.id.member) ?? new Set<string>();
+      set.add(fact.id.role);
+      rolesOfMember.set(fact.id.member, set);
+    }
   }
-  const planGives = (r: string, option: "inherit" | "set"): boolean => {
-    if (!planSelf.has(r)) return false;
-    if (!desired.has({ kind: "membership", role: r, member: applier }))
-      return false;
-    if (!modern) return option === "set" || cap.inherit === true;
-    return selfRowOf(desired, r, applier)?.[option] === true;
+  /** `r` and every role it is a member of, transitively, in either state */
+  const upwardCache = new Map<string, Set<string>>();
+  const upward = (r: string): Set<string> => {
+    let seen = upwardCache.get(r);
+    if (seen !== undefined) return seen;
+    seen = new Set<string>();
+    const queue = [r];
+    while (queue.length > 0) {
+      const x = queue.pop() as string;
+      if (seen.has(x)) continue;
+      seen.add(x);
+      for (const up of rolesOfMember.get(x) ?? []) queue.push(up);
+    }
+    upwardCache.set(r, seen);
+    return seen;
   };
 
   const selfGrantable = (r: string): { ok: boolean; reason: string } => {
@@ -215,6 +250,8 @@ export function authorizeForApplier(
       return no("role is a superuser");
     if (cap.pgMajor === undefined)
       return no("capability has no server version (re-probe the applier)");
+    // Postgres refuses a membership loop
+    if (upward(r).has(applier)) return no("it is a member of the applier");
     if (modern) {
       if ((cap.adminOf ?? []).includes(r) || createdByPlan.has(r))
         return { ok: true, reason: "" };
@@ -244,51 +281,26 @@ export function authorizeForApplier(
   // ADMIN on directly) is the row a superuser's `GRANT … WITH ADMIN OPTION`
   // records, and Postgres refuses to grant it back to its own grantor
   // (0LP01): that create is dropped.
-  const list: Action[] = input.filter(
+  const filtered = without(
+    input,
     (a) =>
-      !(
-        modern &&
-        a.verb === "create" &&
-        a.subject.kind === "membership" &&
-        a.subject.member === applier &&
-        desired.get(a.subject)?.payload["admin"] === true &&
-        (createdByPlan.has(a.subject.role) ||
-          (cap.adminOf ?? []).includes(a.subject.role))
-      ),
+      modern &&
+      a.verb === "create" &&
+      a.subject.kind === "membership" &&
+      a.subject.member === applier &&
+      desired.get(a.subject)?.payload["admin"] === true &&
+      (createdByPlan.has(a.subject.role) ||
+        (cap.adminOf ?? []).includes(a.subject.role)),
   );
 
-  // ── 1. bounded moves ────────────────────────────────────────────────────
-  type Direction = "earlier" | "later" | undefined;
-  const compare = (from: boolean[], to: boolean[]): Direction => {
-    const widen = from.some((f, i) => !f && to[i] === true);
-    const narrow = from.some((f, i) => f && to[i] !== true);
-    if (widen === narrow) return undefined;
-    return widen ? "earlier" : "later";
-  };
-  const directionOf = (a: Action): Direction => {
-    const s = a.subject;
-    if (s.kind === "role" || s.kind === "membership") {
-      if (a.verb === "create") return "earlier";
-      if (a.verb === "drop") return "later";
-    }
-    if (s.kind === "membership" && a.change?.kind === "attribute") {
-      if (a.change.name === "admin")
-        return desired.get(s)?.payload["admin"] === true ? "earlier" : "later";
-      if (a.change.name === "self") {
-        const flags = (r: SelfRow | undefined) =>
-          r === undefined ? [false, false, false] : [true, r.inherit, r.set];
-        return compare(
-          flags(selfRowOf(source, s.role, s.member)),
-          flags(selfRowOf(desired, s.role, s.member)),
-        );
-      }
-      return undefined;
-    }
-    if (
-      s.kind === "acl" &&
-      s.target.kind === "schema" &&
-      s.column === undefined
-    ) {
+  // ── 0. schema ACL placement ─────────────────────────────────────────────
+  const planned = [...filtered];
+  if (ctx.mode !== "nomoves") {
+    type Direction = "earlier" | "later" | undefined;
+    const directionOf = (a: Action): Direction => {
+      const s = a.subject;
+      if (s.kind !== "acl" || s.target.kind !== "schema") return undefined;
+      if (s.column !== undefined) return undefined;
       if (a.verb === "drop") return "later";
       const grants = (fb: FactBase) => {
         const p = fb.get(s)?.payload;
@@ -301,73 +313,108 @@ export function authorizeForApplier(
       };
       const from = grants(source);
       const to = grants(desired);
-      const all = [...new Set([...from, ...to])];
-      return compare(
-        all.map((g) => from.has(g)),
-        all.map((g) => to.has(g)),
-      );
+      const widen = [...to].some((g) => !from.has(g));
+      const narrow = [...from].some((g) => !to.has(g));
+      if (widen === narrow) return undefined;
+      return widen ? "earlier" : "later";
+    };
+    const named = new Map<Action, Set<string>>();
+    const written = new Map<Action, Set<string>>();
+    const namedOf = (a: Action) => {
+      let k = named.get(a);
+      if (k === undefined) named.set(a, (k = namedKeys(a)));
+      return k;
+    };
+    const writtenOf = (a: Action) => {
+      let k = written.get(a);
+      if (k === undefined) written.set(a, (k = writtenKeys(a)));
+      return k;
+    };
+    /** whether `moved` may not pass `other` */
+    const blocks = (moved: Action, other: Action): boolean =>
+      other.transactionality !== "transactional" ||
+      intersects(writtenOf(other), namedOf(moved)) ||
+      intersects(writtenOf(moved), namedOf(other));
+    const movable = (a: Action) =>
+      a.transactionality === "transactional" && !a.newSegmentBefore;
+    const earlier = planned.filter(
+      (a) => movable(a) && directionOf(a) === "earlier",
+    );
+    const later = planned.filter(
+      (a) => movable(a) && directionOf(a) === "later",
+    );
+    for (const a of earlier) {
+      const from = planned.indexOf(a);
+      let to = from;
+      // passing an action that opens a segment would move `a` into the
+      // previous transaction
+      while (
+        to > 0 &&
+        !(planned[to] as Action).newSegmentBefore &&
+        !blocks(a, planned[to - 1] as Action)
+      )
+        to--;
+      if (to < from) {
+        planned.splice(from, 1);
+        planned.splice(to, 0, a);
+      }
     }
-    return undefined;
-  };
-  const namedCache = new Map<Action, Set<string>>();
-  const writtenCache = new Map<Action, Set<string>>();
-  const namedOf = (a: Action) => {
-    let k = namedCache.get(a);
-    if (k === undefined) namedCache.set(a, (k = namedKeys(a)));
-    return k;
-  };
-  const writtenOf = (a: Action) => {
-    let k = writtenCache.get(a);
-    if (k === undefined) writtenCache.set(a, (k = writtenKeys(a)));
-    return k;
-  };
-  /** whether `moved` may not pass `other` */
-  const blocks = (moved: Action, other: Action): boolean =>
-    other.transactionality !== "transactional" ||
-    (moved.subject.kind === "membership" &&
-      other.subject.kind === "membership") ||
-    intersects(writtenOf(other), namedOf(moved)) ||
-    intersects(writtenOf(moved), namedOf(other));
-  const movable = (a: Action) =>
-    a.transactionality === "transactional" && !a.newSegmentBefore;
-  const earlier = list.filter(
-    (a) => movable(a) && directionOf(a) === "earlier",
-  );
-  const later = list.filter((a) => movable(a) && directionOf(a) === "later");
-  for (const a of ctx.mode === "nomoves" ? [] : earlier) {
-    const from = list.indexOf(a);
-    let to = from;
-    // passing an action that opens a segment would move `a` into the
-    // previous transaction
-    while (
-      to > 0 &&
-      !(list[to] as Action).newSegmentBefore &&
-      !blocks(a, list[to - 1] as Action)
-    )
-      to--;
-    if (to < from) {
-      list.splice(from, 1);
-      list.splice(to, 0, a);
-    }
-  }
-  for (const a of ctx.mode === "nomoves" ? [] : [...later].reverse()) {
-    const from = list.indexOf(a);
-    let to = from;
-    while (
-      to + 1 < list.length &&
-      !(list[to + 1] as Action).newSegmentBefore &&
-      !blocks(a, list[to + 1] as Action)
-    )
-      to++;
-    if (to > from) {
-      list.splice(from, 1);
-      list.splice(to, 0, a);
+    for (const a of [...later].reverse()) {
+      const from = planned.indexOf(a);
+      let to = from;
+      while (
+        to + 1 < planned.length &&
+        !(planned[to + 1] as Action).newSegmentBefore &&
+        !blocks(a, planned[to + 1] as Action)
+      )
+        to++;
+      if (to > from) {
+        planned.splice(from, 1);
+        planned.splice(to, 0, a);
+      }
     }
   }
 
+  // ── the plan's own statements on the applier's membership in a role ─────
+  const ownActions = new Map<string, Action[]>();
+  for (const a of planned) {
+    if (a.subject.kind !== "membership" || a.subject.member !== applier)
+      continue;
+    ownActions.set(a.subject.role, [
+      ...(ownActions.get(a.subject.role) ?? []),
+      a,
+    ]);
+  }
+  const isSelfStatement = (a: Action) =>
+    a.change?.kind === "attribute" && a.change.name === "self";
+  /** A statement the envelope replaces: every statement on the applier's
+   *  own row (PG16+), and the membership's REVOKE. Run by an applier that
+   *  holds ADMIN directly, a plain REVOKE removes the row it granted itself,
+   *  which is what CLOSE does. */
+  const absorbable = (a: Action) => isSelfStatement(a) || a.verb === "drop";
+  /** PG16+: the plan also grants, or changes ADMIN on, rows of that
+   *  membership the applier did not grant. Their provenance is not
+   *  modelled, so the role is left alone. */
+  const foreignRows = (r: string) =>
+    modern && (ownActions.get(r) ?? []).some((a) => !absorbable(a));
+  const changesOwn = (r: string) => (ownActions.get(r) ?? []).some(absorbable);
+  const planGives = (r: string, option: "inherit" | "set"): boolean =>
+    foreignRows(r) && selfRowOf(desired, r, applier)?.[option] === true;
+
+  // A role the applier has only through a row the plan changes is not
+  // something a statement can rely on.
+  const unstable = new Set<string>();
+  for (const r of ownActions.keys()) {
+    if (changesOwn(r)) for (const u of upward(r)) unstable.add(u);
+  }
+  const stablyInherited = (r: string) =>
+    r === applier || (inheritedSet.has(r) && !unstable.has(r));
+  const stablySettable = (r: string) =>
+    r === applier || (settableSet.has(r) && !unstable.has(r));
+
   // ── owner tracking (a walk over the list in order) ──────────────────────
   const ownerChanged = new Set<string>();
-  for (const a of list) {
+  for (const a of planned) {
     if (a.change?.kind === "owner") ownerChanged.add(encodeId(a.subject));
   }
   // objects whose owner an owner change of another object carries (a
@@ -396,7 +443,6 @@ export function authorizeForApplier(
 
   const tracker = () => {
     const owners = new Map<string, string | undefined>();
-    const schemaPriv = new Map<string, Set<string>>();
     const ownerNow = (id: StableId): string | undefined => {
       const key = encodeId(id);
       if (!owners.has(key)) {
@@ -411,25 +457,6 @@ export function authorizeForApplier(
       }
       return owners.get(key);
     };
-    const schemaPrivNow = (schema: string, priv: string): Set<string> => {
-      const key = `${schema}\x00${priv}`;
-      let set = schemaPriv.get(key);
-      if (set === undefined) {
-        set = new Set();
-        for (const child of source.childrenOf({
-          kind: "schema",
-          name: schema,
-        })) {
-          const id = child.id;
-          if (id.kind !== "acl" || id.column !== undefined) continue;
-          const privs =
-            (child.payload["privileges"] as string[] | undefined) ?? [];
-          if (privs.includes(priv)) set.add(id.grantee);
-        }
-        schemaPriv.set(key, set);
-      }
-      return set;
-    };
     const step = (a: Action): void => {
       const s = a.subject;
       const key = encodeId(s);
@@ -439,6 +466,8 @@ export function authorizeForApplier(
           owners.set(encodeId(f), a.change.to);
       } else if (a.change?.kind === "rename" && ownable(s)) {
         owners.set(key, ownerNow(a.change.from));
+        // the old name is free: an object created under it is a new object
+        owners.set(encodeId(a.change.from), undefined);
       } else if (a.verb === "create" && ownable(s)) {
         // created as the applier; with no owner change of its own the create
         // itself set the desired owner (CREATE SCHEMA … AUTHORIZATION)
@@ -447,32 +476,11 @@ export function authorizeForApplier(
             key,
             ownerChanged.has(key) ? applier : (ownerIn(desired, s) ?? applier),
           );
-        if (s.kind === "schema") {
-          schemaPriv.set(`${s.name}\x00CREATE`, new Set());
-          schemaPriv.set(`${s.name}\x00USAGE`, new Set());
-        }
       } else if (a.verb === "drop" && ownable(s)) {
         owners.set(key, undefined);
       }
-      if (
-        s.kind === "acl" &&
-        s.target.kind === "schema" &&
-        s.column === undefined
-      ) {
-        const privs =
-          a.verb === "drop"
-            ? []
-            : ((desired.get(s)?.payload["privileges"] as
-                | string[]
-                | undefined) ?? []);
-        for (const priv of ["CREATE", "USAGE"]) {
-          if (privs.includes(priv))
-            schemaPrivNow(s.target.name, priv).add(s.grantee);
-          else schemaPrivNow(s.target.name, priv).delete(s.grantee);
-        }
-      }
     };
-    return { ownerNow, schemaPrivNow, step };
+    return { ownerNow, step };
   };
 
   /** The role that acts on the subject as its owner: the owner of its root
@@ -486,15 +494,16 @@ export function authorizeForApplier(
     return root === undefined ? undefined : ownerNow(root);
   };
 
-  /** Roles whose privileges (`inherit`) or SET (`set`) an action needs and
-   *  the applier does not have. */
+  /** Roles whose privileges an action uses (`touched`), and of those the
+   *  ones the applier cannot rely on having (`missing`). */
   const needsOf = (
     a: Action,
     ownerNow: (id: StableId) => string | undefined,
-  ): Set<string> => {
-    const inherit = new Set<string>();
+  ): { touched: Set<string>; missing: Set<string> } => {
+    const touched = new Set<string>();
+    const missing = new Set<string>();
     const add = (r: string | undefined) => {
-      if (r !== undefined) inherit.add(r);
+      if (r !== undefined) touched.add(r);
     };
     add(ownerRoleOf(a, ownerNow));
     const root = rootOf(a.subject);
@@ -519,52 +528,69 @@ export function authorizeForApplier(
         }
       }
     }
-    const out = new Set<string>();
-    for (const r of inherit) {
-      if (!inherited(r) && !planGives(r, "inherit")) out.add(r);
+    for (const r of touched) {
+      if (!stablyInherited(r) && !planGives(r, "inherit")) missing.add(r);
     }
     if (a.change?.kind === "owner") {
       const r = a.change.to;
-      if (!settable(r) && !planGives(r, "set")) out.add(r);
+      touched.add(r);
+      if (!stablySettable(r) && !planGives(r, "set")) missing.add(r);
     }
-    return out;
+    return { touched, missing };
   };
 
-  // ── 2. envelope roles ───────────────────────────────────────────────────
+  // ── 1. envelope roles ───────────────────────────────────────────────────
+  const touched = new Set<string>();
   const needed = new Set<string>();
   {
     const walk = tracker();
-    for (const a of list) {
-      for (const r of needsOf(a, walk.ownerNow)) needed.add(r);
+    for (const a of planned) {
+      const needs = needsOf(a, walk.ownerNow);
+      for (const r of needs.touched) touched.add(r);
+      for (const r of needs.missing) needed.add(r);
       walk.step(a);
     }
   }
-  const envelope = new Set(
-    [...needed].filter((r) => !planSelf.has(r) && selfGrantable(r).ok).sort(),
-  );
+  const openable = (r: string) => !foreignRows(r) && selfGrantable(r).ok;
+  const envelopeRoles = [...needed].filter(openable);
+  // a role whose own row the plan changes, and through which a statement
+  // reaches a role it uses, stays open for the whole plan too
+  for (const r of ownActions.keys()) {
+    if (changesOwn(r) && openable(r) && intersects(upward(r), touched))
+      envelopeRoles.push(r);
+  }
+  const envelope = new Set(envelopeRoles.sort());
   // roles the applier inherits through the envelope (every membership of an
   // envelope role, transitively)
   const viaEnvelope = new Set<string>();
-  {
-    const queue = [...envelope];
-    while (queue.length > 0) {
-      const r = queue.pop() as string;
-      if (viaEnvelope.has(r)) continue;
-      viaEnvelope.add(r);
-      for (const fb of views) {
-        for (const fact of fb.facts()) {
-          if (fact.id.kind === "membership" && fact.id.member === r)
-            queue.push(fact.id.role);
-        }
-      }
-    }
-  }
-  const canSet = (r: string) =>
-    settable(r) || envelope.has(r) || planGives(r, "set");
-  const canInherit = (r: string) =>
-    inherited(r) || envelope.has(r) || planGives(r, "inherit");
+  for (const r of envelope) for (const u of upward(r)) viaEnvelope.add(u);
 
-  // ── 3./4. identity, blockers, temporary schema CREATE ──────────────────
+  const canSet = (r: string) =>
+    r === applier ||
+    settableSet.has(r) ||
+    viaEnvelope.has(r) ||
+    planGives(r, "set");
+  const canInherit = (r: string) =>
+    r === applier ||
+    inheritedSet.has(r) ||
+    viaEnvelope.has(r) ||
+    planGives(r, "inherit");
+
+  // the envelope replaces the plan's own statements on those rows
+  const absorbed = new Set<string>();
+  const list = without(planned, (a) => {
+    if (
+      a.subject.kind !== "membership" ||
+      a.subject.member !== applier ||
+      !envelope.has(a.subject.role) ||
+      !absorbable(a)
+    )
+      return false;
+    absorbed.add(a.subject.role);
+    return true;
+  });
+
+  // ── 2./3. identity, blockers, schema CREATE for a new owner ────────────
   const grantOptionHolders = (target: StableId): Set<string> => {
     const holders = new Set<string>();
     for (const fb of views) {
@@ -608,6 +634,36 @@ export function authorizeForApplier(
       roleIds(r),
     );
 
+  /** Who must run an ACL statement on `target` (owned by `o`) so that the
+   *  owner is the recorded grantor, as under a superuser. Postgres picks the
+   *  owner unless another role the applier inherits holds a grant option on
+   *  the object. `exact: false`: it cannot be guaranteed. */
+  const grantorFor = (
+    target: StableId,
+    o: string | undefined,
+    blockOn: StableId | undefined,
+  ): { as?: string; exact: boolean } => {
+    if (o === undefined || o === applier) return { exact: true };
+    const hazard = [...grantOptionHolders(target)].filter(
+      (h) =>
+        h !== o && (h === applier || inheritedSet.has(h) || viaEnvelope.has(h)),
+    );
+    if (hazard.length === 0) return { exact: true };
+    if (pin && canSet(o)) return { as: o, exact: true };
+    if (blockOn !== undefined) {
+      // a hazard the applier had before the plan is base-branch behaviour
+      for (const h of hazard.filter((x) => viaEnvelope.has(x))) {
+        block(
+          "capability_acl_grantor",
+          h,
+          `holds a grant option on an object owned by "${o}", which the applier cannot run its ACL statements as; with the owner envelope open Postgres could record "${h}" as the grantor`,
+          blockOn,
+        );
+      }
+    }
+    return { exact: false };
+  };
+
   const before = new Map<Action, Action[]>();
   const after = new Map<Action, Action[]>();
   const push = (m: Map<Action, Action[]>, at: Action, x: Action): void => {
@@ -616,78 +672,88 @@ export function authorizeForApplier(
   const runAsOf = new Map<Action, string>();
   let bound = envelope.size > 0;
 
-  /** `GRANT <privilege> ON SCHEMA` to `grantee` right before `a` and its
-   *  REVOKE right after, both as the schema owner `so` (so the owner is the
-   *  grantor and the REVOKE removes exactly that grant). */
-  const wrapSchemaPrivilege = (
+  // schema ACL items the plan itself writes (a GRANT merged over several
+  // grantees names the first as its subject and lists all in `produces`)
+  const plannedAcl = new Set<string>();
+  for (const a of list) {
+    if (a.subject.kind !== "acl") continue;
+    plannedAcl.add(encodeId(a.subject));
+    for (const id of a.produces) {
+      if (id.kind === "acl") plannedAcl.add(encodeId(id));
+    }
+  }
+  const walk = tracker();
+
+  /** `grantee` needs `privilege` on the schema for the statement `a` only.
+   *  Decided from the two states, with no simulated ACL:
+   *   - it holds it (itself or through PUBLIC) before and after the plan,
+   *     so at every step: nothing;
+   *   - the plan itself grants it: GRANT before `a`, the plan's own
+   *     statement completes the item wherever it sits;
+   *   - otherwise: GRANT before `a`, REVOKE right after. A REVOKE never
+   *     removes a privilege the desired state holds. */
+  const lendSchemaPrivilege = (
     a: Action,
     schemaName: string,
     privilege: string,
     grantee: string,
-    so: string,
   ): void => {
     const schema: StableId = { kind: "schema", name: schemaName };
-    const aclId: StableId = { kind: "acl", target: schema, grantee };
+    const so = walk.ownerNow(schema);
+    if (so === undefined || so === grantee) return;
+    const aclId = (g: string): StableId => ({
+      kind: "acl",
+      target: schema,
+      grantee: g,
+    });
+    const has = (fb: FactBase, g: string) =>
+      (
+        (fb.get(aclId(g))?.payload["privileges"] as string[] | undefined) ?? []
+      ).includes(privilege);
+    const isPlanned = (g: string) => plannedAcl.has(encodeId(aclId(g)));
+    const holdsThroughout = (g: string) =>
+      has(source, g) && (!isPlanned(g) || has(desired, g));
+    if (holdsThroughout(grantee) || holdsThroughout("PUBLIC")) return;
+    if (!canInherit(so)) return;
+    const identity = grantorFor(schema, so, undefined);
+    if (!identity.exact) return;
     const consumes: StableId[] = [schema, { kind: "role", name: grantee }];
     const grant = synthetic(
       renderGrantSql(schema, [privilege], [grantee]),
-      aclId,
+      aclId(grantee),
       "privileges",
       consumes,
     );
-    const revoke = synthetic(
-      `REVOKE ${privilege} ON SCHEMA ${qid(schemaName)} FROM ${qid(grantee)}`,
-      aclId,
-      "privileges",
-      consumes,
-    );
-    if (so !== applier && pin) {
-      runAsOf.set(grant, so);
-      runAsOf.set(revoke, so);
-    }
     before.set(a, [grant, ...(before.get(a) ?? [])]);
-    after.set(a, [...(after.get(a) ?? []), revoke]);
+    if (identity.as !== undefined) runAsOf.set(grant, identity.as);
+    if (!(isPlanned(grantee) && has(desired, grantee))) {
+      const revoke = synthetic(
+        `REVOKE ${privilege} ON SCHEMA ${qid(schemaName)} FROM ${qid(grantee)}`,
+        aclId(grantee),
+        "privileges",
+        consumes,
+      );
+      after.set(a, [...(after.get(a) ?? []), revoke]);
+      if (identity.as !== undefined) runAsOf.set(revoke, identity.as);
+    }
     bound = true;
   };
 
-  const walk = tracker();
   for (const a of list) {
     const newOwner = a.change?.kind === "owner" ? a.change.to : undefined;
 
-    // object ACL statements: the grantor must be the owner, as under a
-    // superuser. Postgres picks the owner unless another role the applier
-    // inherits holds a grant option on the object.
-    if (a.subject.kind === "acl" && !runAsOf.has(a)) {
+    // object ACL statements: the grantor must be the owner
+    if (a.subject.kind === "acl") {
       const target = a.subject.target;
       const root = rootOf(target);
       const o = root === undefined ? undefined : walk.ownerNow(root);
-      if (o !== undefined && o !== applier) {
-        const hazard = [...grantOptionHolders(target)].filter(
-          (h) => h !== o && (inherited(h) || viaEnvelope.has(h)),
-        );
-        if (hazard.length > 0) {
-          if (pin && canSet(o)) runAsOf.set(a, o);
-          else {
-            for (const h of hazard.filter((x) => viaEnvelope.has(x))) {
-              block(
-                "capability_acl_grantor",
-                h,
-                `holds a grant option on an object owned by "${o}", which the applier cannot run its ACL statements as; with the owner envelope open Postgres could record "${h}" as the grantor`,
-                target,
-              );
-            }
-          }
-        }
-      }
+      const identity = grantorFor(target, o, target);
+      if (identity.as !== undefined) runAsOf.set(a, identity.as);
     }
 
     // membership statements (PG16+): Postgres picks the grantor from every
     // role the applier inherits. The member's own row names its grantor.
-    if (
-      modern &&
-      a.subject.kind === "membership" &&
-      !(a.change?.kind === "attribute" && a.change.name === "self")
-    ) {
+    if (modern && a.subject.kind === "membership" && !isSelfStatement(a)) {
       const g = a.subject.role;
       if (!((cap.adminOf ?? []).includes(g) || createdByPlan.has(g))) {
         for (const e of adminHolders(g)) {
@@ -707,19 +773,8 @@ export function authorizeForApplier(
     const as = runAsOf.get(a);
     const root = rootOf(a.subject);
     const home = root === undefined ? undefined : parentOf(root);
-    if (as !== undefined && home?.kind === "schema") {
-      const so = walk.ownerNow(home);
-      const users = walk.schemaPrivNow(home.name, "USAGE");
-      if (
-        so !== undefined &&
-        as !== so &&
-        !users.has(as) &&
-        !users.has("PUBLIC") &&
-        canSet(so)
-      ) {
-        wrapSchemaPrivilege(a, home.name, "USAGE", as, so);
-      }
-    }
+    if (as !== undefined && home?.kind === "schema")
+      lendSchemaPrivilege(a, home.name, "USAGE", as);
 
     if (newOwner !== undefined) {
       if (!canSet(newOwner)) {
@@ -743,20 +798,8 @@ export function authorizeForApplier(
       // ALTER … OWNER TO skips that check)
       const schema =
         a.subject.kind === "schema" ? undefined : parentOf(a.subject);
-      if (schema?.kind === "schema") {
-        const so = walk.ownerNow(schema);
-        const creators = walk.schemaPrivNow(schema.name, "CREATE");
-        if (
-          so !== undefined &&
-          newOwner !== so &&
-          !creators.has(newOwner) &&
-          !creators.has("PUBLIC") &&
-          canSet(so) &&
-          ctx.mode !== "nowrap"
-        ) {
-          wrapSchemaPrivilege(a, schema.name, "CREATE", newOwner, so);
-        }
-      }
+      if (schema?.kind === "schema" && ctx.mode !== "nowrap")
+        lendSchemaPrivilege(a, schema.name, "CREATE", newOwner);
     }
     walk.step(a);
   }
@@ -765,6 +808,13 @@ export function authorizeForApplier(
   // plan drops loses the row with it) ─────────────────────────────────────
   const head: Action[] = [];
   const tail: Action[] = [];
+  const plainRevoke = (r: string): Action =>
+    synthetic(
+      `REVOKE ${qid(r)} FROM ${qid(applier)}${modern ? ` GRANTED BY ${qid(applier)}` : ""}`,
+      selfId(r),
+      "self",
+      roleIds(r),
+    );
   for (const r of envelope) {
     const open = modern
       ? selfGrant(r, true, true)
@@ -780,17 +830,22 @@ export function authorizeForApplier(
     if (createdAt === undefined) head.push(open);
     else push(after, createdAt, open);
     if (list.some((a) => a.verb === "drop" && roleSubject(a) === r)) continue;
-    const restore = modern ? selfRowOf(source, r, applier) : undefined;
-    tail.push(
-      restore !== undefined
-        ? selfGrant(r, restore.inherit, restore.set)
-        : synthetic(
-            `REVOKE ${qid(r)} FROM ${qid(applier)}${modern ? ` GRANTED BY ${qid(applier)}` : ""}`,
-            selfId(r),
-            "self",
-            roleIds(r),
-          ),
-    );
+    if (modern) {
+      // the applier's own row ends as the plan wanted it (its statements
+      // were removed above), or exactly as it was
+      const row = selfRowOf(absorbed.has(r) ? desired : source, r, applier);
+      tail.push(
+        row !== undefined ? selfGrant(r, row.inherit, row.set) : plainRevoke(r),
+      );
+    } else {
+      // one row per membership: it stays when the plan grants it or the
+      // source had it and the plan does not revoke it
+      const stays =
+        !absorbed.has(r) &&
+        (source.has(selfId(r)) ||
+          (ownActions.get(r) ?? []).some((a) => a.verb === "create"));
+      if (!stays) tail.push(plainRevoke(r));
+    }
   }
 
   const out = (a: Action, newSegmentBefore = a.newSegmentBefore): Action => {
