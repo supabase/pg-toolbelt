@@ -910,7 +910,8 @@ export function authorizeForApplier(
   }
   actions.push(...tail);
 
-  const bound = borrowed.size > 0 || lends.length > 0;
+  // any statement of the pass is written for this applier
+  const bound = borrowed.size > 0 || lends.length > 0 || tail.length > 0;
   return {
     actions,
     blockers: [...blockerMap.values()],
