@@ -682,3 +682,54 @@ describe("owner edge: role rename + user-mapping option change → ALTER USER MA
     expect(verdict.ok).toBe(true);
   }, 120_000);
 });
+
+describe("owner edge: owner moves back to the default owner", () => {
+  test("s.t owned by r in source, by the default owner in desired → OWNER TO emitted, proof clean, re-plan empty", async () => {
+    const cluster = await sharedCluster();
+    const srcDb = await cluster.createDb("ownedge_dflt_src");
+    const dstDb = await cluster.createDb("ownedge_dflt_dst");
+    dbs.push(srcDb, dstDb);
+
+    await cluster.adminPool
+      .query(`CREATE ROLE ownedge_dflt_r NOLOGIN`)
+      .catch(() => {});
+
+    await srcDb.pool.query(`
+        CREATE SCHEMA s;
+        CREATE TABLE s.t (id int);
+        ALTER TABLE s.t OWNER TO ownedge_dflt_r;
+      `);
+    await dstDb.pool.query(`
+        CREATE SCHEMA s;
+        CREATE TABLE s.t (id int);
+      `);
+
+    const [srcState, dstState] = await Promise.all([
+      extract(srcDb.pool),
+      extract(dstDb.pool),
+    ]);
+    const defaultOwner = (
+      await dstDb.pool.query(
+        `SELECT pg_get_userbyid(relowner) AS o FROM pg_class WHERE oid = 's.t'::regclass`,
+      )
+    ).rows[0].o as string;
+
+    const opts = { defaultOwner, scope: "database" } as const;
+    const thePlan = plan(srcState.factBase, dstState.factBase, opts);
+    expect(
+      thePlan.actions
+        .filter((a) => a.sql.includes("OWNER TO"))
+        .map((a) => a.sql),
+    ).toEqual([`ALTER TABLE "s"."t" OWNER TO "${defaultOwner}"`]);
+
+    const clone = await srcDb.clone();
+    dbs.push(clone);
+    const verdict = await provePlan(thePlan, clone.pool, dstState.factBase);
+    expect(verdict.applyError).toBeUndefined();
+    expect(verdict.driftDeltas).toEqual([]);
+    expect(verdict.ok).toBe(true);
+
+    const after = await extract(clone.pool);
+    expect(plan(after.factBase, dstState.factBase, opts).actions).toEqual([]);
+  }, 120_000);
+});
