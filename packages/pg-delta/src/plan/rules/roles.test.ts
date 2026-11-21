@@ -9,6 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { Fact } from "../../core/fact.ts";
+import type { FactView } from "../rules.ts";
 import { roleRules } from "./roles.ts";
 
 const roleFact: Fact = {
@@ -24,6 +25,70 @@ const roleFact: Fact = {
     config: [],
   },
 };
+
+describe("membership options (PG16+ INHERIT / SET)", () => {
+  const rules = roleRules.membership!;
+  const id = { kind: "membership", role: "r", member: "somerole" } as const;
+  const viewOf = (facts: Fact[]): FactView =>
+    ({
+      get: (x: { kind: string; name?: string }) =>
+        facts.find(
+          (f) =>
+            f.id.kind === x.kind && (f.id as { name?: string }).name === x.name,
+        ),
+    }) as unknown as FactView;
+  const noinherit = {
+    ...roleFact,
+    payload: { ...roleFact.payload, inherit: false },
+  };
+  const create = (payload: Fact["payload"], member: Fact = roleFact) =>
+    rules
+      .create({ id, payload }, viewOf([member]), undefined, viewOf([member]))
+      .map((s) => s.sql);
+
+  test("a create spells only the options a plain grant would not give", () => {
+    expect(create({ admin: false })).toEqual([`GRANT "r" TO "somerole"`]);
+    expect(create({ admin: true })).toEqual([
+      `GRANT "r" TO "somerole" WITH ADMIN OPTION`,
+    ]);
+    expect(create({ admin: false, inherit: true, set: true })).toEqual([
+      `GRANT "r" TO "somerole"`,
+    ]);
+    expect(create({ admin: true, inherit: true, set: true })).toEqual([
+      `GRANT "r" TO "somerole" WITH ADMIN OPTION`,
+    ]);
+    expect(create({ admin: true, inherit: false, set: false })).toEqual([
+      `GRANT "r" TO "somerole" WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
+    ]);
+    expect(
+      create({ admin: false, inherit: false, set: true }, noinherit),
+    ).toEqual([`GRANT "r" TO "somerole"`]);
+    expect(
+      create({ admin: false, inherit: true, set: true }, noinherit),
+    ).toEqual([`GRANT "r" TO "somerole" WITH INHERIT TRUE`]);
+  });
+
+  test("INHERIT and SET changing together give one statement", () => {
+    const from: Fact = {
+      id,
+      payload: { admin: true, inherit: true, set: true },
+    };
+    const to: Fact = {
+      id,
+      payload: { admin: true, inherit: false, set: false },
+    };
+    const src = viewOf([from]);
+    const run = (attr: string) => {
+      const rule = rules.attributes[attr];
+      if (rule === undefined || rule === "replace") throw new Error(attr);
+      const out = rule.alter(to, true, false, viewOf([]), src);
+      return (Array.isArray(out) ? out : [out]).map((s) => s.sql);
+    };
+    expect([...run("inherit"), ...run("set")]).toEqual([
+      `GRANT "r" TO "somerole" WITH INHERIT FALSE, SET FALSE`,
+    ]);
+  });
+});
 
 describe("role drop", () => {
   test("emits a plain DROP ROLE, never DROP OWNED BY", () => {

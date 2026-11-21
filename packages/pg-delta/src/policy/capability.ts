@@ -214,7 +214,11 @@ export function capabilityExcludedRoots(
       selfAdmin &&
       fact.id.kind === "membership" &&
       fact.id.member === cap.role &&
-      fact.payload["admin"] === true
+      fact.payload["admin"] === true &&
+      // the ADMIN-only row CREATE ROLE gives its creator; once the applier
+      // has granted itself the role (INHERIT or SET) the membership is managed
+      fact.payload["inherit"] !== true &&
+      fact.payload["set"] !== true
     ) {
       roots.set(encodeId(fact.id), CAPABILITY_CREATEROLE_SELF_ADMIN);
     }

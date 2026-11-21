@@ -125,6 +125,22 @@ describe("ApplierCapability — PG16+ CREATEROLE self-ADMIN membership", () => {
     expect(capabilityExcludedRoots(fb, createrolePg16).size).toBe(0);
   });
 
+  test("keeps an admin self-membership the applier can use (INHERIT or SET)", () => {
+    for (const [inherit, set, excluded] of [
+      [false, false, true],
+      [true, false, false],
+      [false, true, false],
+    ] as const) {
+      const fb = buildFactBase(
+        [f(created), { id: selfAdmin, payload: { admin: true, inherit, set } }],
+        [],
+      );
+      expect(capabilityExcludedRoots(fb, createrolePg16).size).toBe(
+        excluded ? 1 : 0,
+      );
+    }
+  });
+
   test("superuser, PG < 16, or omitted probe fields do not exclude", () => {
     const fb = membershipFb();
     expect(capabilityExcludedRoots(fb, superuser).size).toBe(0);

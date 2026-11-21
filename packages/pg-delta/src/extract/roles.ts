@@ -14,10 +14,18 @@ const ROLES_SQL = `
     ORDER BY r.rolname`;
 
 // ── role memberships (cluster-level; multi-grantor rows deduped) ─────
-function membershipsSql(_pgMajor: number): string {
+// PG16+ stores one row per grantor, each with its own ADMIN / INHERIT / SET;
+// the fact carries the effective option (any row), like ADMIN always did.
+function membershipsSql(pgMajor: number): string {
+  const options =
+    pgMajor >= 16
+      ? `,
+           bool_or(m.inherit_option) AS inherit,
+           bool_or(m.set_option) AS set`
+      : "";
   return `
     SELECT r1.rolname AS role, r2.rolname AS member,
-           bool_or(m.admin_option) AS admin
+           bool_or(m.admin_option) AS admin${options}
     FROM pg_auth_members m
     JOIN pg_roles r1 ON r1.oid = m.roleid
     JOIN pg_roles r2 ON r2.oid = m.member
@@ -177,6 +185,9 @@ export const rolesAndGrantsFamily: CatalogFamily = {
         },
         payload: {
           admin: Boolean(row["admin"]),
+          ...(row["inherit"] === undefined
+            ? {}
+            : { inherit: Boolean(row["inherit"]), set: Boolean(row["set"]) }),
         },
       });
     }

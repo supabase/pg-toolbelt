@@ -475,18 +475,29 @@ SELECT 'defacl ' || pg_get_userbyid(d.defaclrole) || ' ' || coalesce(n.nspname, 
   LATERAL unnest(d.defaclacl) AS a`;
 }
 
+/** PG16+: one line per (role, member) with the EFFECTIVE INHERIT / SET (any
+ *  row, any grantor, self-grants included); per-grantor lines carry ADMIN. */
+function memberUseSql(where: string): string {
+  return `SELECT 'memberuse ' || pg_get_userbyid(m.roleid) || ' <- ' || pg_get_userbyid(m.member)
+              || ' inherit=' || bool_or(m.inherit_option)::text || ' set=' || bool_or(m.set_option)::text
+           FROM pg_auth_members m
+          WHERE ${where}
+          GROUP BY m.roleid, m.member`;
+}
+
 function clusterCatalogSql(pgMajor: number, builtin?: string[]): string {
   if (builtin !== undefined) return supaClusterCatalogSql(pgMajor, builtin);
+  const notBuiltin = `(pg_get_userbyid(m.roleid) NOT LIKE 'pg\\_%' OR pg_get_userbyid(m.member) NOT LIKE 'pg\\_%')`;
   const members =
     pgMajor >= 16
       ? `SELECT 'member ' || pg_get_userbyid(m.roleid) || ' <- ' || pg_get_userbyid(m.member)
               || ' admin=' || m.admin_option::text
-              || CASE WHEN pg_get_userbyid(m.member) = '${APPLIER}' THEN ''
-                      ELSE ' inherit=' || m.inherit_option::text || ' set=' || m.set_option::text END
               || ' grantor=' || pg_get_userbyid(m.grantor)
            FROM pg_auth_members m
-          WHERE (pg_get_userbyid(m.roleid) NOT LIKE 'pg\\_%' OR pg_get_userbyid(m.member) NOT LIKE 'pg\\_%')
-            AND m.grantor <> m.member`
+          WHERE ${notBuiltin}
+            AND m.grantor <> m.member
+         UNION ALL
+         ${memberUseSql(notBuiltin)}`
       : `SELECT 'member ' || pg_get_userbyid(m.roleid) || ' <- ' || pg_get_userbyid(m.member)
               || ' admin=' || m.admin_option::text
            FROM pg_auth_members m
@@ -509,18 +520,18 @@ function supaClusterCatalogSql(pgMajor: number, builtin: string[]): string {
   const cols =
     pgMajor >= 16
       ? `' admin=' || m.admin_option::text
-              || CASE WHEN pg_get_userbyid(m.member) = 'postgres' THEN ''
-                      ELSE ' inherit=' || m.inherit_option::text || ' set=' || m.set_option::text END
               || ' grantor=' || pg_get_userbyid(m.grantor)`
       : `' admin=' || m.admin_option::text`;
+  const kept = `(NOT (pg_get_userbyid(m.roleid) = ANY(${bl}))
+    OR NOT (pg_get_userbyid(m.member) = ANY(${bl}))
+    OR pg_get_userbyid(m.member) = 'postgres')`;
   return `
 SELECT 'member ' || pg_get_userbyid(m.roleid) || ' <- ' || pg_get_userbyid(m.member) || ${cols}
   FROM pg_auth_members m
- WHERE (NOT (pg_get_userbyid(m.roleid) = ANY(${bl}))
-    OR NOT (pg_get_userbyid(m.member) = ANY(${bl}))
-    OR pg_get_userbyid(m.member) = 'postgres')
+ WHERE ${kept}
    ${pgMajor >= 16 ? "AND m.grantor <> m.member" : ""}
 UNION ALL
+${pgMajor >= 16 ? `${memberUseSql(kept)}\nUNION ALL` : ""}
 SELECT 'role ' || rolname || ' super=' || rolsuper::text || ' inherit=' || rolinherit::text
     || ' createrole=' || rolcreaterole::text || ' createdb=' || rolcreatedb::text
     || ' login=' || rolcanlogin::text || ' repl=' || rolreplication::text || ' bypassrls=' || rolbypassrls::text

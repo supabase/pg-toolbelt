@@ -3,7 +3,7 @@
 import type { Fact } from "../../core/fact.ts";
 import type { PayloadValue } from "../../core/hash.ts";
 import { lit, qid, splitOption } from "../render.ts";
-import type { ActionSpec, KindRules } from "../rules.ts";
+import type { ActionSpec, FactView, KindRules } from "../rules.ts";
 import {
   defaultPrivilegeCreateActions,
   defaultPrivilegeDropActions,
@@ -78,6 +78,59 @@ function roleConfigSetSql(role: string, key: string, value: string): string {
   return `ALTER ROLE ${role} SET ${qid(key)} TO ${rendered}`;
 }
 
+/** The member's INHERIT when the GRANT runs: what a plain grant gives on
+ *  PG16+. Undefined when the plan changes it, so INHERIT is spelled out. */
+function memberInherits(
+  member: string,
+  view: FactView,
+  sourceView: FactView | undefined,
+): boolean | undefined {
+  const id = { kind: "role", name: member } as const;
+  const desired = view.get(id)?.payload["inherit"];
+  const source = sourceView?.get(id)?.payload["inherit"];
+  if (source !== undefined && source !== desired) return undefined;
+  return desired !== false;
+}
+
+/** `GRANT role TO member` whose NEW pg_auth_members row equals the fact: it
+ *  spells only the options a plain grant would not give (ADMIN false, SET
+ *  true, INHERIT the member's own). A PG <= 15 payload has no INHERIT / SET
+ *  and renders as it always did. */
+export function membershipGrantSql(
+  role: string,
+  member: string,
+  payload: Readonly<Record<string, PayloadValue>>,
+  inheritDefault: boolean | undefined,
+): string {
+  const options: string[] = [];
+  if (payload["admin"] === true) options.push("ADMIN TRUE");
+  const inherit = payload["inherit"];
+  if (typeof inherit === "boolean" && inherit !== inheritDefault)
+    options.push(`INHERIT ${inherit ? "TRUE" : "FALSE"}`);
+  if (payload["set"] === false) options.push("SET FALSE");
+  const clause =
+    options.length === 0
+      ? ""
+      : options.length === 1 && payload["admin"] === true
+        ? " WITH ADMIN OPTION"
+        : ` WITH ${options.join(", ")}`;
+  return `GRANT ${qid(role)} TO ${qid(member)}${clause}`;
+}
+
+/** PG16+ INHERIT / SET of an existing membership, both in one statement: it
+ *  updates the row the executing role granted (or adds one) and keeps ADMIN. */
+function membershipUseAlter(fact: Fact): ActionSpec {
+  const id = fact.id as { role: string; member: string };
+  const bool = (key: string) => (fact.payload[key] ? "TRUE" : "FALSE");
+  return {
+    sql: `GRANT ${qid(id.role)} TO ${qid(id.member)} WITH INHERIT ${bool("inherit")}, SET ${bool("set")}`,
+    consumes: [
+      { kind: "role", name: id.role },
+      { kind: "role", name: id.member },
+    ],
+  };
+}
+
 export const roleRules: Record<string, KindRules> = {
   role: {
     weight: 0,
@@ -148,11 +201,16 @@ export const roleRules: Record<string, KindRules> = {
 
   membership: {
     weight: 1,
-    create: (fact) => {
+    create: (fact, view, _params, sourceView) => {
       const id = fact.id as { role: string; member: string };
       return [
         {
-          sql: `GRANT ${qid(id.role)} TO ${qid(id.member)}${p(fact, "admin") ? " WITH ADMIN OPTION" : ""}`,
+          sql: membershipGrantSql(
+            id.role,
+            id.member,
+            fact.payload,
+            memberInherits(id.member, view, sourceView),
+          ),
           consumes: [
             { kind: "role", name: id.role },
             { kind: "role", name: id.member },
@@ -180,11 +238,16 @@ export const roleRules: Record<string, KindRules> = {
     },
     attributes: {
       admin: {
-        alter: (fact, _from, to) => {
+        alter: (fact, _from, to, view, sourceView) => {
           const id = fact.id as { role: string; member: string };
           return {
             sql: to
-              ? `GRANT ${qid(id.role)} TO ${qid(id.member)} WITH ADMIN OPTION`
+              ? membershipGrantSql(
+                  id.role,
+                  id.member,
+                  fact.payload,
+                  memberInherits(id.member, view, sourceView),
+                )
               : `REVOKE ADMIN OPTION FOR ${qid(id.role)} FROM ${qid(id.member)}`,
             consumes: [
               { kind: "role", name: id.role },
@@ -192,6 +255,15 @@ export const roleRules: Record<string, KindRules> = {
             ],
           };
         },
+      },
+      inherit: { alter: (fact) => membershipUseAlter(fact) },
+      // one statement sets both: the INHERIT alter wrote it when both changed
+      set: {
+        alter: (fact, _from, _to, _view, sourceView) =>
+          sourceView.get(fact.id)?.payload["inherit"] !==
+          fact.payload["inherit"]
+            ? []
+            : membershipUseAlter(fact),
       },
     },
   },

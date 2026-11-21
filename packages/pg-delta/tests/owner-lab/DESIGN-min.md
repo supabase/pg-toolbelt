@@ -73,6 +73,12 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
 superuser; PG16+ the applier holds ADMIN on the role directly or the plan creates it; on
 every version the role is not reserved by supautils and is not a member of the applier.
 
+PG16+ memberships carry INHERIT / SET (effective over all rows) as facts, so a `GRANT
+app_owner TO postgres` kept in the desired database is a planned change like on PG ≤15: the
+plan's own GRANT keeps a borrowed role (a full GRANT is the borrow, a partial one closes
+it), and a membership whose use the plan takes away is the closing REVOKE. Only the
+ADMIN-only row `CREATE ROLE` gives the creator stays out of the managed view.
+
 A plan that borrows or lends is bound to its applier: `apply()` refuses to run it as
 another role, and a rendered script starts with a `DO` block that raises unless
 `current_user` is that role.
@@ -101,9 +107,8 @@ Likelihood is my estimate of how often a real project migration hits it.
 | Publication owner (new owner needs CREATE on the database); FDW, event trigger, all-tables publication (superuser) | Postgres error | rare |
 | Role rename in the same plan as work on objects it owns | Postgres error | rare |
 | Owner change of schema `public` itself | not planned, on any applier | rare |
-| Membership rows granted by another role, and their INHERIT / SET options | not modelled, as on `main`; a REVOKE of a row the applier did not grant is a no-op with a warning | rare |
+| Membership rows granted by another role | not modelled per grantor, as on `main`; a REVOKE of a row the applier did not grant is a no-op with a warning. INHERIT / SET are facts as the EFFECTIVE option (any row): `GRANT r TO m WITH INHERIT FALSE, SET FALSE` updates only the executing role's row, so turning them off for a member that holds them through another grantor's row leaves them on (FACT_DRIFT) | rare |
 | A plan with several transactions that fails in a later one (for example a failed `CREATE INDEX CONCURRENTLY`) | the migration fails loudly and the borrowed role stays granted; `REVOKE <role> FROM <applier>` by hand. Borrowing per transaction would remove this at the cost of a GRANT / REVOKE pair per transaction | rare |
-| Which roles the applier has granted itself (PG16+): a `GRANT app_owner TO postgres` kept in the desired database | not compared, not planned: `CREATE ROLE` gives the creator an ADMIN-only row, so the membership fact exists on both sides and INHERIT / SET are not facts. A borrowed role is always given back, and a role the applier already held is left as found. Follow-up for the engine: INHERIT / SET as membership attributes (extract, diff, export together); the plan's own GRANT then keeps the role, as on PG ≤15, with no change to this pass | common, harmless: a migration that needs the role borrows it; `GRANT app_owner TO postgres` once on the target gives plain DDL from then on |
 | Grant options on columns: the refusal looks at the whole table, so a borrowed role's option on column `a` refuses a planned grant on column `b` | blocker where the plan would have been fine | rare |
 | A REVOKE the applier makes through a grant option (no borrow) when the grant being revoked was in fact made by the owner | Postgres revokes nothing and warns; the next plan is not empty. Same as on `main` | rare |
 | `createrole_self_grant` set for the applier (off by default, empty on Supabase) and the plan creates a role it also borrows | the closing REVOKE removes the automatic self-grant | rare |
