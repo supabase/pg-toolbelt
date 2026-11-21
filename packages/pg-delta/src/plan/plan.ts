@@ -26,6 +26,7 @@ import type { ManagementScope } from "../policy/view.ts";
 import { vaultPresenceDiagnostics } from "../policy/extensions/vault.ts";
 import { emitActions } from "./phases/action-emitter.ts";
 import { finalizeActions } from "./phases/action-graph.ts";
+import type { OwnerMode } from "./phases/applier-authorization.ts";
 import { needsCheckFunctionBodiesOff } from "./preamble.ts";
 import { buildChangeSet } from "./phases/change-set.ts";
 import { relabelRoleNames } from "./identity-normalize.ts";
@@ -314,6 +315,11 @@ export interface PlanOptions {
    *  view. Omit for an unrestricted view (bare `plan()`). Probe with
    *  `probeApplierCapability`, or take it from `resolveProfile`. */
   capability?: ApplierCapability;
+  /** PoC: how a non-superuser applier gets the privileges of an owner it
+   *  cannot use yet (`union`: inherit it for the whole plan; `runas`: SET only,
+   *  statements on its objects run as it). Default `union`, or
+   *  `PGDELTA_OWNER_MODE`. */
+  ownerMode?: OwnerMode;
   /** the integration profile id to stamp on the plan artifact (set by the
    *  resolved profile's `planOptions`), so `apply`/`prove` can reconstruct the
    *  same managed view without the operator re-specifying `--profile`. */
@@ -862,6 +868,15 @@ export function plan(
     compact: options?.compact !== false,
     foldConstraints: options?.foldConstraints,
     rulesForId,
+    rawSource,
+    rawDesired,
+    // PoC only: the owner-lab picks the mode from the environment
+    ownerMode:
+      options?.ownerMode ??
+      (typeof process !== "undefined" &&
+      process.env["PGDELTA_OWNER_MODE"] === "runas"
+        ? "runas"
+        : "union"),
   });
   const { safetyReport } = finalized;
 

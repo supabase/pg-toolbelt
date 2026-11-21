@@ -68,11 +68,11 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // 18 → 19: ADD IDENTITY replays the column's surviving sequence acl children.
   "phases/action-emitter.ts": 19,
   "phases/action-graph.ts": 1,
-  // 0 → 46 (owner-envelope PoC): the authorization pass is ABOUT roles,
-  // memberships and ACLs — it classifies actions by those id kinds
-  // (role/membership/acl/schema, plus `table` for inheritance children and
-  // `defaultPrivilege` for FOR ROLE). Not a per-object-kind special case.
-  "phases/applier-authorization.ts": 45,
+  // 0 → 43 (owner-envelope PoC): the authorization pass is ABOUT roles,
+  // memberships and ACLs — it classifies subjects by those kinds
+  // (role/membership/acl/schema, `defaultPrivilege` for FOR ROLE). Not a
+  // per-object-kind special case.
+  "phases/applier-authorization.ts": 43,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,
   // 7 → 8: the platform-provisioned assumed-schema-member scan discriminates

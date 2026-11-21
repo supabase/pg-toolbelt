@@ -4,6 +4,7 @@ import {
   type ApplyTimeoutOptions,
 } from "../apply/apply-preamble.ts";
 import { runAsBracket, segmentActions } from "../apply/apply.ts";
+import { CapabilityError } from "../policy/capability.ts";
 
 function terminate(sql: string): string {
   const trimmed = sql.trimEnd();
@@ -20,6 +21,9 @@ export function renderApplyScript(
   plan: Plan,
   timeoutOptions?: ApplyTimeoutOptions,
 ): string {
+  if (plan.blockers !== undefined && plan.blockers.length > 0) {
+    throw new CapabilityError(plan.blockers);
+  }
   if (plan.actions.length === 0) return "";
 
   const segments = segmentActions(plan.actions);

@@ -34,7 +34,10 @@ import {
   mergeCoTargetGrants,
   mergeCoTargetRevokes,
 } from "../internal.ts";
-import { authorizeForApplier } from "./applier-authorization.ts";
+import {
+  authorizeForApplier,
+  type OwnerMode,
+} from "./applier-authorization.ts";
 
 /** A column create's table and declared position (`_position`,
  *  pg_attribute.attnum), or undefined for any other action. */
@@ -206,6 +209,12 @@ export interface FinalizeInput {
   /** id-keyed rule resolver (schema kinds + `extensionIntent`), used by the
    *  tie-break so intent actions sort on their declared late weight. */
   rulesForId: RulesForId;
+  /** the RAW (unfiltered) fact bases: the authorization pass reads owners,
+   *  ACLs and memberships from them, since a filtered-out grant still exists */
+  rawSource: FactBase;
+  rawDesired: FactBase;
+  /** how a non-superuser applier gets an owner's privileges (PoC) */
+  ownerMode: OwnerMode;
 }
 
 export interface FinalizeOutput {
@@ -241,6 +250,9 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     compact,
     foldConstraints,
     rulesForId,
+    rawSource,
+    rawDesired,
+    ownerMode,
   } = input;
 
   // ── graph edges + deterministic order ─────────────────────────────────
@@ -395,8 +407,9 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   }
   const authorized = authorizeForApplier(finalActions, {
     capability,
-    source,
-    desired,
+    source: rawSource,
+    desired: rawDesired,
+    mode: ownerMode,
   });
   return {
     actions: authorized.actions,
