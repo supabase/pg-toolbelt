@@ -198,14 +198,19 @@ export function segmentActions(
   return segments;
 }
 
-/** The `SET ROLE` pair around an action that must run as another role
- *  (`Action.runAs`), or undefined. The pair returns to the plan's applier by
- *  name, never with `RESET ROLE`: RESET returns to the SESSION user, which is
- *  not the applier when the session logged in as another role and stepped
+/** The role pair around an action that must run as another role
+ *  (`Action.runAs`), or undefined. In a transaction it is `SET LOCAL ROLE`:
+ *  COMMIT or ROLLBACK returns the session to exactly the role setting it had,
+ *  and the second statement returns to the applier for the rest of the
+ *  transaction. A non-transactional action uses `SET ROLE` and returns to
+ *  `sessionRole` (apply reads it at connect time; the applier by name
+ *  otherwise). Never `RESET ROLE`: RESET returns to the SESSION user, which
+ *  is not the applier when the session logged in as another role and stepped
  *  down to it. */
 export function runAsBracket(
-  action: { readonly runAs?: string },
+  action: { readonly runAs?: string; readonly transactionality: string },
   boundApplier: string | undefined,
+  sessionRole?: string,
 ): { set: string; restore: string } | undefined {
   if (action.runAs === undefined) return undefined;
   if (boundApplier === undefined) {
@@ -213,9 +218,18 @@ export function runAsBracket(
       `plan invariant: an action runs as "${action.runAs}" but the plan names no boundApplier to return to — re-plan`,
     );
   }
+  if (action.transactionality !== "nonTransactional") {
+    return {
+      set: `SET LOCAL ROLE ${qid(action.runAs)}`,
+      restore: `SET LOCAL ROLE ${qid(boundApplier)}`,
+    };
+  }
   return {
     set: `SET ROLE ${qid(action.runAs)}`,
-    restore: `SET ROLE ${qid(boundApplier)}`,
+    restore:
+      sessionRole === "none"
+        ? "SET ROLE NONE"
+        : `SET ROLE ${qid(sessionRole ?? boundApplier)}`,
   };
 }
 
@@ -374,27 +388,24 @@ export async function apply(
   try {
     // A plan that names its applier (envelope GRANT/REVOKE … GRANTED BY, a
     // `runAs` returning to it) is only correct when run as that role.
+    // The session's own role setting (`none` on a direct login) is what a
+    // non-transactional `runAs` action returns to.
+    let sessionRole: string | undefined;
     if (thePlan.boundApplier !== undefined) {
-      const who = await client.query<{ current_user: string }>(
-        "SELECT current_user",
+      const who = await client.query<{ current_user: string; role: string }>(
+        "SELECT current_user, current_setting('role') AS role",
       );
       const actual = String(who.rows[0]?.current_user);
       if (actual !== thePlan.boundApplier) {
         throw new ApplierIdentityError(thePlan.boundApplier, actual);
       }
+      sessionRole = who.rows[0]?.role;
     }
     const onEvent = options?.onEvent;
     const segments = segmentActions(thePlan.actions);
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       const segment = segments[segIdx]!;
-      // A failed transactional segment rolls back, which also undoes any
-      // `SET ROLE` made inside it; a segment that ran an action under another
-      // role still returns to the applier by name afterwards, so the session
-      // never stays on that role whatever ROLLBACK restored.
-      const segmentRestore = thePlan.actions
-        .slice(segment.start, segment.end)
-        .map((a) => runAsBracket(a, thePlan.boundApplier)?.restore)
-        .find((sql) => sql !== undefined);
+      // ROLLBACK also undoes a `SET LOCAL ROLE` made in the segment
       const rollbackAfterError = async (): Promise<boolean> => {
         emit(onEvent, { kind: "control", sql: "ROLLBACK" });
         try {
@@ -402,14 +413,6 @@ export async function apply(
         } catch {
           destroyClient = true;
           return false;
-        }
-        if (segmentRestore !== undefined) {
-          emit(onEvent, { kind: "control", sql: segmentRestore });
-          try {
-            await client.query(segmentRestore);
-          } catch {
-            destroyClient = true;
-          }
         }
         return true;
       };
@@ -428,7 +431,7 @@ export async function apply(
         // a lone non-transactional action; session-level settings, reset after
         const index = segment.start;
         const action = thePlan.actions[index]!;
-        const bracket = runAsBracket(action, thePlan.boundApplier);
+        const bracket = runAsBracket(action, thePlan.boundApplier, sessionRole);
         // whether a `SET ROLE <runAs>` may be in effect and must be undone
         let roleSet = false;
         // the failure return is deferred past the finally so segmentEnd stays

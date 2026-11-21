@@ -113,7 +113,7 @@ describe("renderApplyScript", () => {
     );
   });
 
-  test("brackets a runAs action with SET ROLE to it and back to the applier", () => {
+  test("brackets a runAs action with SET (LOCAL) ROLE to it and back to the applier", () => {
     const plan = planWithMixedSegments();
     plan.preamble = [];
     plan.boundApplier = "app";
@@ -130,9 +130,9 @@ describe("renderApplyScript", () => {
       [
         "BEGIN;",
         "SELECT 1;",
-        'SET ROLE "owner";',
+        'SET LOCAL ROLE "owner";',
         "GRANT SELECT ON public.widgets TO reader;",
-        'SET ROLE "app";',
+        'SET LOCAL ROLE "app";',
         "COMMIT;",
         "",
         'SET ROLE "owner";',

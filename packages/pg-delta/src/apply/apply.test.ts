@@ -219,8 +219,10 @@ function scriptedApplyClient(failingSql: ReadonlySet<string>): ScriptedApply {
     query: (sql: unknown) => {
       const text = queryText(sql);
       queries.push(text);
-      if (text === "SELECT current_user") {
-        return Promise.resolve({ rows: [{ current_user: "app" }] });
+      if (text.startsWith("SELECT current_user")) {
+        return Promise.resolve({
+          rows: [{ current_user: "app", role: "none" }],
+        });
       }
       const parts = text.includes("\n;")
         ? text
@@ -740,6 +742,7 @@ describe("apply batchTransactional opt-in", () => {
 });
 
 describe("apply runAs", () => {
+  const WHO = "SELECT current_user, current_setting('role') AS role";
   // `SELECT 42` runs as "owner", the plan's applier is "app": the pair is
   // `SET ROLE` to the owner and back to the applier BY NAME (never RESET ROLE,
   // which returns to the session user), inside the action's transaction.
@@ -762,11 +765,11 @@ describe("apply runAs", () => {
     });
     expect(report.status).toBe("applied");
     expect(scripted.queries).toEqual([
-      "SELECT current_user",
+      WHO,
       "BEGIN",
-      'SET ROLE "owner"',
+      'SET LOCAL ROLE "owner"',
       "SELECT 42",
-      'SET ROLE "app"',
+      'SET LOCAL ROLE "app"',
       "COMMIT",
     ]);
   });
@@ -778,18 +781,18 @@ describe("apply runAs", () => {
       batchTransactional: true,
     });
     expect(scripted.queries).toEqual([
-      "SELECT current_user",
+      WHO,
       joinStatements([
         "BEGIN",
-        'SET ROLE "owner"',
+        'SET LOCAL ROLE "owner"',
         "SELECT 42",
-        'SET ROLE "app"',
+        'SET LOCAL ROLE "app"',
       ]),
       "COMMIT",
     ]);
   });
 
-  test("a failed action rolls back, then returns to the applier", async () => {
+  test("a failed action rolls back, which also undoes SET LOCAL ROLE", async () => {
     const scripted = scriptedApplyClient(new Set(["SELECT 42"]));
     const report = await apply(runAsPlan("transactional"), scripted.pool, {
       fingerprintGate: false,
@@ -797,15 +800,14 @@ describe("apply runAs", () => {
     expect(report.error).toMatchObject({ statementKind: "action" });
     expect(scripted.queries.slice(1)).toEqual([
       "BEGIN",
-      'SET ROLE "owner"',
+      'SET LOCAL ROLE "owner"',
       "SELECT 42",
       "ROLLBACK",
-      'SET ROLE "app"',
     ]);
   });
 
   test("a refused SET ROLE is a control failure of that action", async () => {
-    const scripted = scriptedApplyClient(new Set(['SET ROLE "owner"']));
+    const scripted = scriptedApplyClient(new Set(['SET LOCAL ROLE "owner"']));
     const report = await apply(runAsPlan("transactional"), scripted.pool, {
       fingerprintGate: false,
       batchTransactional: true,
@@ -813,22 +815,22 @@ describe("apply runAs", () => {
     expect(report.error).toMatchObject({
       actionIndex: 0,
       statementKind: "control",
-      sql: 'SET ROLE "owner"',
+      sql: 'SET LOCAL ROLE "owner"',
     });
     expect(report.actionStatuses).toEqual(["unapplied"]);
-    expect(scripted.queries.slice(-2)).toEqual(["ROLLBACK", 'SET ROLE "app"']);
+    expect(scripted.queries.at(-1)).toBe("ROLLBACK");
   });
 
-  test("a non-transactional action returns to the applier before RESET ALL, also on failure", async () => {
+  test("a non-transactional action returns to the session's own role before RESET ALL, also on failure", async () => {
     const ok = scriptedApplyClient(new Set());
     await apply(runAsPlan("nonTransactional"), ok.pool, {
       fingerprintGate: false,
     });
     expect(ok.queries).toEqual([
-      "SELECT current_user",
+      WHO,
       'SET ROLE "owner"',
       "SELECT 42",
-      'SET ROLE "app"',
+      "SET ROLE NONE",
       "RESET ALL",
     ]);
     const failed = scriptedApplyClient(new Set(["SELECT 42"]));
@@ -836,7 +838,7 @@ describe("apply runAs", () => {
       fingerprintGate: false,
     });
     expect(report.actionStatuses).toEqual(["inDoubt"]);
-    expect(failed.queries.slice(-2)).toEqual(['SET ROLE "app"', "RESET ALL"]);
+    expect(failed.queries.slice(-2)).toEqual(["SET ROLE NONE", "RESET ALL"]);
   });
 
   test("refuses a runAs action in a plan that names no applier", () => {
