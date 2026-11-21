@@ -5,6 +5,7 @@ import {
 } from "../apply/apply-preamble.ts";
 import { segmentActions } from "../apply/apply.ts";
 import { CapabilityError } from "../policy/capability.ts";
+import { lit } from "../plan/render.ts";
 
 function terminate(sql: string): string {
   const trimmed = sql.trimEnd();
@@ -42,5 +43,10 @@ export function renderApplyScript(
     return statements.join("\n");
   });
 
-  return `${EXECUTION_CONTRACT}\n\n${rendered.join("\n\n")}\n`;
+  // apply() checks this itself; a script has to carry the check
+  const guard =
+    plan.boundApplier === undefined
+      ? ""
+      : `DO $pgdelta$ BEGIN IF current_user <> ${lit(plan.boundApplier)} THEN RAISE EXCEPTION 'this migration grants roles to % for its own statements and must be run as that role, not as %', ${lit(plan.boundApplier)}, current_user; END IF; END $pgdelta$;\n\n`;
+  return `${EXECUTION_CONTRACT}\n\n${guard}${rendered.join("\n\n")}\n`;
 }

@@ -101,28 +101,45 @@ describe("applier authorization", () => {
     ]);
   });
 
-  test("a grant option held beside the owner's privileges is a blocker", () => {
+  test("a borrowed owner beside a grant-option holder the applier has is a blocker", () => {
     const acl = (grantee: string, grantable: string[]): Fact => ({
       id: { kind: "acl", target: table, grantee },
       parent: table,
       payload: { privileges: ["SELECT"], grantable },
     });
-    // the applier has owner_a's privileges and its own SELECT WITH GRANT
-    // OPTION on owner_a's table: Postgres records the applier, a superuser
-    // the owner, as the grantor of the new GRANT
-    const p = plan(
-      state("owner_a", [acl("app", ["SELECT"])]),
-      state("owner_a", [acl("app", ["SELECT"]), acl("owner_b", [])]),
-      {
-        capability: {
-          ...applier,
-          inheritedRoles: ["owner_a"],
-          settableRoles: ["owner_a"],
-        },
-      },
+    const facts = (rowSecurity: boolean, extra: Fact[]) =>
+      buildFactBase(
+        [
+          role("app"),
+          role("owner_a"),
+          role("owner_b"),
+          { id: schema, payload: {} },
+          { ...tableFact, payload: { ...tableFact.payload, rowSecurity } },
+          acl("owner_b", ["SELECT"]),
+          ...extra,
+        ],
+        [owned(schema, "app"), owned(table, "owner_a")],
+      );
+    const capability = {
+      ...applier,
+      inheritedRoles: ["owner_b"],
+      settableRoles: ["owner_b"],
+    };
+    // the GRANT alone runs through owner_b's grant option, as it does today
+    const alone = plan(facts(false, []), facts(false, [acl("app", [])]), {
+      capability,
+    });
+    expect(alone.blockers).toBeUndefined();
+    expect(sqlOf(alone).some((sql) => sql.includes('"owner_a" TO'))).toBe(
+      false,
     );
-    expect(p.blockers?.map((b) => [b.code, b.role])).toEqual([
-      ["capability_acl_grantor", "app"],
+    // the table change needs owner_a: once borrowed, Postgres would record
+    // owner_a or owner_b as the grantor depending on their order
+    const both = plan(facts(false, []), facts(true, [acl("app", [])]), {
+      capability,
+    });
+    expect(both.blockers?.map((b) => [b.code, b.role])).toEqual([
+      ["capability_acl_grantor", "owner_b"],
     ]);
   });
 
