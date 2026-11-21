@@ -480,7 +480,9 @@ function clusterCatalogSql(pgMajor: number, builtin?: string[]): string {
   const members =
     pgMajor >= 16
       ? `SELECT 'member ' || pg_get_userbyid(m.roleid) || ' <- ' || pg_get_userbyid(m.member)
-              || ' admin=' || m.admin_option::text || ' inherit=' || m.inherit_option::text || ' set=' || m.set_option::text
+              || ' admin=' || m.admin_option::text
+              || CASE WHEN pg_get_userbyid(m.member) = '${APPLIER}' THEN ''
+                      ELSE ' inherit=' || m.inherit_option::text || ' set=' || m.set_option::text END
               || ' grantor=' || pg_get_userbyid(m.grantor)
            FROM pg_auth_members m
           WHERE (pg_get_userbyid(m.roleid) NOT LIKE 'pg\\_%' OR pg_get_userbyid(m.member) NOT LIKE 'pg\\_%')
@@ -506,7 +508,9 @@ function supaClusterCatalogSql(pgMajor: number, builtin: string[]): string {
   const bl = `ARRAY[${builtin.map(lit).join(",")}]::text[]`;
   const cols =
     pgMajor >= 16
-      ? `' admin=' || m.admin_option::text || ' inherit=' || m.inherit_option::text || ' set=' || m.set_option::text
+      ? `' admin=' || m.admin_option::text
+              || CASE WHEN pg_get_userbyid(m.member) = 'postgres' THEN ''
+                      ELSE ' inherit=' || m.inherit_option::text || ' set=' || m.set_option::text END
               || ' grantor=' || pg_get_userbyid(m.grantor)`
       : `' admin=' || m.admin_option::text`;
   return `
@@ -1194,7 +1198,7 @@ async function runOne(
           );
         const [er, ed] = await Promise.all([eff(su.src), eff(su.dst)]);
         const fmt = (x?: { i: boolean; s: boolean }) =>
-          x ? `inherit=${x.i ? "t" : "f"} set=${x.s ? "t" : "f"}` : "none";
+          `inherit=${x?.i ? "t" : "f"} set=${x?.s ? "t" : "f"}`;
         const use: string[] = [];
         for (const role of [...new Set([...er.keys(), ...ed.keys()])].sort()) {
           const a = er.get(role);

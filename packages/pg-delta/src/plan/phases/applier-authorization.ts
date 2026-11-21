@@ -556,6 +556,11 @@ export function authorizeForApplier(
   };
 
   // ── 1. borrow ───────────────────────────────────────────────────────────
+  const selfId = (r: string): MembershipId => ({
+    kind: "membership",
+    role: r,
+    member: applier,
+  });
   const touched = new Set<string>();
   const missing = new Set<string>();
   {
@@ -568,6 +573,19 @@ export function authorizeForApplier(
     }
   }
   const toBorrow = [...missing].filter((r) => borrowable(r).ok);
+  // PG16+: how the desired database shows the applier holding `r`, through
+  // any grantor (advisory extract fields; the diff does not see them)
+  const desiredUse = (r: string): { inherit: boolean; set: boolean } => {
+    const p = modern ? desired.get(selfId(r))?.payload : undefined;
+    return { inherit: p?.["_inherit"] === true, set: p?.["_set"] === true };
+  };
+  const keeps = (r: string): boolean =>
+    desiredUse(r).inherit || desiredUse(r).set;
+  // a role the plan creates and the desired database shows the applier
+  // holding: CREATE ROLE gives its creator ADMIN only, the GRANT is the rest
+  for (const r of createdByPlan) {
+    if (keeps(r) && borrowable(r).ok) toBorrow.push(r);
+  }
   // a role the plan revokes from the applier, through which a statement
   // reaches a role it uses, is kept until the end as well
   for (const r of planRevokes) {
@@ -605,18 +623,35 @@ export function authorizeForApplier(
     return a.verb === "drop" || (a.verb === "create" && a.sql === borrowSql(r));
   });
 
-  // ── 4. refuse: a borrowed role must not be able to become the grantor ──
-  // Postgres records as grantor of a GRANT / REVOKE the first role, among the
-  // executing role and those it inherits, that holds the grant options (for
-  // an object) or ADMIN (for a role). The owner always qualifies, so the
-  // statement is attributed as under a superuser unless a NEWLY inherited
-  // role also holds one. That is rare and silent, so it is refused.
+  // ── 4. refuse: an ambiguous grantor ─────────────────────────────────────
+  // Postgres records as grantor of a GRANT / REVOKE the executing role when
+  // it owns the object; otherwise the first role, among the executing role
+  // and those it inherits, that holds the grant options on that object (its
+  // owner holds them all) or, for a role, ADMIN. A superuser always records
+  // the owner. So a statement is attributed as under a superuser unless a
+  // role the applier acts through, other than the owner, also holds a grant
+  // option on that very object. That is rare and silent, so it is refused.
   const newlyInherited = [...viaBorrowed].filter(
     (r) => r !== applier && !inheritedSet.has(r),
   );
   const fresh = new Set(newlyInherited);
+  /** per object: the roles holding a grant option on it, in either state */
+  const optionHolders = new Map<string, Set<string>>();
+  for (const fb of views) {
+    for (const fact of fb.facts()) {
+      if (
+        fact.id.kind !== "acl" ||
+        ((fact.payload["grantable"] as string[] | undefined) ?? []).length === 0
+      )
+        continue;
+      const key = encodeId(rootOf(fact.id.target) ?? fact.id.target);
+      optionHolders.set(
+        key,
+        (optionHolders.get(key) ?? new Set<string>()).add(fact.id.grantee),
+      );
+    }
+  }
   if (newlyInherited.length > 0) {
-    const aclAction = list.find((a) => a.subject.kind === "acl");
     const membershipActions = list.filter(
       (a) =>
         modern &&
@@ -628,19 +663,6 @@ export function authorizeForApplier(
     );
     for (const fb of views) {
       for (const fact of fb.facts()) {
-        if (
-          aclAction !== undefined &&
-          fact.id.kind === "acl" &&
-          fresh.has(fact.id.grantee) &&
-          ((fact.payload["grantable"] as string[] | undefined) ?? []).length > 0
-        ) {
-          block(
-            "capability_acl_grantor",
-            fact.id.grantee,
-            `holds privileges WITH GRANT OPTION, and the plan must borrow it (or a role that is a member of it) to act as an owner; Postgres could then record it as the grantor of the plan's GRANT / REVOKE statements. Grant the owner roles to "${applier}" beforehand, or apply as a superuser`,
-            fact.id.target,
-          );
-        }
         if (
           fact.id.kind === "membership" &&
           fresh.has(fact.id.member) &&
@@ -689,31 +711,25 @@ export function authorizeForApplier(
     if (a.newSegmentBefore || a.transactionality !== "transactional") endRuns();
     if (a.subject.kind === "schema") endRuns(a.subject.name);
 
-    // The mirror case of the refusal above: the applier (or a role it already
-    // had) holds a grant option on this object and granted through it; once
-    // the owner is borrowed Postgres may pick the owner instead.
-    if (a.subject.kind === "acl") {
-      const target = a.subject.target;
-      const root = rootOf(target);
-      const o = root === undefined ? undefined : walk.ownerNow(root);
-      if (o !== undefined && fresh.has(o)) {
-        for (const fb of views) {
-          for (const child of fb.childrenOf(target)) {
-            const h = (child.id as { grantee?: string }).grantee;
-            if (h === undefined || (h !== applier && !inheritedSet.has(h)))
-              continue;
-            if (
-              ((child.payload["grantable"] as string[] | undefined) ?? [])
-                .length > 0
-            )
-              block(
-                "capability_acl_grantor",
-                h,
-                `holds a grant option on an object owned by "${o}", which the plan must borrow; Postgres could then record "${o}" instead of "${h}" as the grantor. Grant "${o}" to "${applier}" beforehand, or apply as a superuser`,
-                target,
-              );
-          }
-        }
+    for (const id of [a.subject, ...a.produces]) {
+      if (id.kind !== "acl") continue;
+      const root = rootOf(id.target) ?? id.target;
+      const o = walk.ownerNow(root);
+      // as the owner itself the applier is always the grantor
+      if (o === applier) continue;
+      const asOwner = o !== undefined && canInherit(o);
+      for (const h of optionHolders.get(encodeId(root)) ?? []) {
+        if (h === o) continue;
+        const had = h === applier || inheritedSet.has(h);
+        if (!(fresh.has(h) || (had && asOwner))) continue;
+        block(
+          "capability_acl_grantor",
+          h,
+          asOwner
+            ? `holds a grant option on an object owned by "${o}", whose privileges the applier also has while the plan runs; Postgres could record either as the grantor of the plan's GRANT / REVOKE on it. Apply as a superuser`
+            : `holds a grant option on an object the plan grants or revokes on, and the plan must borrow it (or a role that is a member of it) to act as an owner; Postgres could then record it as the grantor. Apply as a superuser`,
+          id.target,
+        );
       }
     }
 
@@ -805,11 +821,6 @@ export function authorizeForApplier(
   }
 
   // ── assemble: borrow after the role exists, give back at the end ───────
-  const selfId = (r: string): MembershipId => ({
-    kind: "membership",
-    role: r,
-    member: applier,
-  });
   const membershipStatement = (r: string, sql: string): Action =>
     synthetic(sql, selfId(r), "borrow", [
       { kind: "role", name: r },
@@ -834,11 +845,19 @@ export function authorizeForApplier(
     if (planGrants.has(r)) continue;
     // PG16+: the row the applier had granted itself goes back as it was
     const was = ownRow(r);
+    const want = desiredUse(r);
     const keepsMembership =
       !modern && source.has(selfId(r)) && !planRevokes.has(r);
     if (was !== undefined && !planRevokes.has(r))
       tail.push(membershipStatement(r, withOptions(r, was.inherit, was.set)));
-    else if (!keepsMembership)
+    else if (keeps(r) && !planRevokes.has(r)) {
+      // the desired database shows the applier holding the role: it stays,
+      // narrowed when only one of INHERIT / SET is wanted
+      if (!(want.inherit && want.set))
+        tail.push(
+          membershipStatement(r, withOptions(r, want.inherit, want.set)),
+        );
+    } else if (!keepsMembership)
       tail.push(
         membershipStatement(r, `REVOKE ${qid(r)} FROM ${qid(applier)}`),
       );

@@ -101,21 +101,28 @@ describe("applier authorization", () => {
     ]);
   });
 
-  test("a borrowed role that holds a grant option is a blocker", () => {
+  test("a grant option held beside the owner's privileges is a blocker", () => {
     const acl = (grantee: string, grantable: string[]): Fact => ({
       id: { kind: "acl", target: table, grantee },
       parent: table,
       payload: { privileges: ["SELECT"], grantable },
     });
-    // the plan must borrow owner_b (the new owner), which holds SELECT WITH
-    // GRANT OPTION: Postgres could record it as the grantor of the GRANT
+    // the applier has owner_a's privileges and its own SELECT WITH GRANT
+    // OPTION on owner_a's table: Postgres records the applier, a superuser
+    // the owner, as the grantor of the new GRANT
     const p = plan(
-      state("owner_a", [acl("owner_b", ["SELECT"])]),
-      state("owner_b", [acl("owner_b", ["SELECT"]), acl("app", [])]),
-      { capability: applier },
+      state("owner_a", [acl("app", ["SELECT"])]),
+      state("owner_a", [acl("app", ["SELECT"]), acl("owner_b", [])]),
+      {
+        capability: {
+          ...applier,
+          inheritedRoles: ["owner_a"],
+          settableRoles: ["owner_a"],
+        },
+      },
     );
     expect(p.blockers?.map((b) => [b.code, b.role])).toEqual([
-      ["capability_acl_grantor", "owner_b"],
+      ["capability_acl_grantor", "app"],
     ]);
   });
 

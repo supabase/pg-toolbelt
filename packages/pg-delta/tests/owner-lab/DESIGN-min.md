@@ -34,6 +34,14 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    itself is created or altered; the new owner of an owner change. If the applier had already granted itself that
    role with other options (PG16+), the row goes back exactly as the capability probe saw
    it. If the plan itself revokes that membership, its REVOKE is the one at the end.
+   **The role is not given back when the desired database shows the applier holding it**
+   (someone ran `GRANT app_owner TO postgres` there and kept it): the plan then ends
+   without the REVOKE, and the next migration on that role's objects is plain DDL. On
+   PG ≤15 the membership is a fact and the plan's own GRANT says so; on PG16+ the diff
+   cannot see it (`CREATE ROLE` already gives the creator an ADMIN-only row), so extract
+   carries whether the member can use the role (`_inherit`, `_set`, any grantor) as
+   advisory fields. For the same reason a role the plan creates is granted to the
+   applier when the desired database shows it holding the role.
 2. **Lend.** A new owner without CREATE on the schema gets it before the first owner change
    of a run and loses it after the last. Decided from the two end states: nothing when the
    role (or PUBLIC) holds CREATE before the plan and the plan does not take it away; no
@@ -48,9 +56,11 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    throws for this, so a read-only diff always renders:
    - an owner change whose new owner the applier can neither `SET ROLE` to nor borrow, or
      whose current owner it can neither act as nor borrow;
-   - a borrowed role (or a role it is a member of) that holds privileges WITH GRANT OPTION
-     while the plan has GRANT / REVOKE statements, or that holds ADMIN on a role the plan
-     grants or revokes: Postgres could record it, instead of the owner, as the grantor.
+   - a borrowed role (or a role it is a member of) that holds a grant option on an object
+     the plan has a GRANT / REVOKE on, or that holds ADMIN on a role the plan grants or
+     revokes: Postgres could record it, instead of the owner, as the grantor. (Postgres
+     picks the grantor from that object's ACL only, so a grant option on any other
+     object is harmless.)
    - the mirror case: the applier, or a role it already had, holds a grant option on an
      object whose owner the plan must borrow, and the plan has a GRANT / REVOKE on that
      object: Postgres could record the owner instead of the role that granted before.
@@ -86,5 +96,5 @@ Likelihood is my estimate of how often a real project migration hits it.
 | Owner change of schema `public` itself | not planned, on any applier | rare |
 | Membership rows granted by another role, and their INHERIT / SET options | not modelled, as on `main`; a REVOKE of a row the applier did not grant is a no-op with a warning | rare |
 | A plan with several transactions that fails in a later one (for example a failed `CREATE INDEX CONCURRENTLY`) | the migration fails loudly and the borrowed role stays granted; `REVOKE <role> FROM <applier>` by hand. Borrowing per transaction would remove this at the cost of a GRANT / REVOKE pair per transaction | rare |
-| `createrole_self_grant` set for the applier (off by default, empty on Supabase) and the plan creates a role it also borrows | the closing REVOKE removes the automatic self-grant | rare |
-| Which roles the applier has granted itself (PG16+) | not compared, not planned | by design |
+| The applier's own membership (PG16+) when the plan neither borrows nor creates the role: a `GRANT app_owner TO postgres` added or removed in the desired database with no other change | no migration (INHERIT / SET are not facts). Follow-up for the engine: model them as membership attributes | plausible, harmless: the next plan that needs the role settles it |
+| The applier had granted itself the role with only one of INHERIT / SET and the plan borrows it | the row goes back as it was, whatever the desired database shows | rare |
