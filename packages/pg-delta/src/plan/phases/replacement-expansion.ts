@@ -201,6 +201,10 @@ export function expandReplacements(
         }
       }
       for (const edge of source.incomingEdgesByEncoded(toKey)) {
+        // Ownership is not structural: a survivor owned by a destroyed role
+        // moves to its desired owner with ALTER … OWNER TO (its owner
+        // link delta), never by a rebuild that loses its rows.
+        if (edge.kind === "owner") continue;
         const fromKey = encodeId(edge.from);
         if (targets.has(fromKey)) continue;
         const dependent = source.get(edge.from);
