@@ -45,6 +45,9 @@ export interface ActionEmitterInput {
   /** the unfiltered source extract */
   rawSource: FactBase;
   desired: FactBase;
+  /** the unfiltered desired extract: tells a pruned owner edge to the default
+   *  owner apart from an owner that is simply out of view */
+  rawDesired: FactBase;
   projectedDesired: FactBase;
   /** canonical add/remove worklists + grouped set-deltas */
   removed: ReadonlyMap<string, Fact>;
@@ -108,6 +111,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     source,
     rawSource,
     desired,
+    rawDesired,
     projectedDesired,
     removed,
     added,
@@ -894,8 +898,49 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // objKeys whose owner a link delta already (re-)established below, so the
     // replaced-fact pass does not emit a second ALTER … OWNER TO for them.
     const ownerEmitted = new Set<string>();
+    // Projection prunes the owner edge to the default owner, so an object that
+    // moves from a custom owner back to the default owner has only an owner
+    // `unlink` delta. Treat it as a link to the default owner when the RAW
+    // desired owner really is that role (an out-of-view owner stays silent).
+    const ownerLinks: Array<{ from: StableId; to: StableId }> = [];
+    const linked = new Set<string>();
+    // objKeys re-owned to the implicit default owner: that role is projected
+    // out of the view, so the action must not consume it
+    const implicitOwnerKeys = new Set<string>();
     for (const delta of deltas) {
       if (delta.verb !== "link" || delta.edge.kind !== "owner") continue;
+      ownerLinks.push(delta.edge);
+      linked.add(encodeId(delta.edge.from));
+    }
+    if (defaultOwner !== undefined) {
+      for (const delta of deltas) {
+        if (delta.verb !== "unlink" || delta.edge.kind !== "owner") continue;
+        const objId = delta.edge.from;
+        const objKey = encodeId(objId);
+        if (
+          linked.has(objKey) ||
+          replaceIds.has(objKey) ||
+          recreatedByReplace.has(objKey) ||
+          inlinedByReplace.has(objKey) ||
+          !source.has(objId) ||
+          !projectedDesired.has(objId)
+        )
+          continue;
+        const rawOwner = rawDesired
+          .outgoingEdges(objId)
+          .find((e) => e.kind === "owner");
+        // owner edges always target a role, so the name alone identifies it
+        if (
+          rawOwner === undefined ||
+          (rawOwner.to as { name?: string }).name !== defaultOwner
+        )
+          continue;
+        ownerLinks.push({ from: objId, to: rawOwner.to });
+        implicitOwnerKeys.add(objKey);
+      }
+    }
+    for (const edge of ownerLinks) {
+      const delta = { edge };
       const objId = delta.edge.from;
       const objKey = encodeId(objId);
       // Created objects need this too: create no longer sets the owner (move 2),
@@ -934,7 +979,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         "alter",
         {
           sql: `${prefix} OWNER TO ${qid(roleName)}`,
-          consumes: [newRoleId],
+          consumes: implicitOwnerKeys.has(objKey) ? [] : [newRoleId],
           ...(oldRoleId !== undefined ? { releases: [oldRoleId] } : {}),
         },
         {

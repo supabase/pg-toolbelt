@@ -823,6 +823,7 @@ export function plan(
     source,
     rawSource,
     desired,
+    rawDesired,
     projectedDesired,
     removed,
     added,
