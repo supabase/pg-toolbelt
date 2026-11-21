@@ -464,10 +464,17 @@ export function authorizeForApplier(
     if (root !== undefined) {
       add(ownerNow(root));
       // the schema the root lives in: its owner may create in it and drop
-      // from it. Not needed when the applier may already create there.
+      // from it (a rename needs CREATE too). Not needed for any other
+      // statement (a GRANT, a comment, an ALTER), nor when the applier may
+      // already create there.
       const parent = parentOf(root);
       const container = parent === undefined ? undefined : rootOf(parent);
-      if (container !== undefined) {
+      const usesSchema =
+        satelliteTarget(a.subject) === undefined &&
+        (a.verb === "create" ||
+          a.verb === "drop" ||
+          a.change?.kind === "rename");
+      if (container !== undefined && usesSchema) {
         const mayCreate =
           container.kind === "schema" &&
           (holds(source, container.name, applier, "CREATE") ||
@@ -478,7 +485,9 @@ export function authorizeForApplier(
         for (const e of fb.outgoingEdges(root)) {
           if (e.kind !== "depends") continue;
           const target = rootOf(e.to);
-          if (target !== undefined) add(ownerNow(target));
+          // an object's schema is handled above, not as a dependency
+          if (target !== undefined && target.kind !== "schema")
+            add(ownerNow(target));
         }
         // inheritance / partition children: dependents of the same kind
         for (const e of fb.incomingEdges(root)) {
