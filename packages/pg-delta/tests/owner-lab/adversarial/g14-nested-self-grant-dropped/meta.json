@@ -1,0 +1,4 @@
+{
+  "tags": ["round:g-review", "likelihood:rare"],
+  "notes": "The migration role reaches the table's owner through a grouping role it granted itself; the desired database dropped that grant and changed the table."
+}

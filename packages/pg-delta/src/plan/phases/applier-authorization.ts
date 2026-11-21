@@ -887,7 +887,9 @@ export function authorizeForApplier(
   for (const g of modern ? (cap.selfGrants ?? []) : []) {
     const r = g.role;
     const want = desiredUse(r);
-    if (borrowed.has(r) || !touched.has(r) || planRevokes.has(r)) continue;
+    // used: directly, or as the way to a role a statement used
+    if (borrowed.has(r) || planRevokes.has(r)) continue;
+    if (!intersects(upward(r), touched)) continue;
     if (!(g.inherit && g.set) || want === undefined || keeps(r)) continue;
     if (list.some((a) => a.verb === "drop" && roleSubject(a) === r)) continue;
     tail.push(membershipStatement(r, `REVOKE ${qid(r)} FROM ${qid(applier)}`));
