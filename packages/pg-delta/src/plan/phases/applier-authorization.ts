@@ -537,6 +537,9 @@ export function authorizeForApplier(
         return (
           item.length > 0 &&
           [applier, ...inheritedSet].some((h) => {
+            // not the grantee itself (its own option cannot take away what
+            // the owner granted it), nor a role the plan revokes on the way
+            if (h === id.grantee || !has(h)) return false;
             const held = source.get({ ...id, grantee: h })?.payload[
               "grantable"
             ];
