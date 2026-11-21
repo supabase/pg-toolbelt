@@ -293,9 +293,14 @@ export function authorizeForApplier(
       if (widen === narrow) return undefined;
       return widen ? "earlier" : "later";
     };
-    /** whether `moved` may not pass `other` */
+    const aclTarget = (a: Action): string | undefined =>
+      a.subject.kind === "acl" ? encodeId(a.subject.target) : undefined;
+    /** whether `moved` may not pass `other`: two grants on one schema do
+     *  not commute (the first can change who is recorded as grantor of the
+     *  second) */
     const blocks = (moved: Action, other: Action): boolean =>
       other.transactionality !== "transactional" ||
+      aclTarget(other) === aclTarget(moved) ||
       intersects(writtenKeys(other), namedKeys(moved)) ||
       intersects(writtenKeys(moved), namedKeys(other));
     const movable = (a: Action) =>
@@ -447,6 +452,32 @@ export function authorizeForApplier(
         | undefined) ?? []
     ).includes(privilege);
 
+  // schema ACL items the plan itself writes (a GRANT merged over several
+  // grantees names the first as its subject and lists all in `produces`)
+  const plannedAcl = new Set<string>();
+  for (const a of planned) {
+    if (a.subject.kind !== "acl") continue;
+    plannedAcl.add(encodeId(a.subject));
+    for (const id of a.produces) {
+      if (id.kind === "acl") plannedAcl.add(encodeId(id));
+    }
+  }
+  /** Decided from the two states, never from a simulated ACL: `nothing`
+   *  when the role (or PUBLIC) holds CREATE before the plan and the plan does
+   *  not take it away; `keep` when the plan itself grants it (its own
+   *  statement completes the item); else `lend` and take back. */
+  const lendKind = (schema: string, r: string): "nothing" | "keep" | "lend" => {
+    const isPlanned = (g: string) =>
+      plannedAcl.has(encodeId(schemaAcl(schema, g)));
+    const throughout = (g: string) =>
+      holds(source, schema, g, "CREATE") &&
+      (!isPlanned(g) || holds(desired, schema, g, "CREATE"));
+    if (throughout(r) || throughout("PUBLIC")) return "nothing";
+    return isPlanned(r) && holds(desired, schema, r, "CREATE")
+      ? "keep"
+      : "lend";
+  };
+
   /** Roles whose privileges an action uses (`touched`), and of those the
    *  ones the applier cannot rely on having (`missing`). */
   const needsOf = (
@@ -481,7 +512,10 @@ export function authorizeForApplier(
             holds(source, container.name, "PUBLIC", "CREATE"));
         if (!mayCreate) add(ownerNow(container));
       }
-      for (const fb of views) {
+      // what the object references (a foreign key's table, a trigger's
+      // function) and its inheritance children matter when the object itself
+      // is created or altered, not for a GRANT or a comment on it
+      for (const fb of satelliteTarget(a.subject) === undefined ? views : []) {
         for (const e of fb.outgoingEdges(root)) {
           if (e.kind !== "depends") continue;
           const target = rootOf(e.to);
@@ -496,11 +530,19 @@ export function authorizeForApplier(
         }
       }
     }
-    for (const r of touched) if (!has(r)) missing.add(r);
     if (a.change?.kind === "owner") {
       const r = a.change.to;
+      // lending CREATE to the new owner is done with the schema owner's
+      // privileges
+      const schema =
+        a.subject.kind === "schema" ? undefined : parentOf(a.subject);
+      if (schema?.kind === "schema" && lendKind(schema.name, r) !== "nothing")
+        add(ownerNow(schema));
+      for (const t of touched) if (!has(t)) missing.add(t);
       touched.add(r);
       if (!canSetNow(r)) missing.add(r);
+    } else {
+      for (const t of touched) if (!has(t)) missing.add(t);
     }
     return { touched, missing };
   };
@@ -598,31 +640,6 @@ export function authorizeForApplier(
   // ── 2. lend schema CREATE to a new owner; owner-change blockers ────────
   const before = new Map<Action, Action[]>();
   const after = new Map<Action, Action[]>();
-  // schema ACL items the plan itself writes (a GRANT merged over several
-  // grantees names the first as its subject and lists all in `produces`)
-  const plannedAcl = new Set<string>();
-  for (const a of list) {
-    if (a.subject.kind !== "acl") continue;
-    plannedAcl.add(encodeId(a.subject));
-    for (const id of a.produces) {
-      if (id.kind === "acl") plannedAcl.add(encodeId(id));
-    }
-  }
-  /** Decided from the two states, never from a simulated ACL: `nothing`
-   *  when the role (or PUBLIC) holds CREATE before the plan and the plan does
-   *  not take it away; `keep` when the plan itself grants it (its own
-   *  statement completes the item); else `lend` and take back. */
-  const lendKind = (schema: string, r: string): "nothing" | "keep" | "lend" => {
-    const isPlanned = (g: string) =>
-      plannedAcl.has(encodeId(schemaAcl(schema, g)));
-    const throughout = (g: string) =>
-      holds(source, schema, g, "CREATE") &&
-      (!isPlanned(g) || holds(desired, schema, g, "CREATE"));
-    if (throughout(r) || throughout("PUBLIC")) return "nothing";
-    return isPlanned(r) && holds(desired, schema, r, "CREATE")
-      ? "keep"
-      : "lend";
-  };
   // one GRANT before the first owner change of a run, one REVOKE after the
   // last; a run ends at a commit and at a statement on the schema itself
   type Lend = { first: Action; last: Action; schema: string; role: string };
@@ -636,6 +653,11 @@ export function authorizeForApplier(
     }
   };
 
+  const renamedSchemas = new Set<string>();
+  for (const a of list) {
+    if (a.subject.kind === "schema" && a.change?.kind === "rename")
+      renamedSchemas.add(a.subject.name);
+  }
   const walk = tracker();
   for (const a of list) {
     if (a.newSegmentBefore || a.transactionality !== "transactional") endRuns();
@@ -670,6 +692,7 @@ export function authorizeForApplier(
           so !== undefined &&
           so !== newOwner &&
           canInherit(so) &&
+          !renamedSchemas.has(schema.name) &&
           lendKind(schema.name, newOwner) !== "nothing"
         ) {
           const key = `${schema.name}\x00${newOwner}`;
@@ -692,6 +715,17 @@ export function authorizeForApplier(
   for (const lend of lends) {
     const schema: StableId = { kind: "schema", name: lend.schema };
     const aclId = schemaAcl(lend.schema, lend.role);
+    const aclKey = encodeId(aclId);
+    const writes = (a: Action) =>
+      a.subject.kind === "acl" &&
+      (encodeId(a.subject) === aclKey ||
+        a.produces.some((id) => encodeId(id) === aclKey));
+    // the plan's own grant already ran: nothing to lend
+    if (
+      lendKind(lend.schema, lend.role) === "keep" &&
+      !list.slice(list.indexOf(lend.first)).some(writes)
+    )
+      continue;
     const consumes: StableId[] = [schema, { kind: "role", name: lend.role }];
     before.set(lend.first, [
       synthetic(
