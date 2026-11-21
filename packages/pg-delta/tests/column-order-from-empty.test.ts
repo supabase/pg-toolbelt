@@ -124,6 +124,48 @@ describe("column order of a table planned from empty (#518)", () => {
     );
     expect(result.applied).toEqual(["id", "placed_on", "ship_by", "note"]);
   }, 60_000);
+
+  test("a generated column that reads no column is added after the later columns", async () => {
+    // `g` reads no column of its table, so Postgres runs app.f() when `g` is
+    // added, even on the empty table, and the body reads `b` with no pg_depend
+    // edge to it. `g` stays an ADD COLUMN and lands last (#554).
+    const result = await planFromEmpty(
+      "genconst",
+      `create schema app;
+       create function app.f() returns int language plpgsql immutable
+         as $$ begin return (select count(b) from app.orders); end $$;
+       create table app.orders (
+         id int,
+         g int generated always as (app.f()) stored,
+         b int
+       );`,
+    );
+    expect(result.applied).toEqual(["id", "b", "g"]);
+    expect(result.tableSql).toMatchInlineSnapshot(`
+      [
+        "CREATE TABLE "app"."orders" ("id" integer, "b" integer)",
+        "ALTER TABLE "app"."orders" ADD COLUMN "g" integer GENERATED ALWAYS AS (app.f()) STORED",
+      ]
+    `);
+  }, 60_000);
+
+  test("a generated column reading an inherited column keeps its declared position", async () => {
+    // pg_depend records the read of `id` against the parent's column, plus an
+    // edge to the child table itself.
+    const result = await planFromEmpty(
+      "geninh",
+      `create schema app;
+       create type app.mood as enum ('sad', 'ok');
+       create function app.add_week(int) returns int language sql immutable
+         as $$ select $1 + 7 $$;
+       create table app.parent (id int);
+       create table app.orders (
+         g int generated always as (app.add_week(id)) stored,
+         b app.mood
+       ) inherits (app.parent);`,
+    );
+    expect(result.applied).toEqual(result.declared);
+  }, 60_000);
 });
 
 describe("column order after export and reload (#518)", () => {
