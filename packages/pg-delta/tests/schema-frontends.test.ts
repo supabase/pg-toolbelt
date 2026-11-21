@@ -799,14 +799,17 @@ describe("public schema frontends", () => {
       );
       expect(sqlOf(planned)).toEqual([]);
       // a key that really changes is still refused, also when nothing settles
-      // and the owner-widened first plan would otherwise be kept
+      // and the owner-widened first plan would otherwise be kept: the plan
+      // comes back with a blocker instead of a throw
       const refused = await planAgainst(
         "frontend_settle_o2",
         table(`(${flat(10)})`),
         table(`(${flat(11)})`),
         { applier, renames: "off" },
-      ).catch((error: unknown) => error);
-      expect(String(refused)).toMatch(/capability: cannot set owner/);
+      );
+      expect(refused.plan.blockers?.map((b) => [b.code, b.role])).toEqual([
+        ["capability_owner", owner],
+      ]);
     });
   }, 120_000);
 
