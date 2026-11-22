@@ -1082,6 +1082,20 @@ describe("mergeCoTargetRevokes", () => {
     ]);
   });
 
+  test("a merged REVOKE is stamped as its create, not as a cleanup", () => {
+    const merged = mergeCoTargetRevokes([
+      revokeHygiene("anon"),
+      revokeCreate("PUBLIC"),
+    ]);
+    expect(merged.map((a) => a.sql)).toEqual([
+      `REVOKE ALL ON TABLE "public"."t" FROM PUBLIC, "anon"`,
+    ]);
+    expect(merged[0]!.verb).toBe("create");
+    expect(merged[0]!.subject).toEqual(aclId(t, "PUBLIC"));
+    expect(merged[0]!.change).toBeUndefined();
+    expect(merged[0]!.produces).toEqual([aclId(t, "anon"), aclId(t, "PUBLIC")]);
+  });
+
   test("does not merge a REVOKE that still has a paired GRANT", () => {
     const subsetRevoke = revokeCreate("authenticated");
     const subsetGrant = mkAction({
