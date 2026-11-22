@@ -1,0 +1,4 @@
+{
+  "notes": "Declared limit: a GRANT on a table whose owner has no USAGE on its schema (owned by a third role), the applier holding neither. Only the table's owner is borrowed for a GRANT, and it cannot reach the table by name. Raised by a Codex review (r23).",
+  "tags": ["round:g-review", "likelihood:rare"]
+}
