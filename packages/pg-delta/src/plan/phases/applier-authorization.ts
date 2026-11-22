@@ -321,11 +321,18 @@ export function authorizeForApplier(
     /** whether `moved` may not pass `other`: two grants on one schema do
      *  not commute (the first can change who is recorded as grantor of the
      *  second) */
-    const blocks = (moved: Action, other: Action): boolean =>
+    const blocks = (
+      moved: Action,
+      other: Action,
+      direction: Direction,
+    ): boolean =>
       other.transactionality !== "transactional" ||
-      // a role or membership statement can change who may make the grant
-      "member" in other.subject ||
-      roleSubject(other) !== undefined ||
+      // A role or membership statement can change who may make the grant:
+      // never move to before that authority is given, nor to after it is
+      // taken away. (Moving a GRANT to before a DROP ROLE, or a REVOKE to
+      // after a CREATE ROLE, only keeps authority the statement had.)
+      (("member" in other.subject || roleSubject(other) !== undefined) &&
+        other.verb !== (direction === "earlier" ? "drop" : "create")) ||
       aclTarget(other) === aclTarget(moved) ||
       intersects(writtenKeys(other), namedKeys(moved)) ||
       intersects(writtenKeys(moved), namedKeys(other));
@@ -344,7 +351,7 @@ export function authorizeForApplier(
       while (
         to > 0 &&
         !(planned[to - 1] as Action).newSegmentBefore &&
-        !blocks(a, planned[to - 1] as Action)
+        !blocks(a, planned[to - 1] as Action, "earlier")
       )
         to--;
       if (to < from) {
@@ -358,7 +365,7 @@ export function authorizeForApplier(
       while (
         to + 1 < planned.length &&
         !(planned[to + 1] as Action).newSegmentBefore &&
-        !blocks(a, planned[to + 1] as Action)
+        !blocks(a, planned[to + 1] as Action, "later")
       )
         to++;
       if (to > from) {
