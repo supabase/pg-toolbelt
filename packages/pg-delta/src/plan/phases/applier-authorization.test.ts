@@ -156,6 +156,30 @@ describe("applier authorization", () => {
     ]);
   });
 
+  test("after a schema rename, a child's current owner the applier cannot borrow is a blocker", () => {
+    const side = (schemaName: string, owner: string) => {
+      const s: StableId = { kind: "schema", name: schemaName };
+      const t: StableId = { kind: "table", schema: schemaName, name: "t" };
+      return buildFactBase(
+        [
+          role("app"),
+          role("owner_a"),
+          role("owner_b"),
+          { id: s, payload: {} },
+          { ...tableFact, id: t, parent: s },
+        ],
+        [owned(s, "app"), owned(t, owner)],
+      );
+    };
+    const p = plan(side("legacy", "owner_a"), side("app", "owner_b"), {
+      capability: { ...applier, adminOf: ["owner_b"] },
+      renames: "auto",
+    });
+    expect(p.blockers?.map((b) => [b.code, b.role])).toEqual([
+      ["capability_owner", "owner_a"],
+    ]);
+  });
+
   test("a borrowed owner beside a grant-option holder the applier has is a blocker", () => {
     const acl = (grantee: string, grantable: string[]): Fact => ({
       id: { kind: "acl", target: table, grantee },

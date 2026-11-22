@@ -1,0 +1,5 @@
+{
+  "maxVersion": 15,
+  "notes": "PG15 and older: the applier holds the schema's owner only through a group role, and the plan makes that group NOINHERIT and revokes a schema privilege. The base plan revokes first; moving the REVOKE after ALTER ROLE ... NOINHERIT leaves the privilege in place with a warning. Found by a Codex review (r21).",
+  "tags": ["round:g-review", "likelihood:rare"]
+}
