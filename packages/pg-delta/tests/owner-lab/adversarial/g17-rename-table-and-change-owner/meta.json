@@ -1,0 +1,5 @@
+{
+  "renames": "auto",
+  "notes": "A table is renamed and moves from one role to another in the same migration; the applier holds neither role.",
+  "tags": ["round:g-review", "likelihood:plausible"]
+}

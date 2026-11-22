@@ -101,6 +101,30 @@ describe("applier authorization", () => {
     ]);
   });
 
+  test("renaming an object borrows the owner it has under its old name", () => {
+    const renamed: StableId = { kind: "table", schema: "app", name: "t2" };
+    const desired = buildFactBase(
+      [
+        role("app"),
+        role("owner_a"),
+        role("owner_b"),
+        { id: schema, payload: {} },
+        { ...tableFact, id: renamed },
+      ],
+      [owned(schema, "app"), owned(renamed, "owner_a")],
+    );
+    const p = plan(state("owner_a"), desired, {
+      capability: applier,
+      renames: "auto",
+    });
+    expect(p.blockers).toBeUndefined();
+    expect(sqlOf(p)).toEqual([
+      'GRANT "owner_a" TO "app"',
+      'ALTER TABLE "app"."t" RENAME TO "t2"',
+      'REVOKE "owner_a" FROM "app"',
+    ]);
+  });
+
   test("a borrowed owner beside a grant-option holder the applier has is a blocker", () => {
     const acl = (grantee: string, grantable: string[]): Fact => ({
       id: { kind: "acl", target: table, grantee },
