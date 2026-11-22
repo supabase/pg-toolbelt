@@ -1587,31 +1587,40 @@ export function mergeCoTargetRevokes(actions: readonly Action[]): Action[] {
       grantees.push(m.grantee);
     }
     const first = members[0]!;
+    const memberActions = members.map((m) => actions[m.index] as Action);
+    // A cleanup sorts first, but the statement also does a create's revoke:
+    // stamp it as that create so a reader skipping cleanups still sees it.
+    const lead =
+      memberActions.find((a) => a.verb === "create") ?? memberActions[0]!;
     const consumes: StableId[] = [];
     const produces: StableId[] = [];
     const seenC = new Set<string>();
     const seenP = new Set<string>();
-    for (const m of members) {
-      const action = actions[m.index] as Action;
+    for (const action of memberActions) {
       for (const c of action.consumes) {
         const k = encodeId(c);
         if (seenC.has(k)) continue;
         seenC.add(k);
         consumes.push(c);
       }
-      for (const p of action.produces) {
+      // a cleanup produces nothing; list its grant so every revoked one is named
+      for (const p of [...action.produces, action.subject]) {
         const k = encodeId(p);
         if (seenP.has(k)) continue;
         seenP.add(k);
         produces.push(p);
       }
     }
+    const { change: _change, ...firstAction } = memberActions[0]!;
     replacement.set(first.index, {
-      ...(actions[first.index] as Action),
+      ...firstAction,
+      verb: lead.verb,
+      subject: lead.subject,
+      ...(lead.change !== undefined ? { change: lead.change } : {}),
       sql: renderRevokeAllSql(first.target, grantees),
       consumes,
       produces,
-    });
+    } as Action);
     for (const m of members.slice(1)) drop.add(m.index);
   }
 

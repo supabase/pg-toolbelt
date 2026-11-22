@@ -115,7 +115,20 @@ function stampViolations(action: Action, ctx: PlanContext): string[] {
     action.change?.kind === "attribute" &&
     action.change.name === "identity" &&
     action.sql.startsWith("ALTER SEQUENCE");
-  for (const name of namesRebuiltEnum || namesIdentitySequence
+  // PARTITION OF materializes the partition's attached indexes; the create
+  // then fixes their options, naming the index, not the table
+  const namesMaterializedIndex =
+    action.verb === "create" &&
+    desired
+      .childrenOf(subject)
+      .some(
+        (child) =>
+          child.id.kind === "index" &&
+          namesOf(child.id).every((name) => mentions(action.sql, name)),
+      );
+  for (const name of namesRebuiltEnum ||
+  namesIdentitySequence ||
+  namesMaterializedIndex
     ? []
     : namesOf(subject)) {
     expect(mentions(action.sql, name), `statement does not mention "${name}"`);
