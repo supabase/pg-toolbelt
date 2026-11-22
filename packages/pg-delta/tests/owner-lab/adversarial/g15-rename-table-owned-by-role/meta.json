@@ -1,0 +1,5 @@
+{
+  "renames": "auto",
+  "notes": "A table owned by a role the applier does not hold is renamed. The rename statement runs under the old name, so the owner to borrow is the old name's. Found by the Gemini review (r19).",
+  "tags": ["round:g-review", "likelihood:plausible"]
+}

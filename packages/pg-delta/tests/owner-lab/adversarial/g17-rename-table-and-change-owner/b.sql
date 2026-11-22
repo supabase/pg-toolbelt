@@ -1,0 +1,10 @@
+CREATE ROLE owner_a NOLOGIN;
+CREATE ROLE owner_b NOLOGIN;
+GRANT owner_b TO current_user;
+CREATE SCHEMA app;
+GRANT CREATE, USAGE ON SCHEMA app TO owner_a;
+GRANT CREATE ON SCHEMA app TO owner_b;
+CREATE TABLE app.t2 (id int);
+ALTER TABLE app.t2 OWNER TO owner_b;
+REVOKE CREATE ON SCHEMA app FROM owner_b;
+REVOKE owner_b FROM current_user;

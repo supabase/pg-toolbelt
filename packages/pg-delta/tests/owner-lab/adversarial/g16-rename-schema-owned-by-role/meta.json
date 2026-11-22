@@ -1,0 +1,5 @@
+{
+  "renames": "auto",
+  "notes": "A schema owned by a role the applier does not hold, with a table of that role inside, is renamed.",
+  "tags": ["round:g-review", "likelihood:plausible"]
+}
