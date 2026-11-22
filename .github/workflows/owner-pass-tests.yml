@@ -26,6 +26,11 @@ jobs:
       matrix:
         postgres_version: ["15", "17"]
         part: [integration, corpus]
+        include:
+          # the Supabase-image tests self-skip without this switch, and the
+          # Tests workflow never sets it
+          - postgres_version: "17"
+            part: supabase-image
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -40,6 +45,9 @@ jobs:
         run: |
           if [ "$PART" = corpus ]; then
             bun test tests/engine.test.ts
+          elif [ "$PART" = supabase-image ]; then
+            ls tests/supabase-*.test.ts tests/dbdev-*.test.ts tests/extension-intent-*.test.ts tests/profile-e2e-*.test.ts 2>/dev/null \
+              | PGDELTA_NEXT_SUPABASE_TESTS=1 xargs bun test
           else
             find tests -maxdepth 1 -name '*.test.ts' ! -name 'engine.test.ts' ! -name 'export-roundtrip-corpus.test.ts' | sort | xargs bun test
           fi

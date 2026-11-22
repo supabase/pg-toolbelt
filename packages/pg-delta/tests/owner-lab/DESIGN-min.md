@@ -29,7 +29,8 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    grant itself, is granted to it once (at the start, or right after the plan creates the
    role) and given back once at the end. "Needs": the owner of the object the statement
    is on; the owner of its schema, only to create, drop or rename in it without CREATE
-   there, or to lend (rule 2); the owners of what the object references (a foreign key's
+   there, to lend (rule 2), or when nobody the statement runs through has USAGE on that
+   schema (and then only if that owner can be borrowed); the owners of what the object references (a foreign key's
    table, a trigger's function) and of its inheritance children, only when the object
    itself is created or altered; the new owner of an owner change. If the applier had already granted itself that
    role with other options (PG16+), the row goes back exactly as the capability probe saw
@@ -42,6 +43,8 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    of a run and loses it after the last. Decided from the two end states: nothing when the
    role (or PUBLIC) holds CREATE before the plan and the plan does not take it away; no
    REVOKE when the plan itself grants it, and no GRANT either when that grant already ran.
+   Lent with the schema owner's privileges, or with the applier's own when it holds
+   CREATE WITH GRANT OPTION on the schema.
    Never in a schema the plan renames. CREATE the role only reaches through a group does
    not count: Postgres honours it only when the membership is inherited, so the pass
    lends then too, at the cost of one redundant GRANT / REVOKE pair when it was inherited
@@ -106,8 +109,6 @@ Likelihood is my estimate of how often a real project migration hits it.
 | The applier ALREADY has, before the plan, both the owner's privileges and a grant option on the object (its own or an inherited role's), or the plan itself grants it such a role | GRANT / REVOKE recorded with the grantor Postgres picks, as on `main` today; identical in two environments set up the same way, different from a superuser's (5 lab scenarios) | rare; unchanged behaviour |
 | Publication owner (new owner needs CREATE on the database); FDW, event trigger, all-tables publication (superuser) | Postgres error | rare |
 | Role rename in the same plan as work on objects it owns | Postgres error | rare |
-| A GRANT / REVOKE or comment on an object whose owner has no `USAGE` on its schema, in a schema owned by a third role the applier does not hold either: only the object's owner is borrowed | Postgres error (`permission denied for schema`) | rare: an owner that cannot reach its own object |
-| The new owner lacks `CREATE` on a schema whose owner the applier cannot borrow, while the applier itself holds `CREATE WITH GRANT OPTION` there: `CREATE` is lent only with the schema owner's privileges | Postgres error on the owner change | rare |
 | A schema `REVOKE` moved to after a membership `GRANT` of the same plan, when that membership makes another grant-option holder reachable: Postgres may pick a different grantor for the `REVOKE` | the entry can stay, with a warning; the next plan is not empty | rare |
 | The applier holds an owner only through a group role, and the plan changes that group (membership or inheritance) in the same migration as work that needs the owner: statements keep the base plan's order around the change, and the owner is not borrowed directly | Postgres error, or a warning and a non-empty next plan, when the base order uses the authority after removing it | rare |
 | Owner change of schema `public` itself | not planned, on any applier | rare |

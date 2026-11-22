@@ -1,5 +1,5 @@
 {
   "minVersion": 16,
-  "notes": "Declared limit: the schema is owned by a role the applier cannot borrow, the applier holds CREATE on it WITH GRANT OPTION, and the new owner has no CREATE. CREATE is lent only with the schema owner's privileges, so nothing is lent and Postgres refuses the owner change. Raised by a Codex review (r23).",
+  "notes": "The schema is owned by a role the applier cannot borrow, the applier holds CREATE on it WITH GRANT OPTION, and the new owner has no CREATE. The applier lends CREATE through its own grant option. Raised by a Codex review (r23).",
   "tags": ["round:g-review", "likelihood:rare"]
 }
