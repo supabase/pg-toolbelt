@@ -1,5 +1,5 @@
 {
   "minVersion": 16,
   "tags": ["round:h-membership", "likelihood:plausible"],
-  "notes": "A superuser created r in both states and, in desired only, granted it to the applier with ADMIN, INHERIT and SET; the applier holds no ADMIN on r in the source and can never make that membership true."
+  "notes": "A superuser created r in both states and, in desired only, granted it to the applier with ADMIN, INHERIT and SET; the applier holds no ADMIN on r in the source and can never make that membership true: left as found with an applier_membership_left warning."
 }

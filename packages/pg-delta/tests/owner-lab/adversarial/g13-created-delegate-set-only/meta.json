@@ -1,5 +1,5 @@
 {
   "minVersion": 16,
   "tags": ["round:g-review", "likelihood:rare"],
-  "notes": "Desired adds a delegate role the applier may SET to but does not inherit, and grants it SELECT WITH GRANT OPTION on a table whose owner the applier holds."
+  "notes": "Desired adds a delegate role the applier may SET to but does not inherit, and grants it SELECT WITH GRANT OPTION on a table whose owner the applier holds. The applier's own SET-only membership in the delegate is a partial membership: not planned (applier_membership_left warning), so forward ends without it (CATALOG_DRIFT + MEMBER_USE by design); reverse drops the role and the membership with it."
 }

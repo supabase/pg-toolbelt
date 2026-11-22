@@ -8,6 +8,7 @@
  * blocks live in ../internal.ts. Extracted so the ordering/compaction stage is a
  * named phase boundary rather than a tail of `plan()`.
  */
+import type { Diagnostic } from "../../core/diagnostic.ts";
 import type { FactBase } from "../../core/fact.ts";
 import type { Action, SafetyReport } from "../plan.ts";
 import { topoSort } from "../graph.ts";
@@ -224,6 +225,8 @@ export interface FinalizeOutput {
   blockers: PlanBlocker[];
   /** the applier role the plan's membership statements name, if any */
   boundApplier?: string;
+  /** plan-time warnings of the authorization pass */
+  notices: Diagnostic[];
 }
 
 /**
@@ -403,6 +406,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
       actions: finalActions,
       safetyReport: computeSafetyReport(finalActions),
       blockers: [],
+      notices: [],
     };
   }
   const authorized = authorizeForApplier(finalActions, {
@@ -415,6 +419,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     actions: authorized.actions,
     safetyReport: computeSafetyReport(authorized.actions),
     blockers: authorized.blockers,
+    notices: authorized.notices,
     ...(authorized.boundApplier !== undefined
       ? { boundApplier: authorized.boundApplier }
       : {}),

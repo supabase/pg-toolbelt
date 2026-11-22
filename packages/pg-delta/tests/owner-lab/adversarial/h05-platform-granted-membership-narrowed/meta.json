@@ -1,5 +1,5 @@
 {
   "minVersion": 16,
   "tags": ["round:h-membership", "likelihood:plausible"],
-  "notes": "A platform superuser granted r to the applier with ADMIN, INHERIT and SET in the source; desired has the same row ADMIN-only, which no statement the applier runs on its own row can produce."
+  "notes": "A platform superuser granted r to the applier with ADMIN, INHERIT and SET in the source; desired has the same row ADMIN-only, which no statement the applier runs on its own row can produce: left as found with an applier_membership_left warning."
 }

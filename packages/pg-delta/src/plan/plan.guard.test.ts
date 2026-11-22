@@ -72,7 +72,7 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // memberships and ACLs — it classifies subjects by those kinds
   // (role/membership/acl/schema, `defaultPrivilege` for FOR ROLE). Not a
   // per-object-kind special case.
-  "phases/applier-authorization.ts": 40,
+  "phases/applier-authorization.ts": 39,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,
   // 7 → 8: the platform-provisioned assumed-schema-member scan discriminates

@@ -143,6 +143,43 @@ describe("applier authorization", () => {
     ]);
   });
 
+  test("the applier's own membership moves only between full use and none", () => {
+    const own = (inherit: boolean, set: boolean): Fact => ({
+      id: { kind: "membership", role: "owner_a", member: "app" },
+      payload: { admin: false, inherit, set },
+    });
+    const run = (from: Fact, to?: Fact) =>
+      plan(state("owner_a", [from]), state("owner_a", to ? [to] : []), {
+        capability: {
+          ...applier,
+          inheritedRoles: from.payload["inherit"] ? ["owner_a"] : [],
+          settableRoles: from.payload["set"] ? ["owner_a"] : [],
+          selfGrants: [
+            {
+              role: "owner_a",
+              admin: false,
+              inherit: from.payload["inherit"] === true,
+              set: from.payload["set"] === true,
+            },
+          ],
+        },
+      });
+    expect(sqlOf(run(own(true, true)))).toEqual([
+      'REVOKE "owner_a" FROM "app"',
+    ]);
+    // only INHERIT or only SET, on either side: left as found, with a notice
+    for (const [from, to] of [
+      [own(true, true), own(false, true)],
+      [own(false, true), own(true, true)],
+    ] as const) {
+      const p = run(from, to);
+      expect(sqlOf(p)).toEqual([]);
+      expect(p.diagnostics?.map((d) => [d.severity, d.subject])).toEqual([
+        ["warning", from.id],
+      ]);
+    }
+  });
+
   test("a new owner the applier can neither set nor grant itself is a blocker", () => {
     const p = plan(state("owner_a"), state("owner_b"), {
       capability: { ...applier, adminOf: ["owner_a"] },

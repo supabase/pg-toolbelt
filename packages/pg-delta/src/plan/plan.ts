@@ -870,7 +870,10 @@ export function plan(
   });
   const { safetyReport } = finalized;
 
-  const vaultDiags = vaultPresenceDiagnostics(desired, finalized.actions);
+  const planDiags = [
+    ...vaultPresenceDiagnostics(desired, finalized.actions),
+    ...finalized.notices,
+  ];
 
   return stampPlanId({
     formatVersion: 1,
@@ -938,6 +941,6 @@ export function plan(
     // CREATE/DROP EXTENSION supabase_vault is generic; the warning is that
     // secret values/keys are not schema state. Omitted when empty so corpus
     // artifacts stay byte-identical. Not hashed into planId.
-    ...(vaultDiags.length > 0 ? { diagnostics: vaultDiags } : {}),
+    ...(planDiags.length > 0 ? { diagnostics: planDiags } : {}),
   });
 }

@@ -1,5 +1,5 @@
 {
   "minVersion": 16,
   "tags": ["round:h-membership", "likelihood:plausible"],
-  "notes": "The applier holds its own full grant of r; desired keeps only SET on that row and adds a column to an r-owned table, so the narrowing must run after the ALTER TABLE."
+  "notes": "The applier holds its own full grant of r; desired keeps only SET on that row and adds a column to an r-owned table. A partial own membership is not planned: the row is left as found with an applier_membership_left warning, and the ALTER TABLE runs with the use the applier already has (forward) or with r borrowed and the SET-only row put back (reverse). Lab: CATALOG_DRIFT + MEMBER_USE by design."
 }

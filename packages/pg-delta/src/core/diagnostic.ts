@@ -82,6 +82,12 @@ export const USER_MAPPING_UNREADABLE = "user-mapping-unreadable";
  *  without a cross-layer import. */
 export const VAULT_PRESENCE = "vault_presence";
 
+/** Plan-time warning: a change to the non-superuser applier's own membership
+ *  in a role that the plan leaves out (PG16+: only INHERIT or only SET on
+ *  either side, use through another grantor's row, or no ADMIN to grant it).
+ *  The plan still runs; the membership stays as found. */
+export const APPLIER_MEMBERSHIP_LEFT = "applier_membership_left";
+
 /** Thrown by public API stubs for not-yet-implemented stages (stage 0). */
 export class NotImplementedError extends Error {
   constructor(feature: string) {
