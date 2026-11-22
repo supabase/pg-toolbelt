@@ -28,7 +28,7 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
 1. **Borrow.** Every owner role a statement needs and the applier does not have, but can
    grant itself, is granted to it once (at the start, or right after the plan creates the
    role) and given back once at the end. "Needs": the owner of the object the statement
-   is on; the owner of its schema, only to create, drop or rename in it without CREATE
+   is on; the owner of its schema, only to create or rename in it without CREATE
    there, to lend (rule 2), or when nobody the statement runs through has USAGE on that
    schema (and then only if that owner can be borrowed); the owners of what the object references (a foreign key's
    table, a trigger's function) and of its inheritance children, only when the object
@@ -109,6 +109,8 @@ Likelihood is my estimate of how often a real project migration hits it.
 | The applier ALREADY has, before the plan, both the owner's privileges and a grant option on the object (its own or an inherited role's), or the plan itself grants it such a role | GRANT / REVOKE recorded with the grantor Postgres picks, as on `main` today; identical in two environments set up the same way, different from a superuser's (5 lab scenarios) | rare; unchanged behaviour |
 | Publication owner (new owner needs CREATE on the database); FDW, event trigger, all-tables publication (superuser) | Postgres error | rare |
 | Role rename in the same plan as work on objects it owns | Postgres error | rare |
+| A rename in a schema where the applier has `CREATE` but no `USAGE` | Postgres error at name lookup | rare |
+| A lend through an inherited role's grant option that spans a schema ACL change giving the applier its own grant option: the closing `REVOKE` may be attributed to another grantor | the lent `CREATE` stays, with a warning; the next plan is not empty | rare |
 | A schema `REVOKE` moved to after a membership `GRANT` of the same plan, when that membership makes another grant-option holder reachable: Postgres may pick a different grantor for the `REVOKE` | the entry can stay, with a warning; the next plan is not empty | rare |
 | The applier holds an owner only through a group role, and the plan changes that group (membership or inheritance) in the same migration as work that needs the owner: statements keep the base plan's order around the change, and the owner is not borrowed directly | Postgres error, or a warning and a non-empty next plan, when the base order uses the authority after removing it | rare |
 | Owner change of schema `public` itself | not planned, on any applier | rare |

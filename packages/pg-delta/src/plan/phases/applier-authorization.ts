@@ -609,17 +609,15 @@ export function authorizeForApplier(
       // a rename runs while the object still has its old name
       const named = a.change?.kind === "rename" ? a.change.from : undefined;
       add(ownerNow(named === undefined ? root : (rootOf(named) ?? root)));
-      // the schema the root lives in: its owner may create in it and drop
-      // from it (a rename needs CREATE too). Not needed for any other
-      // statement (a GRANT, a comment, an ALTER), nor when the applier may
+      // the schema the root lives in: creating in it needs CREATE there, and
+      // so does a rename. Nothing else does (a drop needs the object's
+      // owner, borrowed above), nor is it needed when the applier may
       // already create there.
       const parent = parentOf(root);
       const container = parent === undefined ? undefined : rootOf(parent);
       const usesSchema =
         satelliteTarget(a.subject) === undefined &&
-        (a.verb === "create" ||
-          a.verb === "drop" ||
-          a.change?.kind === "rename");
+        (a.verb === "create" || a.change?.kind === "rename");
       const schemaName =
         container?.kind === "schema" ? container.name : undefined;
       if (container !== undefined && usesSchema) {
