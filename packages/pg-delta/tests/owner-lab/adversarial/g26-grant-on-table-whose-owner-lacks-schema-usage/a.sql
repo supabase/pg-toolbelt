@@ -1,0 +1,12 @@
+CREATE ROLE schema_admin NOLOGIN;
+CREATE ROLE table_owner NOLOGIN;
+CREATE ROLE reader NOLOGIN;
+GRANT schema_admin TO current_user;
+GRANT table_owner TO current_user;
+CREATE SCHEMA private AUTHORIZATION schema_admin;
+CREATE TABLE private.jobs (id int);
+GRANT CREATE ON SCHEMA private TO table_owner;
+ALTER TABLE private.jobs OWNER TO table_owner;
+REVOKE CREATE ON SCHEMA private FROM table_owner;
+REVOKE schema_admin FROM current_user;
+REVOKE table_owner FROM current_user;
