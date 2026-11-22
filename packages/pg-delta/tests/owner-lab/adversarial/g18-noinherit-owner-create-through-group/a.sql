@@ -1,0 +1,6 @@
+CREATE ROLE writers NOLOGIN;
+CREATE ROLE app_owner NOLOGIN NOINHERIT;
+GRANT writers TO app_owner;
+CREATE SCHEMA app;
+GRANT CREATE, USAGE ON SCHEMA app TO writers;
+CREATE TABLE app.t (id int);
