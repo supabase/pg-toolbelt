@@ -1,0 +1,4 @@
+{
+  "notes": "A table whose owner has no privilege on its schema, in a schema owned by a third role; the applier holds neither. The pass borrows both and the ALTER TABLE applies (the base branch fails with permission denied for schema). Raised by a Codex review (r22) as a failure; it is not one.",
+  "tags": ["round:g-review", "likelihood:rare"]
+}

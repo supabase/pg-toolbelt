@@ -1,0 +1,4 @@
+{
+  "notes": "A schema changes owner, a table is created in it, and an unrelated membership is granted in the same migration. The base plan puts the membership statement before the schema statements, so the ordering rule's stop at membership statements pins nothing. Raised by a Codex review (r22) as a possible failure; it is not one.",
+  "tags": ["round:g-review", "likelihood:plausible"]
+}

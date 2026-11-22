@@ -1,0 +1,11 @@
+CREATE ROLE old_owner NOLOGIN;
+CREATE ROLE new_owner NOLOGIN;
+CREATE ROLE runtime NOLOGIN;
+CREATE ROLE readers NOLOGIN;
+GRANT readers TO runtime;
+GRANT new_owner TO current_user;
+CREATE SCHEMA app AUTHORIZATION new_owner;
+SET ROLE new_owner;
+CREATE TABLE app.t (id int);
+RESET ROLE;
+REVOKE new_owner FROM current_user;
