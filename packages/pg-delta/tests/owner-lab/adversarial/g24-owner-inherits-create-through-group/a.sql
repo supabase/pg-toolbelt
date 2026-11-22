@@ -1,0 +1,6 @@
+CREATE ROLE devs NOLOGIN;
+CREATE ROLE app_owner NOLOGIN;
+GRANT devs TO app_owner;
+CREATE SCHEMA svc;
+GRANT CREATE, USAGE ON SCHEMA svc TO devs;
+CREATE TABLE svc.t (id int);

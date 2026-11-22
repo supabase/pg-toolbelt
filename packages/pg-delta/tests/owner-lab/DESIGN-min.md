@@ -42,7 +42,10 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    of a run and loses it after the last. Decided from the two end states: nothing when the
    role (or PUBLIC) holds CREATE before the plan and the plan does not take it away; no
    REVOKE when the plan itself grants it, and no GRANT either when that grant already ran.
-   Never in a schema the plan renames.
+   Never in a schema the plan renames. CREATE the role only reaches through a group does
+   not count: Postgres honours it only when the membership is inherited, so the pass
+   lends then too, at the cost of one redundant GRANT / REVOKE pair when it was inherited
+   (measured: one lab run changes, the non-inheriting owner, which then passes).
 3. **Order.** A schema GRANT moves earlier and a schema REVOKE later, so no role is locked
    out of a schema while the plan still works in it. Only for a role whose privileges the
    plan can depend on: the applier, PUBLIC, a role that owns something in either state,
@@ -97,6 +100,7 @@ another role, and a rendered script starts with a `DO` block that raises unless
 
 | Mechanism | Why it existed | Why it was cut |
 |---|---|---|
+| The ordering rule for every applier, superusers included (proposed by a review) | one code path for everyone | measured on the lab: 101 of 1,200 superuser plans change on PG17 and on PG15, no result changes; churn for users the pass does nothing for |
 | Run every statement as the owner (`SET ROLE`) | no inherited privileges, so no grantor ambiguity | passed 61 fewer runs on PG16-18, regressed 3 Supabase cases (name resolution under the owner) |
 | Run single GRANT / REVOKE statements as the owner (`SET LOCAL ROLE` pin) | exact grantor when a borrowed role holds grant options | needs a role holding WITH GRANT OPTION that the plan must borrow: rare. It added `SET ROLE` lines to scripts and was the source of 2 regressions and 3 silent results in round 5. Replaced by the refusal above |
 | Model the applier's own membership row as managed state (PG16+) | exact `pg_auth_members` convergence | changed superuser plans, and needed "absorb the plan's own statements" logic. Which roles the applier has granted itself is plumbing, not schema |
@@ -118,7 +122,6 @@ Likelihood is my estimate of how often a real project migration hits it.
 | Role rename in the same plan as work on objects it owns | Postgres error | rare |
 | A schema `REVOKE` moved to after a membership `GRANT` of the same plan, when that membership makes another grant-option holder reachable: Postgres may pick a different grantor for the `REVOKE` | the entry can stay, with a warning; the next plan is not empty | rare |
 | The applier holds an owner only through a group role, and the plan changes that group (membership or inheritance) in the same migration as work that needs the owner: statements keep the base plan's order around the change, and the owner is not borrowed directly | Postgres error, or a warning and a non-empty next plan, when the base order uses the authority after removing it | rare |
-| The new owner has `CREATE` on the schema only through a group role it does not inherit (`NOINHERIT`), or joins that group later in the same plan: no `CREATE` is lent, because lending whenever the owner has it through a group would add a `GRANT` / `REVOKE` pair to the far more usual inheriting case | Postgres error (`permission denied for schema`) | rare |
 | Owner change of schema `public` itself | not planned, on any applier | rare |
 | Membership rows granted by another role | not modelled per grantor, as on `main`; a REVOKE of a row the applier did not grant is a no-op with a warning. INHERIT / SET are facts as the EFFECTIVE option (any row): `GRANT r TO m WITH INHERIT FALSE, SET FALSE` updates only the executing role's row, so turning them off for a member that holds them through another grantor's row leaves them on (FACT_DRIFT); no grantor-blind statement can do it | rare |
 | PG16+: the applier's own membership with only INHERIT or only SET, on either side (`h01`, `h02`, `b09`, `g13`); or one it cannot change: ADMIN on a role a superuser created, use or ADMIN through another grantor's row (`h04`, `h05`, `h06`, `h08`) | left as found, with an `applier_membership_left` warning; the rest of the plan runs, borrowing the role if it needs it (lab: `MEMBER_LEFT`; a superuser can make it true) | plausible on hosted Postgres |

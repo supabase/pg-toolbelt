@@ -1,4 +1,4 @@
 {
-  "notes": "Declared limit: the new owner is NOINHERIT and has CREATE on the schema only through a group role, so Postgres refuses the owner change and the pass lends nothing. Found by the Gemini review (r19).",
+  "notes": "The new owner is NOINHERIT and has CREATE on the schema only through a group role, so Postgres needs it granted directly for the owner change. The pass lends CREATE whenever the role does not hold it itself. Found by the Gemini review (r19).",
   "tags": ["round:g-review", "likelihood:rare"]
 }

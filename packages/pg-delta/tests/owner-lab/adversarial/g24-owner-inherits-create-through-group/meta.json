@@ -1,0 +1,4 @@
+{
+  "notes": "The new owner inherits CREATE on the schema through a group role. The pass lends CREATE anyway (it cannot tell an inherited membership from one that is not), so the plan carries one redundant GRANT / REVOKE CREATE pair and applies.",
+  "tags": ["round:g-review", "likelihood:plausible"]
+}
