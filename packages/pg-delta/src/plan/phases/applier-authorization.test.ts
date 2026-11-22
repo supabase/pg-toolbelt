@@ -222,6 +222,34 @@ describe("applier authorization", () => {
     ]);
   });
 
+  test("dropping the applier's own table does not borrow the schema's owner", () => {
+    const schemaAcl = (grantee: string, grantable: string[]): Fact => ({
+      id: { kind: "acl", target: schema, grantee },
+      parent: schema,
+      payload: { privileges: ["USAGE"], grantable },
+    });
+    const side = (withTable: boolean, extra: Fact[]) =>
+      buildFactBase(
+        [
+          role("app"),
+          role("owner_a"),
+          role("owner_b"),
+          { id: schema, payload: {} },
+          schemaAcl("app", ["USAGE"]),
+          ...(withTable ? [tableFact] : []),
+          ...extra,
+        ],
+        [owned(schema, "owner_a"), ...(withTable ? [owned(table, "app")] : [])],
+      );
+    // the applier owns the table and holds USAGE WITH GRANT OPTION on a schema
+    // it has no CREATE in: both statements run without help
+    const p = plan(side(true, []), side(false, [schemaAcl("owner_b", [])]), {
+      capability: applier,
+    });
+    expect(p.blockers).toBeUndefined();
+    expect(sqlOf(p).some((sql) => sql.includes('"owner_a" TO'))).toBe(false);
+  });
+
   test("a new owner the applier can neither set nor grant itself is a blocker", () => {
     const p = plan(state("owner_a"), state("owner_b"), {
       capability: { ...applier, adminOf: ["owner_a"] },
