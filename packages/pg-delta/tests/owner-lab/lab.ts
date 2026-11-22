@@ -1180,7 +1180,23 @@ async function runOne(
         catalogLines(su.src, ctx.pgMajor, ctx.builtinRoles),
         catalogLines(su.dst, ctx.pgMajor, ctx.builtinRoles),
       ]);
-      const d = multisetDiff(desLines, resLines);
+      // a membership of the applier the plan says it leaves as found (a plan
+      // warning, read structurally like `blockers`) is not compared
+      const left = (
+        (thePlan as { diagnostics?: { code: string; subject?: unknown }[] })
+          .diagnostics ?? []
+      )
+        .filter((x) => x.code === "applier_membership_left")
+        .map((x) => (x.subject as { role?: string } | undefined)?.role)
+        .filter((r): r is string => r !== undefined)
+        .flatMap((r) => [
+          `memberuse ${r} <- ${applierName} `,
+          `member ${r} <- ${applierName} `,
+        ]);
+      const compared = (lines: string[]) =>
+        lines.filter((l) => !left.some((prefix) => l.startsWith(prefix)));
+      if (left.length > 0) rec.flags.push("MEMBER_LEFT");
+      const d = multisetDiff(compared(desLines), compared(resLines));
       if (d.onlyDesired.length + d.onlyResult.length > 0) {
         outcomes.push("CATALOG_DRIFT");
         details.push(
