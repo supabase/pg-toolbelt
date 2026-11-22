@@ -323,6 +323,8 @@ export function authorizeForApplier(
      *  second) */
     const blocks = (moved: Action, other: Action): boolean =>
       other.transactionality !== "transactional" ||
+      // a membership statement can change who may make the grant
+      "member" in other.subject ||
       aclTarget(other) === aclTarget(moved) ||
       intersects(writtenKeys(other), namedKeys(moved)) ||
       intersects(writtenKeys(moved), namedKeys(other));
@@ -418,10 +420,16 @@ export function authorizeForApplier(
 
   const tracker = () => {
     const owners = new Map<string, string | undefined>();
+    // new schema name → the name the source knows its objects under
+    const schemaWas = new Map<string, string>();
     const ownerNow = (id: StableId): string | undefined => {
       const key = encodeId(id);
       if (!owners.has(key)) {
-        let o = ownerIn(source, id);
+        const was = schemaWas.get((id as { schema?: string }).schema ?? "");
+        let o = ownerIn(
+          source,
+          was === undefined ? id : ({ ...id, schema: was } as StableId),
+        );
         if (o === undefined && id.kind === "schema" && source.has(id)) {
           // `public` → pg_database_owner has no owner edge (not a fact); an
           // edge a profile pruned to the default owner is the applier
@@ -441,6 +449,8 @@ export function authorizeForApplier(
           owners.set(encodeId(f), a.change.to);
       } else if (a.change?.kind === "rename" && ownable(s)) {
         owners.set(key, ownerNow(a.change.from));
+        if (s.kind === "schema" && "name" in a.change.from)
+          schemaWas.set(s.name, a.change.from.name);
         // the old name is free: an object created under it is a new object
         owners.set(encodeId(a.change.from), undefined);
       } else if (a.verb === "create" && ownable(s)) {
