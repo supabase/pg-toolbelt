@@ -573,6 +573,19 @@ export function authorizeForApplier(
         | undefined) ?? []
     ).includes(privilege);
 
+  /** the applier, or a role it keeps, holds CREATE WITH GRANT OPTION on the
+   *  schema: it can lend CREATE without the schema owner */
+  const canLendItself = (schema: string): boolean =>
+    [applier, ...inheritedSet].some(
+      (h) =>
+        (h === applier || !losing.has(h)) &&
+        (
+          (source.get(schemaAcl(schema, h))?.payload["grantable"] as
+            | string[]
+            | undefined) ?? []
+        ).includes("CREATE"),
+    );
+
   // schema ACL items the plan itself writes (a GRANT merged over several
   // grantees names the first as its subject and lists all in `produces`)
   const plannedAcl = new Set<string>();
@@ -687,15 +700,25 @@ export function authorizeForApplier(
         (a.verb === "create" ||
           a.verb === "drop" ||
           a.change?.kind === "rename");
+      const schemaName =
+        container?.kind === "schema" ? container.name : undefined;
       if (container !== undefined && usesSchema) {
-        const schemaName =
-          container.kind === "schema" ? container.name : undefined;
         const mayCreate =
           schemaName !== undefined &&
           [applier, "PUBLIC", ...inheritedSet].some((g) =>
             holds(source, schemaName, g, "CREATE"),
           );
         if (!mayCreate) add(ownerNow(container));
+      } else if (container !== undefined && schemaName !== undefined) {
+        // Naming the object needs USAGE on its schema. When neither the
+        // applier, PUBLIC, a role it has, nor the object's own owner (about
+        // to be borrowed) has it, the schema's owner is borrowed too, if
+        // it can be: this never turns a plan into a refusal.
+        const so = ownerNow(container);
+        const reaches = [applier, "PUBLIC", ...inheritedSet, ...touched].some(
+          (g) => g === so || holds(source, schemaName, g, "USAGE"),
+        );
+        if (!reaches && so !== undefined && borrowable(so).ok) add(so);
       }
       // what the object references (a foreign key's table, a trigger's
       // function) and its inheritance children matter when the object itself
@@ -725,7 +748,11 @@ export function authorizeForApplier(
       // privileges
       const schema =
         a.subject.kind === "schema" ? undefined : parentOf(a.subject);
-      if (schema?.kind === "schema" && lendKind(schema.name, r) !== "nothing")
+      if (
+        schema?.kind === "schema" &&
+        lendKind(schema.name, r) !== "nothing" &&
+        !canLendItself(schema.name)
+      )
         add(ownerNow(schema));
       for (const t of touched) if (!has(t)) missing.add(t);
       touched.add(r);
@@ -918,7 +945,7 @@ export function authorizeForApplier(
           so !== undefined &&
           so !== newOwner &&
           newOwner !== applier &&
-          canInherit(so) &&
+          (canInherit(so) || canLendItself(schema.name)) &&
           !renamedSchemas.has(schema.name) &&
           lendKind(schema.name, newOwner) !== "nothing"
         ) {
