@@ -653,7 +653,9 @@ export function authorizeForApplier(
         );
       });
     if (root !== undefined && !grantsAlready) {
-      add(ownerNow(root));
+      // a rename runs while the object still has its old name
+      const named = a.change?.kind === "rename" ? a.change.from : undefined;
+      add(ownerNow(named === undefined ? root : (rootOf(named) ?? root)));
       // the schema the root lives in: its owner may create in it and drop
       // from it (a rename needs CREATE too). Not needed for any other
       // statement (a GRANT, a comment, an ALTER), nor when the applier may

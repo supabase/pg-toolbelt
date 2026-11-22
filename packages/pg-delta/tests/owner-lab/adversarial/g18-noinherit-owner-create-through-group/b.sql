@@ -1,0 +1,11 @@
+CREATE ROLE writers NOLOGIN;
+CREATE ROLE app_owner NOLOGIN NOINHERIT;
+GRANT writers TO app_owner;
+CREATE SCHEMA app;
+GRANT CREATE, USAGE ON SCHEMA app TO writers;
+GRANT CREATE ON SCHEMA app TO app_owner;
+CREATE TABLE app.t (id int);
+GRANT app_owner TO current_user;
+ALTER TABLE app.t OWNER TO app_owner;
+REVOKE app_owner FROM current_user;
+REVOKE CREATE ON SCHEMA app FROM app_owner;
