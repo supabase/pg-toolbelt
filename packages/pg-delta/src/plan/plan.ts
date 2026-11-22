@@ -245,7 +245,8 @@ export interface Plan {
   acceptedRenames?: Array<{ from: StableId; to: StableId }>;
   actions: Action[];
   safetyReport: SafetyReport;
-  /** Plan-time diagnostics that are not extraction-time (e.g. `vault_presence`).
+  /** Plan-time diagnostics that are not extraction-time (e.g. `vault_presence`,
+   *  and `applier_membership_left` for an applier membership left as found).
    *  Omitted when empty so corpus / direct-library artifacts stay byte-identical.
    *  Not part of planId — reporting metadata, not approved run content. */
   diagnostics?: Diagnostic[];

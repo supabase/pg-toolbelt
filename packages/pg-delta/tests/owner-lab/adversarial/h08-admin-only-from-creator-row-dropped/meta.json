@@ -1,0 +1,5 @@
+{
+  "minVersion": 16,
+  "tags": ["round:h-membership", "likelihood:plausible"],
+  "notes": "The applier created r (ADMIN through the creator row the bootstrap superuser grants) and granted itself full use; in desired a superuser created r and granted it to the applier without ADMIN. Only ADMIN changes; REVOKE ADMIN OPTION cannot remove the creator row, so the membership is left as found with an applier_membership_left warning."
+}

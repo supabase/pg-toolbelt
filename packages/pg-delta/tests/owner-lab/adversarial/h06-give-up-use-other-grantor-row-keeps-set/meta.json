@@ -1,0 +1,5 @@
+{
+  "minVersion": 16,
+  "tags": ["round:h-membership", "likelihood:rare"],
+  "notes": "The applier created r and granted itself full use; a superuser's row (the creator's ADMIN row, updated) also gives it SET. Desired has no use. Revoking its own row would leave SET through the other row, so the membership is left as found with an applier_membership_left warning."
+}

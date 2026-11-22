@@ -60,6 +60,9 @@ export interface ApplierCapability {
     inherit: boolean;
     set: boolean;
   }[];
+  /** PG16+: roles the applier holds INHERIT or SET on through a direct row
+   *  another role granted, which a REVOKE of its own row leaves in place. */
+  usedViaOthers?: readonly string[];
   /** `supautils.reserved_memberships` entries (a trailing `*` is a prefix
    *  match); empty when supautils is absent. */
   reservedMemberships?: readonly string[];
@@ -133,6 +136,15 @@ export async function probeApplierCapability(
             WHERE m.member = me.oid
               AND (v.major < 16 OR (to_jsonb(m)->>'grantor')::oid = me.oid)
            ) AS self_grants,
+           ARRAY(
+             SELECT DISTINCT pg_catalog.pg_get_userbyid(m.roleid)::text
+             FROM pg_catalog.pg_auth_members m
+             WHERE v.major >= 16 AND m.member = me.oid
+               AND (to_jsonb(m)->>'grantor')::oid <> me.oid
+               AND ((to_jsonb(m)->>'inherit_option')::boolean
+                    OR (to_jsonb(m)->>'set_option')::boolean)
+             ORDER BY 1
+           ) AS used_via_others,
            COALESCE(current_setting('supautils.reserved_memberships', true), '')
              AS reserved
     FROM me, v
@@ -156,6 +168,7 @@ export async function probeApplierCapability(
           set: boolean;
         }[]
       | null;
+    used_via_others: string[] | null;
     reserved: string | null;
   };
   return {
@@ -175,6 +188,7 @@ export async function probeApplierCapability(
       inherit: Boolean(g.inherit),
       set: Boolean(g.set),
     })),
+    usedViaOthers: row.used_via_others ?? [],
     reservedMemberships: (row.reserved ?? "")
       .split(",")
       .map((entry) => entry.trim())

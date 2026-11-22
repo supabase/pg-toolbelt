@@ -1,4 +1,4 @@
 {
   "minVersion": 16,
-  "notes": "The applier keeps an own-grantor row on r whose options flip (INHERIT on->off, SET off->on) while the plan alters r-owned s.t. A partial own membership is not planned: the row is left as found with an applier_membership_left warning; the ALTER TABLE runs through the inherited r (forward) or with r borrowed and the SET-only row put back (reverse). Lab: CATALOG_DRIFT + MEMBER_USE by design."
+  "notes": "The applier keeps an own-grantor row on r whose options flip (INHERIT on->off, SET off->on) while the plan alters r-owned s.t. A partial own membership is not planned: the row is left as found with an applier_membership_left warning; the ALTER TABLE runs through the inherited r (forward) or with r borrowed and the SET-only row put back (reverse). Lab: PASS with MEMBER_LEFT."
 }

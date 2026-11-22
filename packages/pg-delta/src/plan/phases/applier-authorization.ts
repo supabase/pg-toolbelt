@@ -269,6 +269,12 @@ export function authorizeForApplier(
     a.subject.kind === "membership" && a.subject.member === applier
       ? a.subject.role
       : undefined;
+  // PG16+: the row the applier granted itself; a GRANT on it changes only the
+  // options it names
+  const ownRow = (r: string) =>
+    modern ? (cap.selfGrants ?? []).find((g) => g.role === r) : undefined;
+  const withOptions = (r: string, inherit: boolean, set: boolean) =>
+    `GRANT ${qid(r)} TO ${qid(applier)} WITH INHERIT ${inherit ? "TRUE" : "FALSE"}, SET ${set ? "TRUE" : "FALSE"}`;
   // PG16+: the plan moves the applier's own membership only between full use
   // and none. GRANT / REVOKE change only the executing role's row, and the
   // borrow below rewrites that row around the plan, so a partial row, or use
@@ -281,12 +287,22 @@ export function authorizeForApplier(
     if (from === "partial" || to === "partial")
       return "only one of INHERIT and SET is held, before or after the plan";
     if (!canAdmin(r)) return "the applier holds no ADMIN on it directly";
+    const own = ownRow(r);
     if (
       from === "full" &&
       to === "none" &&
-      !(cap.selfGrants ?? []).some((g) => g.role === r && g.inherit && g.set)
+      (!(own?.inherit && own.set) || (cap.usedViaOthers ?? []).includes(r))
     )
       return "its use comes from a row another role granted";
+    // REVOKE ADMIN OPTION reaches only its own row, never the ADMIN row
+    // CREATE ROLE records for the creator
+    if (
+      from === to &&
+      source.get(a.subject)?.payload["admin"] === true &&
+      desired.get(a.subject)?.payload["admin"] !== true &&
+      own?.admin !== true
+    )
+      return "its ADMIN comes from a row another role granted";
     return undefined;
   };
   // the ADMIN-only row CREATE ROLE gives the creator is the row a superuser's
@@ -311,19 +327,18 @@ export function authorizeForApplier(
       reason !== undefined ||
       (ownAdmin(a) && useIn(desired, a.subject) !== "full")
     );
-  }).map((a) =>
-    ownAdmin(a)
-      ? {
-          ...a,
-          sql: membershipGrantSql(
-            membershipOfApplier(a) as string,
-            applier,
-            { ...desired.get(a.subject)?.payload, admin: false },
-            cap.inherit !== false,
-          ),
-        }
-      : a,
-  );
+  }).map((a) => {
+    const r = membershipOfApplier(a);
+    if (r === undefined || a.verb !== "create") return a;
+    if (ownRow(r) !== undefined && useIn(desired, a.subject) === "full")
+      return { ...a, sql: withOptions(r, true, true) };
+    if (!ownAdmin(a)) return a;
+    const payload = { ...desired.get(a.subject)?.payload, admin: false };
+    return {
+      ...a,
+      sql: membershipGrantSql(r, applier, payload, cap.inherit !== false),
+    };
+  });
   const rewritten = planned.some(ownAdmin);
 
   // ── 3. order: schema GRANT earlier, schema REVOKE later ─────────────────
@@ -735,10 +750,6 @@ export function authorizeForApplier(
   // grantor of both (it holds ADMIN directly, or it could not borrow), so
   // the REVOKE removes exactly the row the GRANT made. INHERIT / SET are
   // spelled out only when the defaults would not give them.
-  const ownRow = (r: string) =>
-    modern ? (cap.selfGrants ?? []).find((g) => g.role === r) : undefined;
-  const withOptions = (r: string, inherit: boolean, set: boolean) =>
-    `GRANT ${qid(r)} TO ${qid(applier)} WITH INHERIT ${inherit ? "TRUE" : "FALSE"}, SET ${set ? "TRUE" : "FALSE"}`;
   // the applier already has full use: the borrow writes no statement
   const holdsFully = (r: string) => inheritedSet.has(r) && settableSet.has(r);
   const borrowSql = (r: string) =>

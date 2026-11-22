@@ -1,0 +1,5 @@
+{
+  "minVersion": 16,
+  "tags": ["round:h-membership", "likelihood:rare"],
+  "notes": "The applier created r and holds a row of its own with INHERIT and SET both false; desired gives it full use. A GRANT without options leaves an existing row unchanged on PG16+, so the kept GRANT spells WITH INHERIT TRUE, SET TRUE."
+}
