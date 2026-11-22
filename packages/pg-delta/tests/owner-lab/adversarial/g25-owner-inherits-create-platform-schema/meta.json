@@ -1,0 +1,5 @@
+{
+  "minVersion": 16,
+  "notes": "The new owner inherits CREATE through a group role, in a schema owned by a role the applier cannot borrow. Nothing can be lent and nothing is refused: the owner change applies on the inherited CREATE.",
+  "tags": ["round:g-review", "likelihood:rare"]
+}

@@ -513,8 +513,10 @@ export function authorizeForApplier(
     const throughout = (g: string) =>
       holds(source, schema, g, "CREATE") &&
       (!isPlanned(g) || holds(desired, schema, g, "CREATE"));
-    // itself, PUBLIC, or a role it is a member of
-    if ([...upward(r), "PUBLIC"].some(throughout)) return "nothing";
+    // Only what the role holds itself (or PUBLIC): CREATE reached through a
+    // group counts for Postgres only when that membership is inherited, which
+    // the facts do not say. Lending it anyway costs one GRANT / REVOKE pair.
+    if ([r, "PUBLIC"].some(throughout)) return "nothing";
     return isPlanned(r) && holds(desired, schema, r, "CREATE")
       ? "keep"
       : "lend";
