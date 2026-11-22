@@ -48,8 +48,8 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    plan can depend on: the applier, PUBLIC, a role that owns something in either state,
    and the roles these are members of. A grant to a runtime role that owns nothing stays
    where the plan put it. It stops at any other GRANT / REVOKE
-   on that schema, at a statement on the schema or the role itself, at any role membership statement (it
-   can change who may make the grant), and at a commit. (The base plan revokes an owner's own
+   on that schema, at a statement on the schema or the role itself, at any statement on a role or a role membership
+   (it can change who may make the grant), and at a commit. (The base plan revokes an owner's own
    schema privileges first and grants the new ones last; only a superuser survives that.)
    Nothing else is ever reordered.
 4. **Refuse.** Typed blockers on the plan, reported before anything runs; `plan()` never
@@ -101,6 +101,7 @@ Likelihood is my estimate of how often a real project migration hits it.
 | The applier ALREADY has, before the plan, both the owner's privileges and a grant option on the object (its own or an inherited role's), or the plan itself grants it such a role | GRANT / REVOKE recorded with the grantor Postgres picks, as on `main` today; identical in two environments set up the same way, different from a superuser's (5 lab scenarios) | rare; unchanged behaviour |
 | Publication owner (new owner needs CREATE on the database); FDW, event trigger, all-tables publication (superuser) | Postgres error | rare |
 | Role rename in the same plan as work on objects it owns | Postgres error | rare |
+| The applier holds an owner only through a group role, and the plan changes that group (membership or inheritance) in the same migration as work that needs the owner: statements keep the base plan's order around the change, and the owner is not borrowed directly | Postgres error, or a warning and a non-empty next plan, when the base order uses the authority after removing it | rare |
 | The new owner has `CREATE` on the schema only through a group role it does not inherit (`NOINHERIT`), or joins that group later in the same plan: no `CREATE` is lent, because lending whenever the owner has it through a group would add a `GRANT` / `REVOKE` pair to the far more usual inheriting case | Postgres error (`permission denied for schema`) | rare |
 | Owner change of schema `public` itself | not planned, on any applier | rare |
 | Membership rows granted by another role, and their INHERIT / SET options | not modelled, as on `main`; a REVOKE of a row the applier did not grant is a no-op with a warning | rare |

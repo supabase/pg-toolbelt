@@ -323,8 +323,9 @@ export function authorizeForApplier(
      *  second) */
     const blocks = (moved: Action, other: Action): boolean =>
       other.transactionality !== "transactional" ||
-      // a membership statement can change who may make the grant
+      // a role or membership statement can change who may make the grant
       "member" in other.subject ||
+      roleSubject(other) !== undefined ||
       aclTarget(other) === aclTarget(moved) ||
       intersects(writtenKeys(other), namedKeys(moved)) ||
       intersects(writtenKeys(moved), namedKeys(other));
@@ -811,7 +812,7 @@ export function authorizeForApplier(
         );
       }
       const cur = walk.ownerNow(a.subject);
-      if (cur !== undefined && source.has(a.subject) && !canInherit(cur)) {
+      if (cur !== undefined && !canInherit(cur)) {
         block(
           "capability_owner",
           cur,
