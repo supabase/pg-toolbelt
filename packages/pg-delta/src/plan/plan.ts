@@ -93,7 +93,7 @@ export type ActionChange =
    *  old name under the parent's new name, an id in neither state. */
   | { kind: "rename"; from: StableId }
   /** no delta: revokes what PostgreSQL granted by default when the grant's
-   *  target was created. The subject is a grant present in neither state. */
+   *  target was created. The subject is a grant the desired state lacks. */
   | { kind: "defaultPrivileges" };
 
 interface ActionBase {
@@ -102,10 +102,12 @@ interface ActionBase {
    *  emitter, which is the only place that knows; never derive it from
    *  `produces` / `consumes` / `destroys` (those are ordering edges and
    *  carry side-effect ids). Fact grain: a column, grant or comment names
-   *  itself, not its table. It is an identity, not a lookup key: a drop's
-   *  subject exists only in the source, a cleanup REVOKE's in neither. A
-   *  statement merged across facts (one GRANT to several grantees) names
-   *  the first and lists every one in `produces`. */
+   *  itself, not its table; a create's follow-ups share its subject. It is
+   *  an identity, not a lookup key: a drop's subject is in the source (and,
+   *  for a replace, in the desired state too), a cleanup REVOKE's is not in
+   *  the desired state. A statement merged across facts (one GRANT or
+   *  REVOKE to several grantees) names one and lists every one in
+   *  `produces`. */
   subject: StableId;
   produces: StableId[];
   consumes: StableId[];

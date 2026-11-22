@@ -817,6 +817,21 @@ describe("plan artifact v1", () => {
     expect(() =>
       parsePlan(withAction({ subject: { kind: "schema", name: "other" } })),
     ).toThrow(/planId/);
+    const alter = stampPlanId({
+      ...samplePlan,
+      actions: [
+        {
+          ...samplePlan.actions[0]!,
+          verb: "alter",
+          change: { kind: "owner", to: "test" },
+        },
+      ],
+    });
+    const changed = JSON.parse(serializePlan(alter)) as {
+      actions: Array<Record<string, unknown>>;
+    };
+    changed.actions[0]!["change"] = { kind: "owner", to: "other" };
+    expect(() => parsePlan(JSON.stringify(changed))).toThrow(/planId/);
   });
 
   test("strictly validates stable IDs in action metadata", () => {

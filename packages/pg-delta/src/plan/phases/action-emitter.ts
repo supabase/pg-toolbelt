@@ -94,10 +94,6 @@ export interface ActionEmitterOutput {
   implicitDestroys: Map<number, Set<string>>;
 }
 
-/**
- * Emit the atomic action list from the change set + replacement expansion.
- * Behavior-preserving extraction of `plan()`'s emission block.
- */
 /** `ALTER DEFAULT PRIVILEGES … REVOKE ALL` for one default-privilege entry. */
 const wipeSpecsOf = (id: StableId) =>
   defaultPrivilegeCreateActions({
@@ -105,6 +101,10 @@ const wipeSpecsOf = (id: StableId) =>
     payload: { privileges: [], grantable: [] },
   });
 
+/**
+ * Emit the atomic action list from the change set + replacement expansion.
+ * Behavior-preserving extraction of `plan()`'s emission block.
+ */
 export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const {
     source,
