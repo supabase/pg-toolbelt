@@ -1,0 +1,5 @@
+{
+  "renames": "auto",
+  "notes": "A schema is renamed and a table inside it changes owner in the same migration; the applier holds neither role. The table's current owner is recorded under the old schema name. Found by a Codex review (r20).",
+  "tags": ["round:g-review", "likelihood:rare"]
+}

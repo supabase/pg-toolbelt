@@ -125,6 +125,37 @@ describe("applier authorization", () => {
     ]);
   });
 
+  test("after a schema rename, a child's owner is the one it had under the old schema name", () => {
+    const side = (schemaName: string, owner: string) => {
+      const s: StableId = { kind: "schema", name: schemaName };
+      const t: StableId = { kind: "table", schema: schemaName, name: "t" };
+      return buildFactBase(
+        [
+          role("app"),
+          role("owner_a"),
+          role("owner_b"),
+          { id: s, payload: {} },
+          { ...tableFact, id: t, parent: s },
+        ],
+        [owned(s, "app"), owned(t, owner)],
+      );
+    };
+    const p = plan(side("legacy", "owner_a"), side("app", "owner_b"), {
+      capability: applier,
+      renames: "auto",
+    });
+    expect(p.blockers).toBeUndefined();
+    expect(sqlOf(p)).toEqual([
+      'GRANT "owner_a" TO "app"',
+      'GRANT "owner_b" TO "app"',
+      'ALTER SCHEMA "legacy" RENAME TO "app"',
+      // nothing is lent in a schema the plan renames (a declared limit)
+      'ALTER TABLE "app"."t" OWNER TO "owner_b"',
+      'REVOKE "owner_a" FROM "app"',
+      'REVOKE "owner_b" FROM "app"',
+    ]);
+  });
+
   test("a borrowed owner beside a grant-option holder the applier has is a blocker", () => {
     const acl = (grantee: string, grantable: string[]): Fact => ({
       id: { kind: "acl", target: table, grantee },

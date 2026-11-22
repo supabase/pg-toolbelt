@@ -1,0 +1,4 @@
+{
+  "notes": "The applier holds the schema's owner only through a group role, and the plan removes the owner from that group and revokes a schema privilege. The base plan revokes the privilege first; moving that REVOKE after the membership REVOKE leaves the privilege in place with a warning. Found by a Codex review (r20).",
+  "tags": ["round:g-review", "likelihood:rare"]
+}
