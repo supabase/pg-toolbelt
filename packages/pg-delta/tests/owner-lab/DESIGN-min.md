@@ -48,7 +48,8 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    plan can depend on: the applier, PUBLIC, a role that owns something in either state,
    and the roles these are members of. A grant to a runtime role that owns nothing stays
    where the plan put it. It stops at any other GRANT / REVOKE
-   on that schema, at a statement on the schema or the role itself, and at a commit. (The base plan revokes an owner's own
+   on that schema, at a statement on the schema or the role itself, at any role membership statement (it
+   can change who may make the grant), and at a commit. (The base plan revokes an owner's own
    schema privileges first and grants the new ones last; only a superuser survives that.)
    Nothing else is ever reordered.
 4. **Refuse.** Typed blockers on the plan, reported before anything runs; `plan()` never
