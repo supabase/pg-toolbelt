@@ -1,0 +1,45 @@
+name: Owner pass tests (PoC)
+
+# Branch-only, like the owner lab: the Tests workflow runs on pull requests to
+# main, and these branches have none yet. Runs pg-delta's integration tests and
+# the corpus on two Postgres versions. Goes away with the PoC lab.
+on:
+  push:
+    branches:
+      - avallete/owner-envelope-min
+      - avallete/owner-membership-options-spike
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-pass-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pg-delta:
+    name: "pg-delta ${{ matrix.part }} (PG ${{ matrix.postgres_version }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres_version: ["15", "17"]
+        part: [integration, corpus]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Run
+        working-directory: packages/pg-delta
+        env:
+          PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
+          PGDELTA_NEXT_CONCURRENCY: "4"
+          PART: ${{ matrix.part }}
+        run: |
+          if [ "$PART" = corpus ]; then
+            bun test tests/engine.test.ts
+          else
+            find tests -maxdepth 1 -name '*.test.ts' ! -name 'engine.test.ts' ! -name 'export-roundtrip-corpus.test.ts' | sort | xargs bun test
+          fi
