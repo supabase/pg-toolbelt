@@ -18,6 +18,7 @@ import { rel } from "../src/plan/render.ts";
 import { planSettled } from "../src/frontends/settle-desired.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import { enforceActionShapeBudgetForMode } from "./action-shape-budgets.ts";
+import { enforceKeptTableRebuilds } from "./kept-table-rebuilds.ts";
 import { enforceSeedCoverage, runPinnedDirection } from "./seed-coverage.ts";
 import { loadCorpus, type Scenario } from "./corpus.ts";
 import { mustRunSerially } from "./corpus-scheduling.ts";
@@ -177,6 +178,13 @@ async function proveOn(
       compact,
       thePlan.actions,
       actionShapeBudget,
+      scenarioName,
+      direction,
+    );
+    enforceKeptTableRebuilds(
+      thePlan.actions,
+      sourceState.factBase,
+      desiredState.factBase,
       scenarioName,
       direction,
     );
