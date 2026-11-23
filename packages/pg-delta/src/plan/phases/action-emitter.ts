@@ -92,6 +92,8 @@ export interface ActionEmitterOutput {
    *  (rule-declared `implicitlyDestroys`), for the graph: reproduce edge only,
    *  no teardown edges. Transient, never persisted. */
   implicitDestroys: Map<number, Set<string>>;
+  /** action index → encoded `ActionSpec.after` ids. Transient, never persisted. */
+  softAfter: Map<number, Set<string>>;
 }
 
 /** `ALTER DEFAULT PRIVILEGES … REVOKE ALL` for one default-privilege entry. */
@@ -137,6 +139,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
 
   // side-effect wipes per action (see ActionEmitterOutput.implicitDestroys)
   const implicitDestroys = new Map<number, Set<string>>();
+  const softAfter = new Map<number, Set<string>>();
 
   // The only place an Action is built. An alter must say what it changes and
   // a create or drop must not: the conditional type checks that per call site.
@@ -161,6 +164,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     if (wipes.length > 0) {
       implicitDestroys.set(index, new Set(wipes.map(encodeId)));
       destroys.push(...wipes);
+    }
+    if (spec.after !== undefined && spec.after.length > 0) {
+      softAfter.set(index, new Set(spec.after.map(encodeId)));
     }
     actions.push({
       sql: spec.sql,
@@ -942,5 +948,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     foldHints,
     acceptsFolds,
     implicitDestroys,
+    softAfter,
   };
 }

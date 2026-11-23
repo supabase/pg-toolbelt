@@ -800,6 +800,7 @@ export function plan(
     foldHints,
     acceptsFolds,
     implicitDestroys,
+    softAfter,
   } = emitActions({
     source,
     rawSource,
@@ -836,6 +837,7 @@ export function plan(
     source,
     desired,
     implicitDestroys,
+    softAfter,
     foldHints,
     acceptsFolds,
     assumedRoleNames,
