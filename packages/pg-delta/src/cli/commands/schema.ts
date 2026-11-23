@@ -937,6 +937,10 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     try {
       coLocated = await provisionCoLocatedShadow(targetUrl, {
         keep: flags["keep-shadow"],
+        onCleanupError: (error) =>
+          process.stderr.write(
+            `  WARNING: could not drop shadow database ${coLocated?.name}: ${error instanceof Error ? error.message : String(error)}; drop it manually\n`,
+          ),
       });
     } catch (e) {
       if (isShadowProvisionError(e)) {
@@ -953,11 +957,6 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
 
   const shadow = makePool(shadowUrl);
   const tgt = makePool(targetUrl);
-  // Close the pools and drop the co-located throwaway database. Called by the
-  // `finally` below, which always runs — the early-exit paths inside the try now
-  // THROW (CliExit / SchemaFrontendError / UsageError) instead of calling
-  // process.exit, so cleanup happens on every exit and the co-located shadow is
-  // never leaked (`--keep-shadow` keeps it).
   const releaseResources = async (): Promise<void> => {
     await Promise.all([shadow.end(), tgt.end()]);
     if (coLocated !== undefined) {

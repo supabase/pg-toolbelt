@@ -1632,6 +1632,66 @@ describe("public schema frontends", () => {
     }
   }, 90_000);
 
+  test("co-located shadow cleanup failure reaches onCleanupError and still resolves", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_clnerr");
+    const admin = target.cluster.adminPool;
+    // non-superuser with CREATEDB: the role shape a hosted target hands out
+    const role = `clnerr_${Date.now().toString(36)}`;
+    const asRole = new URL(target.uri);
+    asRole.username = role;
+    asRole.password = role;
+    const held: string[] = [];
+    const holders: pg.Client[] = [];
+    try {
+      await admin.query(
+        `CREATE ROLE ${role} LOGIN PASSWORD '${role}' CREATEDB`,
+      );
+      // both a throwing and a rejecting observer must be contained
+      for (const fail of [
+        () => {
+          throw new Error("observer throw must be contained");
+        },
+        async () => {
+          throw new Error("observer rejection must be contained");
+        },
+      ]) {
+        const seen: unknown[] = [];
+        const shadow = await provisionCoLocatedShadow(asRole.toString(), {
+          uniqueSuffix: `clnheld${held.length}_${Date.now().toString(36)}`,
+          onCleanupError: (error) => {
+            seen.push(error);
+            return fail();
+          },
+        });
+        held.push(shadow.name);
+        // a superuser session on the shadow: DROP ... WITH (FORCE) from a
+        // non-superuser cannot terminate it, so the drop fails with 42501
+        const holder = new pg.Client({
+          connectionString: cluster.uriFor(shadow.name),
+        });
+        holders.push(holder);
+        await holder.connect();
+        await shadow.cleanup();
+        expect(seen).toMatchObject([{ code: "42501" }]);
+        const left = await admin.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM pg_database WHERE datname = $1`,
+          [shadow.name],
+        );
+        expect(left.rows[0]?.n).toBe(1);
+      }
+    } finally {
+      for (const holder of holders) await holder.end().catch(() => {});
+      for (const name of held) {
+        await admin
+          .query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)
+          .catch(() => {});
+      }
+      await admin.query(`DROP ROLE IF EXISTS ${role}`).catch(() => {});
+      await target.drop();
+    }
+  }, 90_000);
+
   test("ShadowProvisionError when role lacks CREATEDB", async () => {
     const cluster = await sharedCluster();
     const target = await cluster.createDb("frontend_nocreate");
