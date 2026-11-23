@@ -240,8 +240,25 @@ export function deriveAssumedSchemaSeed(
   // table or a column of it): the seed never replays that membership.
   const prunedMemberships = new Set<string>();
   for (const fct of targetFb.facts()) {
-    if (fct.id.kind === "publicationRel" && view.get(fct.id) === undefined) {
-      prunedMemberships.add(encodeId(fct.id));
+    if (fct.id.kind !== "publicationRel" || view.get(fct.id) !== undefined) {
+      continue;
+    }
+    // Extract resolves a partition or inheritance child's columns to its
+    // root's own columns (`colanc`), so cover the ancestors too.
+    const { publication } = fct.id;
+    let table: unknown = { schema: fct.id.schema, name: fct.id.table };
+    while (typeof table === "object" && table !== null) {
+      const { schema, name } = table as { schema: string; name: string };
+      const rel = encodeId({
+        kind: "publicationRel",
+        publication,
+        schema,
+        table: name,
+      });
+      if (view.getByEncoded(rel) === undefined) prunedMemberships.add(rel);
+      table = targetFb.get({ kind: "table", schema, name })?.payload[
+        "parentTable"
+      ];
     }
   }
   const fromPrunedMembership = (e: DependencyEdge): boolean => {
@@ -256,6 +273,18 @@ export function deriveAssumedSchemaSeed(
         schema: e.to.schema,
         table,
       }),
+    );
+  };
+  // The shadow has an extension's install schema when the seed creates it, it
+  // is reference-only, extract never sees it (`pg_catalog`), or it is `public`.
+  const installSchemaReplays = (ext: StableId): boolean => {
+    const schema = targetFb.get(ext)?.payload["schema"];
+    if (typeof schema !== "string" || schema === "public") return true;
+    const id: StableId = { kind: "schema", name: schema };
+    return (
+      candidateIds.has(encodeId(id)) ||
+      view.referenceOnly.has(encodeId(id)) ||
+      targetFb.get(id) === undefined
     );
   };
   const addedMemberExts = new Set<string>();
@@ -278,7 +307,9 @@ export function deriveAssumedSchemaSeed(
     if (
       e.from.kind === "extension" &&
       e.to.kind !== "extension" &&
-      view.get(e.to) === undefined
+      !memberExts.has(to) &&
+      view.get(e.to) === undefined &&
+      (e.to.kind === "schema" || installSchemaReplays(e.from))
     ) {
       if (e.to.kind !== "schema") addedMemberExts.add(from);
       continue;

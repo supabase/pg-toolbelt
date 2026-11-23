@@ -31,6 +31,7 @@ import {
   type IntegrationProfile,
 } from "../src/integrations/index.ts";
 import { settleDesired } from "../src/frontends/settle-desired.ts";
+import type { ExtensionHandler } from "../src/extract/handler.ts";
 import type { Policy } from "../src/policy/policy.ts";
 import { reconstructManagedView } from "../src/policy/reconstruct.ts";
 import { queryText } from "./apply-test-helpers.ts";
@@ -1438,6 +1439,162 @@ describe("public schema frontends", () => {
           ),
         ).toMatchObject({ rows: [{ n: 0 }] });
         expect(sqlOf(planned)).toEqual([]);
+      } finally {
+        await shadowPool.end();
+        await shadow.cleanup();
+      }
+    } finally {
+      await target.drop();
+    }
+  }, 120_000);
+
+  test("assumed-schema seeding keeps a publication whose only member is managedBy-pruned", async () => {
+    // Like supabase_realtime publishing a pgmq queue: the handler marks
+    // `queue.q_jobs` managedBy, so its membership is omitted and the publication
+    // is seeded empty for the declarative ALTER PUBLICATION to load.
+    const policy: Policy = {
+      id: "test-queue-only-publication-seed",
+      filter: [
+        {
+          match: {
+            any: [{ schema: "queue" }, { name: ["queue", "platform_pub"] }],
+          },
+          action: "exclude",
+        },
+      ],
+      assumedSchemas: ["queue"],
+      assumedPublications: ["platform_pub"],
+    };
+    const queueHandler: ExtensionHandler = {
+      extension: "test_queue",
+      capture: async () => ({
+        facts: [],
+        edges: [
+          {
+            from: { kind: "table", schema: "queue", name: "q_jobs" },
+            to: { kind: "schema", name: "queue" },
+            kind: "managedBy",
+          },
+        ],
+      }),
+    };
+    const profile: IntegrationProfile = {
+      id: policy.id,
+      handlers: [queueHandler],
+      policy,
+    };
+
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_seed_queue_pub");
+    try {
+      await target.pool.query(`
+        CREATE SCHEMA queue;
+        CREATE TABLE queue.q_jobs (id integer PRIMARY KEY);
+        CREATE PUBLICATION platform_pub FOR TABLE queue.q_jobs;
+      `);
+
+      const shadow = await provisionCoLocatedShadow(target.uri, {
+        uniqueSuffix: `seedqp_${Date.now().toString(36)}`,
+      });
+      const shadowPool = new pg.Pool({ connectionString: shadow.url, max: 5 });
+      try {
+        const files: SqlFile[] = [
+          {
+            name: "app.sql",
+            sql:
+              "CREATE SCHEMA app;\n" +
+              "CREATE TABLE app.messages (id integer PRIMARY KEY);\n" +
+              "ALTER PUBLICATION platform_pub ADD TABLE app.messages;\n",
+          },
+        ];
+        await planSchemaFiles(target.pool, shadowPool, files, {
+          profile,
+          scope: "database",
+          seedAssumedSchemas: true,
+        });
+
+        expect(
+          await shadowPool.query(
+            `SELECT schemaname, tablename FROM pg_publication_tables
+              WHERE pubname = 'platform_pub'`,
+          ),
+        ).toMatchObject({
+          rows: [{ schemaname: "app", tablename: "messages" }],
+        });
+      } finally {
+        await shadowPool.end();
+        await shadow.cleanup();
+      }
+    } finally {
+      await target.drop();
+    }
+  }, 120_000);
+
+  test("assumed-schema seeding keeps an extension with an added member on a pruned type", async () => {
+    // `ALTER EXTENSION hstore ADD` put `private.g(private.mood)` in hstore, so
+    // the extension depends on the pruned `private.mood`; `CREATE EXTENSION`
+    // never needs it, and the declarative files use `public.hstore`.
+    const policy: Policy = {
+      id: "test-ext-added-member-seed",
+      filter: [
+        {
+          match: {
+            any: [
+              { schema: ["public", "private"] },
+              { name: ["public", "private"] },
+            ],
+          },
+          action: "exclude",
+        },
+        {
+          match: { all: [{ kind: "extension" }, { name: "hstore" }] },
+          action: "exclude",
+        },
+      ],
+      assumedExtensions: ["hstore"],
+    };
+    const profile: IntegrationProfile = { id: policy.id, handlers: [], policy };
+
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_seed_ext_added");
+    try {
+      await target.pool.query(`
+        CREATE EXTENSION hstore;
+        COMMENT ON EXTENSION hstore IS NULL;
+        CREATE SCHEMA private;
+        CREATE TYPE private.mood AS ENUM ('ok');
+        CREATE FUNCTION private.g(private.mood) RETURNS integer
+          LANGUAGE sql AS 'SELECT 1';
+        ALTER EXTENSION hstore ADD FUNCTION private.g(private.mood);
+      `);
+
+      const shadow = await provisionCoLocatedShadow(target.uri, {
+        uniqueSuffix: `seedxa_${Date.now().toString(36)}`,
+      });
+      const shadowPool = new pg.Pool({ connectionString: shadow.url, max: 5 });
+      try {
+        const files: SqlFile[] = [
+          {
+            name: "app.sql",
+            sql: "CREATE SCHEMA app;\nCREATE TABLE app.kv (v public.hstore);\n",
+          },
+        ];
+        await planSchemaFiles(target.pool, shadowPool, files, {
+          profile,
+          scope: "database",
+          seedAssumedSchemas: true,
+        });
+
+        expect(
+          await shadowPool.query(
+            `SELECT count(*)::int AS n FROM pg_extension WHERE extname = 'hstore'`,
+          ),
+        ).toMatchObject({ rows: [{ n: 1 }] });
+        expect(
+          await shadowPool.query(
+            `SELECT to_regclass('app.kv') IS NOT NULL AS present`,
+          ),
+        ).toMatchObject({ rows: [{ present: true }] });
       } finally {
         await shadowPool.end();
         await shadow.cleanup();
