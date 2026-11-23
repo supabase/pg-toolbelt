@@ -484,6 +484,11 @@ async function startStack(projectDir: string, target: Target): Promise<void> {
     ),
     "init",
   );
+  // init writes config.jsonc since supabase/cli#7756; the edits below are line-based TOML.
+  requireSuccess(
+    await supabase(projectDir, ["config", "convert", "--to", "toml"]),
+    "config convert",
+  );
   const configFile = Bun.file(path.join(projectDir, "supabase", "config.toml"));
   const config = await configFile.text();
   if (!config.includes("[experimental.pgdelta]\nenabled = true")) {
