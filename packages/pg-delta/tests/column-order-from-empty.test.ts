@@ -20,7 +20,8 @@
  *
  * A generated column that can run a user function and reads no column of its
  * own table can also land after the later columns that run no user function,
- * for the same reason (#554).
+ * for the same reason (#554). So can a later generated column that calls a
+ * user function after it.
  *
  * Docker required.
  */
@@ -180,6 +181,46 @@ describe("column order of a table planned from empty (#518)", () => {
     expect(result.applied).toEqual(["id", "p", "b", "c", "g"]);
   }, 60_000);
 
+  test("a generated column that reads no column lands after a later column when a generated column calling a user function follows it", async () => {
+    // `x` runs a user function, so it waits on `g`; `b` must not wait on `x`.
+    const result = await planFromEmpty(
+      "genconstlead",
+      `create schema app;
+       create function app.f() returns int language plpgsql immutable
+         as $$ begin return (select count(b) from app.orders); end $$;
+       create function app.add1(int) returns int language sql immutable
+         as $$ select $1 + 1 $$;
+       create table app.orders (
+         id int,
+         g int generated always as (app.f()) stored,
+         x int generated always as (app.add1(id)) stored,
+         b int
+       );`,
+    );
+    expect(result.applied).toEqual(["id", "b", "g", "x"]);
+  }, 60_000);
+
+  test("a generated column that reads no column lands after a later column when a generated column calling a user function follows a plain column after it", async () => {
+    // `x` chains from `b`, not `g`, but still runs after `g`; `c` must not wait
+    // on `x`.
+    const result = await planFromEmpty(
+      "genconstleadlater",
+      `create schema app;
+       create function app.f() returns int language plpgsql immutable
+         as $$ begin return (select count(c) from app.orders); end $$;
+       create function app.add1(int) returns int language sql immutable
+         as $$ select $1 + 1 $$;
+       create table app.orders (
+         id int,
+         g int generated always as (app.f()) stored,
+         b int,
+         x int generated always as (app.add1(id)) stored,
+         c int
+       );`,
+    );
+    expect(result.applied).toEqual(["id", "b", "c", "g", "x"]);
+  }, 60_000);
+
   test("a generated column reading an inherited column keeps its declared position", async () => {
     // Postgres records the read of `id` against the child's own column;
     // pg-delta's extractor resolves it to the parent's column plus an edge to
@@ -325,7 +366,12 @@ describe("column order of a table planned from empty (#518)", () => {
        alter table app.accounts add column x int default app.k();`,
       fns,
     );
-    expect(result.tableSql[0]).toContain(`"e" integer DEFAULT app.h()`);
+    expect(result.tableSql).toMatchInlineSnapshot(`
+      [
+        "CREATE TABLE "app"."orders" ("id" integer, "e" integer DEFAULT app.h(), "l1" integer GENERATED ALWAYS AS ((e * 2)) STORED)",
+        "ALTER TABLE "app"."orders" ADD COLUMN "g" integer GENERATED ALWAYS AS (app.f()) STORED",
+      ]
+    `);
   }, 60_000);
 
   test("a generated column that reads no column is added before another table's DEFAULT that waits on a later column", async () => {
@@ -378,7 +424,12 @@ describe("column order of a table planned from empty (#518)", () => {
        alter table app.accounts add column x int default app.k();`,
       fns,
     );
-    expect(result.tableSql[0]).toContain(`"e" integer DEFAULT app.h()`);
+    expect(result.tableSql).toMatchInlineSnapshot(`
+      [
+        "CREATE TABLE "app"."orders" ("id" integer, "b" integer, "e" integer DEFAULT app.h())",
+        "ALTER TABLE "app"."orders" ADD COLUMN "g" integer GENERATED ALWAYS AS (app.f()) STORED",
+      ]
+    `);
   }, 60_000);
 
   test("a later column does not wait on an earlier column when a cycle cut its chain edge from a generated column that reads no column", async () => {
@@ -408,7 +459,13 @@ describe("column order of a table planned from empty (#518)", () => {
        alter table app.accounts alter column x set default app.k();`,
       fns,
     );
-    expect(result.tableSql[0]).toContain(`"c" integer`);
+    expect(result.tableSql).toMatchInlineSnapshot(`
+      [
+        "CREATE TABLE "app"."orders" ("id" integer, "c" integer)",
+        "ALTER TABLE "app"."orders" ADD COLUMN "m" integer GENERATED ALWAYS AS (app.q(id)) STORED",
+        "ALTER TABLE "app"."orders" ADD COLUMN "g" integer GENERATED ALWAYS AS (app.f()) STORED",
+      ]
+    `);
   }, 60_000);
 });
 

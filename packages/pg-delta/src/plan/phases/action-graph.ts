@@ -82,13 +82,15 @@ function readsOwnTableColumn(desired: FactBase, id: StableId): boolean {
  *    function may read a later column (#554). Such a column starts no chain
  *    edge: the columns it would lead chain from wherever its own chain edge
  *    came from, if it has one, but it still precedes every action that runs a
- *    user function downstream of them, as the chain edges kept it. Known
+ *    user function downstream of them, as the chain edges kept it. A later
+ *    evaluator column downstream of them starts no chain edge either. Known
  *    limits: Postgres also folds an IMMUTABLE call with only constant arguments
- *    inside an expression that reads a column, and such a column still leads;
- *    its function can still run before a later evaluator column it reads
- *    exists, or fold into CREATE TABLE ahead of a later column that stays an
- *    ADD COLUMN; and once a cycle cuts its chain edge, a later evaluator column
- *    that reads it can still run first, as before.
+ *    inside an expression that reads a column, and such a column still leads
+ *    unless it runs after one that reads none; its function can still run
+ *    before a later evaluator column it reads exists, or fold into CREATE
+ *    TABLE ahead of a later column that stays an ADD COLUMN; and once a cycle
+ *    cuts its chain edge, a later evaluator column that reads it can still run
+ *    first, as before.
  *  - a column whose chain edge would close a cycle with a real dependency (a
  *    generated column reading a column declared after it). That edge is
  *    skipped.
@@ -125,15 +127,15 @@ function chainColumnCreatesByPosition(
     successorsOf.set(before, list);
   };
   for (const [before, after] of edges) addSuccessor(before, after);
-  // The chain edges a generated column that reads no column would start (see
-  // the doc comment), kept out of `edges`.
+  // Chain edges kept out of `edges`, keyed by the column that starts none
+  // (see the doc comment).
   const released = new Map<number, number[]>();
   const next = (index: number): number[] => [
     ...(successorsOf.get(index) ?? []),
     ...(released.get(index) ?? []),
   ];
-  // Walks forwards from `from` over its dependents. Columns are chained in
-  // position order, so `from` has no outgoing chain edge yet and the walk
+  // Walks forwards from `from` over its dependents and released chain edges.
+  // In the cycle check `from` has no outgoing chain edge yet, so the walk
   // covers only its real downstream closure (constraints, indexes, views),
   // not the earlier columns of the chain.
   const reaches = (from: number, target: number): boolean => {
@@ -175,26 +177,38 @@ function chainColumnCreatesByPosition(
   for (const columns of columnsByTable.values()) {
     columns.sort((a, b) => a.position - b.position);
     let before: number | undefined;
-    // Where each trailing column's own chain edge came from, if it has one.
+    // Each column that starts no chain edge, mapped to where its own chain
+    // edge starts, if it has one.
     const chainedFrom = new Map<number, number | undefined>();
+    // The columns of this table released so far.
+    const freed: number[] = [];
     for (const { index: after } of columns) {
       // `before → after` closes a cycle iff `after` already precedes `before`.
       let from =
         before !== undefined && !reaches(after, before) ? before : undefined;
-      if (from !== undefined && trails(from)) {
+      if (from !== undefined && chainedFrom.has(from)) {
         released.set(from, [...(released.get(from) ?? []), after]);
+        freed.push(after);
         from = chainedFrom.get(from);
       }
       if (from !== undefined) {
         edges.push([from, after]);
         addSuccessor(from, after);
       }
-      if (trails(after)) chainedFrom.set(after, from);
+      // An evaluator column downstream of a released one runs after the column
+      // that released it (see below), so it starts no chain edge either.
+      if (
+        trails(after) ||
+        (evaluatorActions.has(after) &&
+          freed.some((index) => index === after || reaches(index, after)))
+      ) {
+        chainedFrom.set(after, from);
+      }
       if (canLead(after)) before = after;
     }
   }
-  // Keep each trailing column ahead of the actions that run a user function
-  // downstream of the columns it released.
+  // Keep each column ahead of the actions that run a user function downstream
+  // of the columns it released.
   for (const [from, targets] of released) {
     const seen = new Set<number>(targets);
     const stack = [...targets];
