@@ -1378,6 +1378,75 @@ describe("public schema frontends", () => {
     }
   }, 120_000);
 
+  test("assumed-schema seeding omits a trigger calling a policy-pruned function", async () => {
+    // `private` is filtered but NOT assumed, so it is pruned from the view and
+    // never seeded; replaying the trigger failed the seed with
+    // `schema "private" does not exist`.
+    const policy: Policy = {
+      id: "test-platform-private-seed",
+      filter: [
+        {
+          match: {
+            any: [
+              { schema: ["platform", "private"] },
+              { name: ["platform", "private"] },
+            ],
+          },
+          action: "exclude",
+        },
+      ],
+      assumedSchemas: ["platform"],
+    };
+    const profile: IntegrationProfile = { id: policy.id, handlers: [], policy };
+
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_seed_pruned_dep");
+    try {
+      await target.pool.query(`
+        CREATE SCHEMA platform;
+        CREATE TABLE platform.objects (id integer PRIMARY KEY);
+        CREATE SCHEMA private;
+        CREATE FUNCTION private.f() RETURNS trigger
+          LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
+        CREATE TRIGGER objects_trg BEFORE INSERT ON platform.objects
+          FOR EACH ROW EXECUTE FUNCTION private.f();
+        CREATE SCHEMA app;
+      `);
+
+      const shadow = await provisionCoLocatedShadow(target.uri, {
+        uniqueSuffix: `seedpd_${Date.now().toString(36)}`,
+      });
+      const shadowPool = new pg.Pool({ connectionString: shadow.url, max: 5 });
+      try {
+        const files: SqlFile[] = [
+          { name: "app.sql", sql: "CREATE SCHEMA app;\n" },
+        ];
+        const planned = await planSchemaFiles(target.pool, shadowPool, files, {
+          profile,
+          scope: "database",
+          seedAssumedSchemas: true,
+        });
+
+        expect(
+          await shadowPool.query(
+            `SELECT to_regclass('platform.objects') IS NOT NULL AS present`,
+          ),
+        ).toMatchObject({ rows: [{ present: true }] });
+        expect(
+          await shadowPool.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM pg_trigger WHERE tgname = 'objects_trg'`,
+          ),
+        ).toMatchObject({ rows: [{ n: 0 }] });
+        expect(sqlOf(planned)).toEqual([]);
+      } finally {
+        await shadowPool.end();
+        await shadow.cleanup();
+      }
+    } finally {
+      await target.drop();
+    }
+  }, 120_000);
+
   test("buildSchemaExport does not revoke a policy-filtered grant on public", async () => {
     const profile: IntegrationProfile = {
       id: "test-filtered-public-acl",
