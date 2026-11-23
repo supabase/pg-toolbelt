@@ -203,6 +203,49 @@ describe("stage 6: execution", () => {
     }
   }, 60_000);
 
+  test("a failed SET NOT NULL commits nothing after ADD VALUE", async () => {
+    // ADD VALUE commits in both orders. Default-first must not commit the
+    // default, or an unrelated statement it lets go first, before SET NOT
+    // NULL fails on the NULL row.
+    const cases = [
+      {
+        shared: `CREATE DOMAIN app.dm AS app.mood;
+          CREATE FUNCTION app.d() RETURNS app.mood LANGUAGE plpgsql AS $$BEGIN RETURN 'busy'; END$$;`,
+        source: "CREATE TABLE app.t (m app.dm);",
+        desired: "CREATE TABLE app.t (m app.dm NOT NULL DEFAULT app.d());",
+      },
+      {
+        shared: `CREATE FUNCTION app.d() RETURNS text LANGUAGE sql AS $$SELECT 'busy'$$;`,
+        source: "CREATE TABLE app.t (m app.mood); CREATE TABLE app.z (id int);",
+        desired: `CREATE TABLE app.t (m app.mood NOT NULL DEFAULT app.d()::app.mood);
+          CREATE TABLE app.z (id int CHECK (id > 0));`,
+      },
+    ];
+    const cluster = await sharedCluster();
+    for (const c of cases) {
+      const source = await cluster.createDb("exec_default_seg_src");
+      const desired = await cluster.createDb("exec_default_seg_dst");
+      try {
+        await source.pool.query(`CREATE SCHEMA app;
+          CREATE TYPE app.mood AS ENUM ('busy'); ${c.shared} ${c.source}
+          INSERT INTO app.t VALUES (NULL);`);
+        await desired.pool.query(`CREATE SCHEMA app;
+          CREATE TYPE app.mood AS ENUM ('busy', 'calm'); ${c.shared} ${c.desired}`);
+        const thePlan = plan(
+          (await extract(source.pool)).factBase,
+          (await extract(desired.pool)).factBase,
+        );
+        const report = await apply(thePlan, source.pool, {
+          fingerprintGate: false,
+        });
+        expect(report.status).toBe("failed");
+        expect(report.appliedActions).toBe(1);
+      } finally {
+        await Promise.all([source.drop(), desired.drop()]);
+      }
+    }
+  }, 60_000);
+
   test("new columns keep declared order when SET NOT NULL waits for the default", async () => {
     // g and h are generated through functions, so only the tie-break orders
     // them; default-first must not delay one behind the other.
