@@ -82,6 +82,42 @@ describe("owner edge: owner roundtrip proves clean", () => {
 // ---------------------------------------------------------------------------
 
 describe("owner edge: owner change emits ALTER OWNER TO", () => {
+  test("a sequence linked to a view column follows the view's owner", async () => {
+    const cluster = await sharedCluster();
+    const srcDb = await cluster.createDb("ownedge_vseq_src");
+    const dstDb = await cluster.createDb("ownedge_vseq_dst");
+    dbs.push(srcDb, dstDb);
+    for (const role of ["ownedge_r1", "ownedge_r2"]) {
+      await cluster.adminPool
+        .query(`CREATE ROLE ${role} NOLOGIN`)
+        .catch(() => {});
+    }
+    const setup = (owner: string) => `
+        CREATE SCHEMA s;
+        CREATE VIEW s.v AS SELECT 1 AS id;
+        CREATE SEQUENCE s.v_seq OWNED BY s.v.id;
+        ALTER VIEW s.v OWNER TO ${owner};
+      `;
+    await srcDb.pool.query(setup("ownedge_r1"));
+    await dstDb.pool.query(setup("ownedge_r2"));
+
+    const [srcState, dstState] = await Promise.all([
+      extract(srcDb.pool),
+      extract(dstDb.pool),
+    ]);
+    const thePlan = plan(srcState.factBase, dstState.factBase);
+    // ALTER VIEW … OWNER TO carries the sequence; it gets no statement of its own
+    expect(
+      thePlan.actions.map((a) => a.sql).filter((sql) => /OWNER TO/.test(sql)),
+    ).toEqual(['ALTER VIEW "s"."v" OWNER TO "ownedge_r2"']);
+
+    const clone = await srcDb.clone();
+    dbs.push(clone);
+    const verdict = await provePlan(thePlan, clone.pool, dstState.factBase);
+    expect(verdict.applyError).toBeUndefined();
+    expect(verdict.driftDeltas).toEqual([]);
+  }, 60_000);
+
   test("s.t owned by r1 in source, owned by r2 in desired → ALTER TABLE s.t OWNER TO r2", async () => {
     const cluster = await sharedCluster();
     const srcDb = await cluster.createDb("ownedge_chg_src");
