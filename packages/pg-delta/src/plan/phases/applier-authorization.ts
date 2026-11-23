@@ -688,7 +688,11 @@ export function authorizeForApplier(
     if (root !== undefined && !grantsAlready) {
       // a rename runs while the object still has its old name
       const named = a.change?.kind === "rename" ? a.change.from : undefined;
-      add(ownerNow(named === undefined ? root : (rootOf(named) ?? root)));
+      const owner = ownerNow(
+        named === undefined ? root : (rootOf(named) ?? root),
+      );
+      add(owner);
+      const reach = (g: string) => has(g) || borrowable(g).ok;
       // the schema the root lives in: creating in it needs CREATE there, and
       // so does a rename. Nothing else does (a drop needs the object's
       // owner, borrowed above), nor is it needed when the applier may
@@ -707,15 +711,28 @@ export function authorizeForApplier(
             holds(source, schemaName, g, "CREATE"),
           );
         if (!mayCreate) add(ownerNow(container));
+      } else if (
+        container !== undefined &&
+        a.verb === "drop" &&
+        satelliteTarget(a.subject) === undefined &&
+        owner !== undefined &&
+        !reach(owner)
+      ) {
+        // the owner of a schema may drop anything in it: the way in when the
+        // object's own owner is out of reach
+        add(ownerNow(container));
       } else if (container !== undefined && schemaName !== undefined) {
         // Naming the object needs USAGE on its schema. When neither the
         // applier, PUBLIC, a role it has, nor the object's own owner (about
         // to be borrowed) has it, the schema's owner is borrowed too, if
         // it can be: this never turns a plan into a refusal.
         const so = ownerNow(container);
-        const reaches = [applier, "PUBLIC", ...inheritedSet, ...touched].some(
-          (g) => g === so || holds(source, schemaName, g, "USAGE"),
-        );
+        const reaches = [
+          applier,
+          "PUBLIC",
+          ...inheritedSet,
+          ...[...touched].filter(reach),
+        ].some((g) => g === so || holds(source, schemaName, g, "USAGE"));
         if (!reaches && so !== undefined && borrowable(so).ok) add(so);
       }
       // what the object references (a foreign key's table, a trigger's
