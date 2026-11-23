@@ -786,10 +786,12 @@ export function authorizeForApplier(
   });
   const touched = new Set<string>();
   const missing = new Set<string>();
+  const neededBy = new Map<Action, Set<string>>();
   {
     const walk = tracker();
     for (const a of planned) {
       const needs = needsOf(a, walk.ownerNow);
+      neededBy.set(a, needs.touched);
       for (const r of needs.touched) touched.add(r);
       for (const r of needs.missing) missing.add(r);
       walk.step(a);
@@ -877,6 +879,26 @@ export function authorizeForApplier(
     }
   }
 
+  // Roles borrowed only around the statements that need them, with the
+  // statements during which they must not be held. A role that holds a grant
+  // option on an object the plan grants or revokes on changes who Postgres
+  // records as grantor only while the applier holds it: when that statement
+  // does not need the role, not holding it then is enough, and nothing has
+  // to be refused. Kept to plain cases: a role borrowed for itself, that is
+  // a member of nothing, and that the plan does not create, drop or grant.
+  const narrow = new Map<string, Set<Action>>();
+  const narrowable = (h: string): boolean =>
+    !createdByPlan.has(h) &&
+    !planGrants.has(h) &&
+    !planRevokes.has(h) &&
+    !inheritedSet.has(h) &&
+    !settableSet.has(h) &&
+    // PG16+: the creator's ADMIN-only row is not a use of the role
+    (modern ? ownRow(h) === undefined : !source.has(selfId(h))) &&
+    upward(h).size === 1 &&
+    ![...borrowed].some((r) => r !== h && upward(r).has(h)) &&
+    !list.some((a) => roleSubject(a) === h);
+
   // ── 2. lend schema CREATE to a new owner; owner-change blockers ────────
   const before = new Map<Action, Action[]>();
   const after = new Map<Action, Action[]>();
@@ -922,6 +944,18 @@ export function authorizeForApplier(
             fresh.has(o) &&
             covers(held, id);
         if (!hazard) continue;
+        // a borrowed role this statement does not need is not held while
+        // it runs: its borrow is cut into the stretches that need it
+        if (
+          fresh.has(h) &&
+          asOwner &&
+          borrowed.has(h) &&
+          neededBy.get(a)?.has(h) !== true &&
+          narrowable(h)
+        ) {
+          narrow.set(h, (narrow.get(h) ?? new Set<Action>()).add(a));
+          continue;
+        }
         block(
           "capability_acl_grantor",
           h,
@@ -1027,6 +1061,34 @@ export function authorizeForApplier(
   const head: Action[] = [];
   const tail: Action[] = [];
   for (const r of borrowed) {
+    const avoid = narrow.get(r);
+    if (avoid !== undefined) {
+      let first: Action | undefined;
+      let last: Action | undefined;
+      const flush = (): void => {
+        if (first !== undefined && last !== undefined) {
+          before.set(first, [
+            membershipStatement(r, borrowSql(r)),
+            ...(before.get(first) ?? []),
+          ]);
+          after.set(last, [
+            ...(after.get(last) ?? []),
+            membershipStatement(r, `REVOKE ${qid(r)} FROM ${qid(applier)}`),
+          ]);
+        }
+        first = undefined;
+        last = undefined;
+      };
+      for (const a of list) {
+        if (avoid.has(a) || a.newSegmentBefore) flush();
+        if (neededBy.get(a)?.has(r) === true) {
+          first ??= a;
+          last = a;
+        }
+      }
+      flush();
+      continue;
+    }
     const openAction = membershipStatement(r, borrowSql(r));
     const createdAt = list.find(
       (a) => a.verb === "create" && roleSubject(a) === r,
