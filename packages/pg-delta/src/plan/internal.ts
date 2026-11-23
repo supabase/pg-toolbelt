@@ -626,18 +626,18 @@ function actionReaches(
 
 /** Push each candidate `[before, after]`, in order, unless it closes a cycle
  *  or could undo an order the tie-break keeps. The edge delays `after` and
- *  everything it reaches, so it is skipped when `after` is unordered against a
- *  segment boundary (`boundaries`: actions that are not plain transactional),
- *  which could move it past a commit, or when `after` reaches a new column
- *  (`columnsByTable`: column creates of tables gaining several), which could
- *  then be added after one declared behind it. */
+ *  everything it reaches, so nothing is pushed unless the plan runs in one
+ *  transaction (`singleTransaction`): with a commit, a reorder changes what is
+ *  committed before a failure. A candidate is also skipped when `after`
+ *  reaches a new column (`columnsByTable`: column creates of tables gaining
+ *  several), which could then be added after one declared behind it. */
 export function addSoftEdges(
   edges: Array<[before: number, after: number]>,
   candidates: readonly [before: number, after: number][],
-  boundaries: readonly number[],
+  singleTransaction: boolean,
   columnsByTable: readonly (readonly number[])[],
 ): void {
-  if (candidates.length === 0) return;
+  if (candidates.length === 0 || !singleTransaction) return;
   const adj = new Map<number, number[]>();
   const link = (u: number, v: number): void => {
     const list = adj.get(u) ?? [];
@@ -647,9 +647,6 @@ export function addSoftEdges(
   for (const [u, v] of edges) link(u, v);
   for (const [before, after] of candidates) {
     if (reachesIn(adj, after, before)) continue;
-    const unordered = (b: number): boolean =>
-      !reachesIn(adj, b, after) && !reachesIn(adj, after, b);
-    if (boundaries.some(unordered)) continue;
     const delaysColumn = (columns: readonly number[]): boolean =>
       columns.some((c) => reachesIn(adj, after, c));
     if (columnsByTable.some(delaysColumn)) continue;

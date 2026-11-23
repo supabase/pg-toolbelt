@@ -55,11 +55,11 @@ export interface ActionSpec {
    *  ALTER … OWNER TO) — the action must run before their destroyer */
   releases?: StableId[];
   /** ids whose create/alter in this plan should run first when that closes
-   *  no cycle, crosses no commit and keeps new columns in declared order.
-   *  Cosmetic order only: never an evaluator
-   *  input, and dropped instead of failing the plan. On an alter it also lifts
-   *  the edges that would run this alter before those ids' create/alter, so
-   *  declare only ids whose statements never need this alter's effect */
+   *  no cycle, the plan runs in one transaction and new columns keep their
+   *  declared order. Cosmetic order only: never an evaluator input, and
+   *  dropped instead of failing the plan. On an alter it also lifts the edges
+   *  that would run this alter before those ids' create/alter, so declare
+   *  only ids whose statements never need this alter's effect */
   after?: StableId[];
   dataLoss?: "none" | "destructive";
   rewriteRisk?: boolean;

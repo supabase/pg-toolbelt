@@ -290,9 +290,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   addSoftEdges(
     edges,
     softEdges,
-    actions.flatMap((a, i) =>
-      a.transactionality === "transactional" ? [] : [i],
-    ),
+    actions.every((a) => a.transactionality === "transactional"),
     columnsByTable,
   );
 

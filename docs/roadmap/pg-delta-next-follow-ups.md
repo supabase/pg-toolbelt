@@ -2287,19 +2287,17 @@ behaves the same on `main` before #584 unless noted.
 soft edge (`addSoftEdges` in `src/plan/internal.ts`). The edge is dropped
 whenever it could reorder what main applies. These gaps are deferred.
 
-- **An unrelated commit turns default-first off.** The edge is skipped when
-  `SET NOT NULL` is unordered against any segment boundary in the plan, so an
-  enum `ADD VALUE` on an unrelated type brings back `SET NOT NULL` first even
-  though the boundary still runs last. A fix would narrow the check to
-  boundaries the default must follow, or compare the segment `SET NOT NULL`
-  lands in with and without the edge.
-- **`SET DEFAULT` can commit alone before a failing `SET NOT NULL`.** The
-  boundary check orders only `SET NOT NULL`. When `SET NOT NULL` is the first
-  graph successor of an enum `ADD VALUE`, it gets `newSegmentBefore`, so a
-  `SET DEFAULT` the tie-break placed after the boundary commits on its own. A
-  NULL row then fails `SET NOT NULL` with the desired default already set. The
-  segment comparison above should also require `SET DEFAULT` to land in the
-  same segment.
+- **Any commit in the plan turns default-first off.** The edge is kept only
+  when the whole plan runs in one transaction, so an enum `ADD VALUE` or a
+  concurrent index, related or not, brings back `SET NOT NULL` first. With a
+  commit, the delay changes what is committed before a failure: it can move
+  the `newSegmentBefore` mark of an `ADD VALUE` onto `SET DEFAULT`, or run
+  `SET DEFAULT` and unrelated statements before a failing concurrent index. A
+  narrower check would compare the full segment layout with and without the
+  edge and keep it only when they match. The opt-in lock-budget split
+  (`splitPlan`, `apply --split-to-fit` / `--max-locks`) adds commits after
+  planning and can still separate the pair; its extra commits are already
+  documented as unsafe.
 - **Default-first is off whenever `SET NOT NULL` reaches a new column.** This
   holds even when the table's new columns are already chained, as in
   `t(s text)` to `t(s text NOT NULL DEFAULT 'new', g ... AS (upper(s)), h text)`.
