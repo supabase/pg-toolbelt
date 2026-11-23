@@ -287,6 +287,39 @@ describe("applier authorization", () => {
     expect(sqlOf(p).some((sql) => sql.includes('"owner_a" TO'))).toBe(false);
   });
 
+  test("a drop borrows the schema's owner when the object's owner is out of reach", () => {
+    const side = (withTable: boolean) =>
+      buildFactBase(
+        [
+          role("app"),
+          role("owner_a"),
+          role("owner_b"),
+          { id: schema, payload: {} },
+          {
+            id: { kind: "acl", target: schema, grantee: "owner_b" },
+            parent: schema,
+            payload: { privileges: ["USAGE"], grantable: [] },
+          },
+          ...(withTable ? [tableFact] : []),
+        ],
+        [
+          owned(schema, "owner_a"),
+          ...(withTable ? [owned(table, "owner_b")] : []),
+        ],
+      );
+    // the applier can borrow the schema's owner but not the table's (which
+    // has USAGE on the schema): Postgres lets the owner of a schema drop
+    // anything in it
+    const p = plan(side(true), side(false), {
+      capability: { ...applier, adminOf: ["owner_a"] },
+    });
+    expect(sqlOf(p)).toEqual([
+      'GRANT "owner_a" TO "app"',
+      'DROP TABLE "app"."t"',
+      'REVOKE "owner_a" FROM "app"',
+    ]);
+  });
+
   test("a new owner the applier can neither set nor grant itself is a blocker", () => {
     const p = plan(state("owner_a"), state("owner_b"), {
       capability: { ...applier, adminOf: ["owner_a"] },
