@@ -1,0 +1,2 @@
+CREATE ROLE app_owner NOLOGIN;
+CREATE SCHEMA app;

@@ -1,0 +1,4 @@
+{
+  "notes": "The applier loses CREATE on its own schema while another role gains USAGE there and becomes the owner of a new table. Two schema privilege changes for different roles on one schema, with DDL between them. Raised by a Gemini review (r28) as a jam in the ordering rule; it is not one: the applier's own pair sits after the DDL in the base plan.",
+  "tags": ["round:g-review", "likelihood:rare"]
+}
