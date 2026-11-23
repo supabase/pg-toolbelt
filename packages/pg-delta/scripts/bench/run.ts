@@ -1,16 +1,22 @@
 #!/usr/bin/env bun
 /**
  * CI benchmark gate, measurement half: benchmark two checkouts of the repo on
- * the SAME machine against the SAME Postgres. One long-lived ./worker.ts per
- * side does its setup and warmup once; then, round after round, every
- * scenario is sampled on both sides back to back, alternating which side goes
- * first, so runner-speed drift hits both equally. Rounds stop at `--rounds`
- * or, past the first MIN_ROUNDS, when the next one would overrun `--budget`
- * seconds. ./compare.ts turns
- * the result into a verdict + report.
+ * the SAME machine against the SAME Postgres. A ./worker.ts per side does its
+ * setup and warmup; then, round after round, every scenario is sampled on
+ * both sides back to back, alternating which side goes first, so runner-speed
+ * drift hits both equally. Rounds stop at `--rounds` or, past the first
+ * MIN_ROUNDS, when the next step would overrun `--budget` seconds.
+ * ./compare.ts turns the result into a verdict + report.
+ *
+ * Both workers are replaced every `--restart-every` rounds. One worker can run
+ * a scenario a few percent faster or slower than its twin for its whole life,
+ * whatever code it loaded (5% on the cheapest plan scenario, across CI runs),
+ * so the rounds of one worker pair all lean the same way. A second pair draws
+ * that luck again.
  *
  *   bun scripts/bench/run.ts --base <repo root> [--head <repo root>]
- *       [--rounds 10] [--budget 180] [--out bench-results.json]
+ *       [--rounds 10] [--restart-every 5] [--budget 180]
+ *       [--out bench-results.json]
  *
  * `--head` defaults to this checkout. Point both at the same checkout for an
  * A/A run (measures the gate's false-positive rate). PGDELTA_TEST_IMAGE picks
@@ -21,7 +27,6 @@ import { parseArgs } from "node:util";
 import { sharedCluster } from "../../tests/containers.ts";
 import { fixtureSql, MUTATIONS } from "./fixture.ts";
 import {
-  MIN_ROUNDS,
   PROTOCOL_PREFIX,
   type BenchResults,
   type BenchUrls,
@@ -30,12 +35,14 @@ import {
   type WorkerMessage,
   type WorkerOutput,
 } from "./protocol.ts";
+import { nextStep } from "./schedule.ts";
 
 const { values } = parseArgs({
   options: {
     base: { type: "string" },
     head: { type: "string" },
     rounds: { type: "string", default: "10" },
+    "restart-every": { type: "string", default: "5" },
     budget: { type: "string", default: "180" },
     out: { type: "string", default: "bench-results.json" },
   },
@@ -50,6 +57,7 @@ const roots: Record<Side, string> = {
   head: values.head ?? resolve(import.meta.dir, "../../../.."),
 };
 const maxRounds = Number(values.rounds);
+const restartEvery = Number(values["restart-every"]);
 const budgetMs = Number(values.budget) * 1000;
 
 const cluster = await sharedCluster();
@@ -137,30 +145,38 @@ class Worker {
   }
 }
 
-const workers: Record<Side, Worker> = {
-  base: new Worker("base"),
-  head: new Worker("head"),
-};
-const setupStarted = performance.now();
-const ready = await Promise.all(
-  (["base", "head"] as const).map(async (side) => {
-    const message = await workers[side].next();
-    if (message !== null && "ready" in message) return message.ready;
-    console.error(
-      `bench: ${side} setup failed: ${message !== null && "setupError" in message ? message.setupError : "worker exited"}`,
-    );
-    workers[side].alive = false;
-    return [];
-  }),
-);
-const scenarios = [...new Set(ready.flat())];
-console.error(
-  `bench: workers ready in ${((performance.now() - setupStarted) / 1000).toFixed(1)}s`,
-);
+/** Start a fresh worker per side and wait for their setup and warmup. */
+async function startWorkers(): Promise<{
+  workers: Record<Side, Worker>;
+  scenarios: string[];
+  ms: number;
+}> {
+  const started = performance.now();
+  const workers = { base: new Worker("base"), head: new Worker("head") };
+  const ready = await Promise.all(
+    (["base", "head"] as const).map(async (side) => {
+      const message = await workers[side].next();
+      if (message !== null && "ready" in message) return message.ready;
+      console.error(
+        `bench: ${side} setup failed: ${message !== null && "setupError" in message ? message.setupError : "worker exited"}`,
+      );
+      workers[side].alive = false;
+      return [];
+    }),
+  );
+  const ms = performance.now() - started;
+  console.error(`bench: workers ready in ${(ms / 1000).toFixed(1)}s`);
+  return { workers, scenarios: [...new Set(ready.flat())], ms };
+}
+
+const first = await startWorkers();
+let workers = first.workers;
+const scenarios = first.scenarios;
 
 const results: BenchResults = {
   meta: {
     rounds: 0,
+    workerPairs: 1,
     pgImage: process.env["PGDELTA_TEST_IMAGE"] ?? "postgres:17-alpine",
     base: roots.base,
     head: roots.head,
@@ -169,11 +185,26 @@ const results: BenchResults = {
 };
 const sampling = performance.now();
 let slowestRoundMs = 0;
+let slowestRestartMs = first.ms;
 for (let round = 0; round < maxRounds; round++) {
-  const elapsed = performance.now() - sampling;
-  if (round >= MIN_ROUNDS && elapsed + slowestRoundMs > budgetMs) {
+  const step = nextStep({
+    round,
+    restartEvery,
+    elapsedMs: performance.now() - sampling,
+    budgetMs,
+    slowestRoundMs,
+    slowestRestartMs,
+  });
+  if (step === "stop") {
     console.error(`bench: stopping after ${round} rounds (budget)`);
     break;
+  }
+  if (step === "restart") {
+    await Promise.all([workers.base.close(), workers.head.close()]);
+    const restarted = await startWorkers();
+    workers = restarted.workers;
+    slowestRestartMs = Math.max(slowestRestartMs, restarted.ms);
+    results.meta.workerPairs = (results.meta.workerPairs ?? 1) + 1;
   }
   const roundStart = performance.now();
   const outputs: Record<Side, WorkerOutput | null> = { base: {}, head: {} };
