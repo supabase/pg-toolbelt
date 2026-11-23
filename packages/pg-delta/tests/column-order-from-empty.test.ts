@@ -160,6 +160,26 @@ describe("column order of a table planned from empty (#518)", () => {
     `);
   }, 60_000);
 
+  test("the columns after a generated column that reads no column still follow the columns before it", async () => {
+    // `b` and `c` no longer wait on `g`, but they still wait on `p`.
+    const result = await planFromEmpty(
+      "genconstkeep",
+      `create schema app;
+       create function app.k(int) returns int language sql immutable
+         as $$ select $1 + 1 $$;
+       create function app.one() returns int language sql immutable
+         as $$ select 1 $$;
+       create table app.orders (
+         id int,
+         p int generated always as (app.k(id)) stored,
+         g int generated always as (app.one()) stored,
+         b int,
+         c int
+       );`,
+    );
+    expect(result.applied).toEqual(["id", "p", "b", "c", "g"]);
+  }, 60_000);
+
   test("a generated column reading an inherited column keeps its declared position", async () => {
     // Postgres records the read of `id` against the child's own column;
     // pg-delta's extractor resolves it to the parent's column plus an edge to
@@ -306,6 +326,89 @@ describe("column order of a table planned from empty (#518)", () => {
       fns,
     );
     expect(result.tableSql[0]).toContain(`"e" integer DEFAULT app.h()`);
+  }, 60_000);
+
+  test("a generated column that reads no column is added before another table's DEFAULT that waits on a later column", async () => {
+    // app.h() reads `b` (pg_depend) and app.read_g() reads `g` (no edge).
+    // `x` waits on `b`, so `g` must still come before `x`.
+    const fns = `create schema app;
+       create table app.accounts (id int);
+       insert into app.accounts values (1);
+       create function app.read_g() returns int language plpgsql stable
+         as $$ begin return (select count(g)::int from app.orders); end $$;`;
+    await planFromEmpty(
+      "genconstdown",
+      `${fns}
+       create function app.one() returns int language sql immutable
+         as $$ select 1 $$;
+       create table app.orders (
+         id int,
+         g int generated always as (app.one()) stored,
+         b int
+       );
+       create function app.h() returns int language sql stable
+         begin atomic select app.read_g() + (select count(b)::int from app.orders); end;
+       alter table app.accounts add column x int default app.h();`,
+      fns,
+    );
+  }, 60_000);
+
+  test("a later DEFAULT column does not wait on a generated column that reads no column when a cycle already cut the chain", async () => {
+    // app.f() reads `b`, so the chain edge from `g` to `b` is skipped and `e`
+    // folds into CREATE TABLE, where app.k() can read it when `x` is added.
+    const fns = `create schema app;
+       create table app.accounts (id int);
+       insert into app.accounts values (1);
+       create function app.h() returns int language sql stable as $$ select 1 $$;
+       create function app.k() returns int language plpgsql stable
+         as $$ begin return (select count(e)::int from app.orders); end $$;`;
+    const result = await planFromEmpty(
+      "genconstcut",
+      `${fns}
+       create function app.f() returns int language sql immutable
+         as $$ select 1 $$;
+       create table app.orders (
+         id int,
+         g int generated always as (app.f()) stored,
+         b int,
+         e int default app.h()
+       );
+       create or replace function app.f() returns int language sql immutable
+         begin atomic select count(b)::int from app.orders; end;
+       alter table app.accounts add column x int default app.k();`,
+      fns,
+    );
+    expect(result.tableSql[0]).toContain(`"e" integer DEFAULT app.h()`);
+  }, 60_000);
+
+  test("a later column does not wait on an earlier column when a cycle cut its chain edge from a generated column that reads no column", async () => {
+    // app.f() reads `c`, so the chain edge from `g` to `c` is skipped and `c`
+    // folds into CREATE TABLE, where app.k() can read it when `x` gets its
+    // DEFAULT. `c` must not wait on `m` instead.
+    const fns = `create schema app;
+       create function app.k() returns int language plpgsql stable
+         as $$ begin return (select count(c)::int from app.orders); end $$;
+       create table app.accounts (id int);`;
+    const result = await planFromEmpty(
+      "genconstsplice",
+      `${fns}
+       alter table app.accounts add column x int;
+       create function app.q(int) returns int language sql immutable
+         begin atomic select $1 + count(x)::int from app.accounts; end;
+       create function app.f() returns int language sql immutable
+         begin atomic select 1; end;
+       create table app.orders (
+         id int,
+         m int generated always as (app.q(id)) stored,
+         g int generated always as (app.f()) stored,
+         c int
+       );
+       create or replace function app.f() returns int language sql immutable
+         begin atomic select count(c)::int from app.orders; end;
+       alter table app.accounts alter column x set default app.k();`,
+      fns,
+    );
+    expect(result.tableSql[0]).toContain(`"c" integer`);
   }, 60_000);
 });
 

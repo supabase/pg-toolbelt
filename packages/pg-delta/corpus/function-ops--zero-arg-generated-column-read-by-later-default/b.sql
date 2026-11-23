@@ -1,6 +1,6 @@
 -- g calls app.one() and reads no column, and x's DEFAULT calls app.h(), which
--- reads g. Postgres runs app.h() when x is added, so x must still wait on g
--- even though g no longer leads the column chain (#554).
+-- reads g. Postgres runs app.h() when x is added, so x must be added after g
+-- (#554).
 CREATE SCHEMA app;
 
 CREATE FUNCTION app.one()
