@@ -115,4 +115,30 @@ describe("owner change back to the default owner", () => {
     });
     expect(ownerSql(p)).toEqual([]);
   });
+  test("at cluster scope the run-level defaultOwner is ignored: an owner the policy excludes stays out", () => {
+    const roles = [role("r"), role("postgres")];
+    const source = buildFactBase(facts(roles), [
+      owned(schema, "postgres"),
+      owned(table, "r"),
+    ]);
+    const desired = buildFactBase(facts(roles), [
+      owned(schema, "postgres"),
+      owned(table, "postgres"),
+    ]);
+    // no database scope, and the policy (not the scope) drops the role
+    // without declaring it its default owner
+    const p = plan(source, desired, {
+      defaultOwner: "postgres",
+      policy: {
+        id: "exclude-postgres",
+        filter: [
+          {
+            match: { all: [{ kind: "role" }, { name: "postgres" }] },
+            action: "exclude",
+          },
+        ],
+      },
+    });
+    expect(ownerSql(p)).toEqual([]);
+  });
 });
