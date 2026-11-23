@@ -625,14 +625,17 @@ function actionReaches(
 }
 
 /** Push each candidate `[before, after]`, in order, unless it closes a cycle
- *  or `after` is not yet ordered against every segment boundary
- *  (`boundaries`: actions that are not plain transactional). An unordered
- *  boundary is placed by the tie-break, so the edge could move `after` past
- *  that commit and let it fail after earlier statements committed. */
+ *  or could undo an order the tie-break keeps. The edge delays `after` and
+ *  everything it reaches, so it is skipped when `after` is unordered against a
+ *  segment boundary (`boundaries`: actions that are not plain transactional),
+ *  which could move it past a commit, or when `after` reaches a new column
+ *  (`columnsByTable`: column creates of tables gaining several), which could
+ *  then be added after one declared behind it. */
 export function addSoftEdges(
   edges: Array<[before: number, after: number]>,
   candidates: readonly [before: number, after: number][],
   boundaries: readonly number[],
+  columnsByTable: readonly (readonly number[])[],
 ): void {
   if (candidates.length === 0) return;
   const adj = new Map<number, number[]>();
@@ -647,6 +650,9 @@ export function addSoftEdges(
     const unordered = (b: number): boolean =>
       !reachesIn(adj, b, after) && !reachesIn(adj, after, b);
     if (boundaries.some(unordered)) continue;
+    const delaysColumn = (columns: readonly number[]): boolean =>
+      columns.some((c) => reachesIn(adj, after, c));
+    if (columnsByTable.some(delaysColumn)) continue;
     edges.push([before, after]);
     link(before, after);
   }

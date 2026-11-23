@@ -46,6 +46,27 @@ function columnCreateSlot(
   return { tableKey: `${id.schema}\x00${id.table}`, position };
 }
 
+/** Each table's column creates, in declared order, for tables with more
+ *  than one. */
+function columnCreatesByTable(
+  actions: readonly Action[],
+  desired: FactBase,
+): number[][] {
+  const byTable = new Map<string, Array<{ position: number; index: number }>>();
+  actions.forEach((action, index) => {
+    const slot = columnCreateSlot(action, action.produces[0], desired);
+    if (slot === undefined) return;
+    const columns = byTable.get(slot.tableKey) ?? [];
+    columns.push({ position: slot.position, index });
+    byTable.set(slot.tableKey, columns);
+  });
+  return [...byTable.values()]
+    .filter((columns) => columns.length > 1)
+    .map((columns) =>
+      columns.sort((a, b) => a.position - b.position).map((c) => c.index),
+    );
+}
+
 /**
  * `ADD COLUMN` always appends, so a table's new columns must be added in
  * declared order (`_position`, pg_attribute.attnum). The tie-break in
@@ -78,21 +99,9 @@ function chainColumnCreatesByPosition(
   producerOf: ReadonlyMap<string, number>,
   evaluatorActions: ReadonlySet<number>,
   edges: Array<[number, number]>,
+  columnsByTable: readonly (readonly number[])[],
 ): void {
-  const columnsByTable = new Map<
-    string,
-    Array<{ position: number; index: number }>
-  >();
-  actions.forEach((action, index) => {
-    const slot = columnCreateSlot(action, action.produces[0], desired);
-    if (slot === undefined) return;
-    const columns = columnsByTable.get(slot.tableKey) ?? [];
-    columns.push({ position: slot.position, index });
-    columnsByTable.set(slot.tableKey, columns);
-  });
-  if (![...columnsByTable.values()].some((columns) => columns.length > 1)) {
-    return;
-  }
+  if (columnsByTable.length === 0) return;
 
   const successorsOf = new Map<number, number[]>();
   const addSuccessor = (before: number, after: number): void => {
@@ -133,10 +142,9 @@ function chainColumnCreatesByPosition(
     );
   };
 
-  for (const columns of columnsByTable.values()) {
-    columns.sort((a, b) => a.position - b.position);
+  for (const columns of columnsByTable) {
     let before: number | undefined;
-    for (const { index: after } of columns) {
+    for (const after of columns) {
       // `before → after` closes a cycle iff `after` already precedes `before`.
       if (before !== undefined && !reaches(after, before)) {
         edges.push([before, after]);
@@ -269,12 +277,14 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     softAfter,
     softEdges,
   );
+  const columnsByTable = columnCreatesByTable(actions, desired);
   chainColumnCreatesByPosition(
     actions,
     desired,
     producerOf,
     evaluatorActions,
     edges,
+    columnsByTable,
   );
   // cosmetic `ActionSpec.after` order, last so it never displaces an edge above
   addSoftEdges(
@@ -283,6 +293,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     actions.flatMap((a, i) =>
       a.transactionality === "transactional" ? [] : [i],
     ),
+    columnsByTable,
   );
 
   // Order a table's ADD COLUMN creates by declared column position

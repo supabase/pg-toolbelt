@@ -2241,3 +2241,15 @@ case still drops and recreates it, deferred.
   OR REPLACE spec alone cannot help. A fix would skip a dependent in that walk
   when its in-place def alter no longer needs the dropped object, and give the
   alter `releases` of its source-side deps so it runs before the drop.
+
+## PR #587 review triage — default-first and unrelated commits
+
+#587 runs `SET DEFAULT` before `SET NOT NULL` on the same column through a
+soft edge (`addSoftEdges` in `src/plan/internal.ts`). One gap is deferred.
+
+- **An unrelated commit turns default-first off.** The edge is skipped when
+  `SET NOT NULL` is unordered against any segment boundary in the plan, so an
+  enum `ADD VALUE` on an unrelated type brings back `SET NOT NULL` first even
+  though the boundary still runs last. A fix would narrow the check to
+  boundaries the default must follow, or compare the segment `SET NOT NULL`
+  lands in with and without the edge.
