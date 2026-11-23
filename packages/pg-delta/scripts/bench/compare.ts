@@ -329,13 +329,17 @@ export function renderMarkdown(
     "",
     "<details><summary>How this gate decides</summary>",
     "",
-    `- **Wall time** (median of per-round medians) regresses only when the head is ≥ ${Math.round(t.timeRatio * 100)}% slower, ≥ ${t.minDeltaMs} ms slower, **and** slower in ≥ ${Math.round(t.consistency * 100)}% of the interleaved rounds.`,
+    `- **Wall time** (median of per-round medians) regresses only when the head is ≥ ${Math.round(t.timeRatio * 100)}% slower, ≥ ${t.minDeltaMs} ms slower, **and** slower in ≥ ${Math.round(t.consistency * 100)}% of the interleaved rounds (rounded up, so with 4 rounds or fewer that is every round).`,
     "- **Round trips** and **connections** regress on any increase; **bytes received** on growth over " +
       `${Math.round(t.bytesRatio * 100)}%. All three are deterministic for the fixed fixture catalog.`,
     `- Fewer than ${MIN_ROUNDS} completed rounds (e.g. a slowdown that ate the time budget) also fails.`,
     "- An intended slowdown: add the `perf-accepted` label; the verdict re-runs without re-measuring (on a fork PR, re-run the failed `Verdict` job by hand). The label never waives a scenario that errors on the head.",
     "- Only warm, steady-state calls are measured (workers warmed up first). Module-load cost and per-process cold caches, which every CLI invocation pays, are not covered.",
-    "- The rounds of one worker pair are not independent: a worker can run a scenario a few percent faster or slower than its twin for its whole life. A small change that leans the same way in every round is expected, and the workers are replaced partway through a run so one pair cannot decide the verdict.",
+    ...((options.meta.workerPairs ?? 1) > 1
+      ? [
+          "- The rounds of one worker pair are not independent: a worker can run a scenario a few percent faster or slower than its twin for its whole life. A small change that leans the same way in every round is expected, and the workers are replaced partway through a run to limit how much one pair can sway the verdict.",
+        ]
+      : []),
     "- Reproduce locally: `cd packages/pg-delta && bun scripts/bench/run.ts --base <base checkout> && bun scripts/bench/compare.ts bench-results.json`.",
     "",
     "</details>",
