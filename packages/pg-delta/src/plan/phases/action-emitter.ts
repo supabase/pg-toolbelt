@@ -832,13 +832,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         renamedOwnerId.set(encodeId(dstId), ownerEdge.to);
       }
     }
-    // the owner each kept owner link sets, by object: a linked object's
-    // owner may only be left to its carrier when the carrier's change is here
-    const ownerLinked = new Map<string, string>();
-    for (const delta of deltas) {
-      if (delta.verb === "link" && delta.edge.kind === "owner")
-        ownerLinked.set(encodeId(delta.edge.from), encodeId(delta.edge.to));
-    }
     // objKeys whose owner a link delta already (re-)established below, so the
     // replaced-fact pass does not emit a second ALTER … OWNER TO for them.
     const ownerEmitted = new Set<string>();
@@ -847,7 +840,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // Treat that as a link to the default owner when the RAW desired owner
     // really is that role (an out-of-view owner stays silent).
     const ownerLinks: Array<{ from: StableId; to: StableId }> = [];
-    const linked = new Set<string>();
+    // the owner each of them sets, by object: a linked object's owner may only
+    // be left to its carrier when the carrier's change is here
+    const ownerLinked = new Map<string, string>();
     // objKeys re-owned to the implicit default owner: that role is projected
     // out of the view, so the action must not consume it (the graph would
     // report a missing requirement)
@@ -855,7 +850,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     for (const delta of deltas) {
       if (delta.verb !== "link" || delta.edge.kind !== "owner") continue;
       ownerLinks.push(delta.edge);
-      linked.add(encodeId(delta.edge.from));
+      ownerLinked.set(encodeId(delta.edge.from), encodeId(delta.edge.to));
     }
     const implicitOwner = defaultOwner ?? policyDefaultOwner;
     if (implicitOwner !== undefined) {
@@ -864,7 +859,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         const objId = delta.edge.from;
         const objKey = encodeId(objId);
         if (
-          linked.has(objKey) ||
+          ownerLinked.has(objKey) ||
           replaceIds.has(objKey) ||
           recreatedByReplace.has(objKey) ||
           inlinedByReplace.has(objKey) ||
@@ -882,6 +877,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         )
           continue;
         ownerLinks.push({ from: objId, to: rawOwner.to });
+        ownerLinked.set(objKey, encodeId(rawOwner.to));
         implicitOwnerKeys.add(objKey);
       }
     }
