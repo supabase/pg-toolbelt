@@ -1378,6 +1378,75 @@ describe("public schema frontends", () => {
     }
   }, 120_000);
 
+  test("assumed-schema seeding omits a trigger calling a policy-pruned function", async () => {
+    // `private` is filtered but NOT assumed, so it is pruned from the view and
+    // never seeded; replaying the trigger failed the seed with
+    // `schema "private" does not exist`.
+    const policy: Policy = {
+      id: "test-platform-private-seed",
+      filter: [
+        {
+          match: {
+            any: [
+              { schema: ["platform", "private"] },
+              { name: ["platform", "private"] },
+            ],
+          },
+          action: "exclude",
+        },
+      ],
+      assumedSchemas: ["platform"],
+    };
+    const profile: IntegrationProfile = { id: policy.id, handlers: [], policy };
+
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_seed_pruned_dep");
+    try {
+      await target.pool.query(`
+        CREATE SCHEMA platform;
+        CREATE TABLE platform.objects (id integer PRIMARY KEY);
+        CREATE SCHEMA private;
+        CREATE FUNCTION private.f() RETURNS trigger
+          LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
+        CREATE TRIGGER objects_trg BEFORE INSERT ON platform.objects
+          FOR EACH ROW EXECUTE FUNCTION private.f();
+        CREATE SCHEMA app;
+      `);
+
+      const shadow = await provisionCoLocatedShadow(target.uri, {
+        uniqueSuffix: `seedpd_${Date.now().toString(36)}`,
+      });
+      const shadowPool = new pg.Pool({ connectionString: shadow.url, max: 5 });
+      try {
+        const files: SqlFile[] = [
+          { name: "app.sql", sql: "CREATE SCHEMA app;\n" },
+        ];
+        const planned = await planSchemaFiles(target.pool, shadowPool, files, {
+          profile,
+          scope: "database",
+          seedAssumedSchemas: true,
+        });
+
+        expect(
+          await shadowPool.query(
+            `SELECT to_regclass('platform.objects') IS NOT NULL AS present`,
+          ),
+        ).toMatchObject({ rows: [{ present: true }] });
+        expect(
+          await shadowPool.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM pg_trigger WHERE tgname = 'objects_trg'`,
+          ),
+        ).toMatchObject({ rows: [{ n: 0 }] });
+        expect(sqlOf(planned)).toEqual([]);
+      } finally {
+        await shadowPool.end();
+        await shadow.cleanup();
+      }
+    } finally {
+      await target.drop();
+    }
+  }, 120_000);
+
   test("buildSchemaExport does not revoke a policy-filtered grant on public", async () => {
     const profile: IntegrationProfile = {
       id: "test-filtered-public-acl",
@@ -1559,6 +1628,66 @@ describe("public schema frontends", () => {
       );
       expect(check2.rows[0]?.n).toBe(0);
     } finally {
+      await target.drop();
+    }
+  }, 90_000);
+
+  test("co-located shadow cleanup failure reaches onCleanupError and still resolves", async () => {
+    const cluster = await sharedCluster();
+    const target = await cluster.createDb("frontend_clnerr");
+    const admin = target.cluster.adminPool;
+    // non-superuser with CREATEDB: the role shape a hosted target hands out
+    const role = `clnerr_${Date.now().toString(36)}`;
+    const asRole = new URL(target.uri);
+    asRole.username = role;
+    asRole.password = role;
+    const held: string[] = [];
+    const holders: pg.Client[] = [];
+    try {
+      await admin.query(
+        `CREATE ROLE ${role} LOGIN PASSWORD '${role}' CREATEDB`,
+      );
+      // both a throwing and a rejecting observer must be contained
+      for (const fail of [
+        () => {
+          throw new Error("observer throw must be contained");
+        },
+        async () => {
+          throw new Error("observer rejection must be contained");
+        },
+      ]) {
+        const seen: unknown[] = [];
+        const shadow = await provisionCoLocatedShadow(asRole.toString(), {
+          uniqueSuffix: `clnheld${held.length}_${Date.now().toString(36)}`,
+          onCleanupError: (error) => {
+            seen.push(error);
+            return fail();
+          },
+        });
+        held.push(shadow.name);
+        // a superuser session on the shadow: DROP ... WITH (FORCE) from a
+        // non-superuser cannot terminate it, so the drop fails with 42501
+        const holder = new pg.Client({
+          connectionString: cluster.uriFor(shadow.name),
+        });
+        holders.push(holder);
+        await holder.connect();
+        await shadow.cleanup();
+        expect(seen).toMatchObject([{ code: "42501" }]);
+        const left = await admin.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM pg_database WHERE datname = $1`,
+          [shadow.name],
+        );
+        expect(left.rows[0]?.n).toBe(1);
+      }
+    } finally {
+      for (const holder of holders) await holder.end().catch(() => {});
+      for (const name of held) {
+        await admin
+          .query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)
+          .catch(() => {});
+      }
+      await admin.query(`DROP ROLE IF EXISTS ${role}`).catch(() => {});
       await target.drop();
     }
   }, 90_000);

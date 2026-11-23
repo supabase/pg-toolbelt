@@ -51,7 +51,10 @@ export interface CoLocatedShadow {
   url: string;
   /** database name (for logging) */
   name: string;
-  /** drop the shadow database (no-op when `keep`), best-effort. */
+  /**
+   * drop the shadow database (no-op when `keep`), best-effort; a failed drop
+   * goes to `onCleanupError`.
+   */
   cleanup(): Promise<void>;
 }
 
@@ -60,6 +63,12 @@ export interface ProvisionCoLocatedShadowOptions {
   keep?: boolean;
   /** unique suffix source; injectable for deterministic tests */
   uniqueSuffix?: string;
+  /**
+   * called with the error when the drop fails (the database is left behind);
+   * `cleanup()` still resolves and swallows a throw or rejection from this
+   * callback.
+   */
+  onCleanupError?: (error: unknown) => void;
 }
 
 /**
@@ -101,8 +110,14 @@ export async function provisionCoLocatedShadow(
         await m.query(
           `DROP DATABASE IF EXISTS ${quoteIdent(name)} WITH (FORCE)`,
         );
-      } catch {
-        // swallow — cleanup must never mask the caller's own outcome
+      } catch (error) {
+        // cleanup must never mask the caller's own outcome, so a throwing or
+        // async (`void`-typed but rejecting) observer is contained too
+        try {
+          void Promise.resolve(opts.onCleanupError?.(error)).catch(() => {});
+        } catch {
+          /* swallowed by design */
+        }
       } finally {
         await m.end();
       }
