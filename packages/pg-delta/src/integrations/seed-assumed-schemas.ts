@@ -74,7 +74,12 @@
  * structurally contained by — an omitted fact is omitted too, whatever the
  * original reason was.
  */
-import { buildFactBase, type Fact, type FactBase } from "../core/fact.ts";
+import {
+  buildFactBase,
+  type DependencyEdge,
+  type Fact,
+  type FactBase,
+} from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { plan } from "../plan/plan.ts";
 import { renderPlanSql } from "../plan/render-sql.ts";
@@ -228,8 +233,32 @@ export function deriveAssumedSchemaSeed(
   //     extension member whose extension the seed creates, a folded edge into
   //     a pruned fact from an extension (`CREATE EXTENSION` replays no added
   //     member; the install schema is checked below; a pruned required
-  //     extension still counts) or a publication (a pruned membership is never
-  //     seeded), and a SHELL's inherited membership edges.
+  //     extension still counts) or a publication (a pruned membership, or one
+  //     on a table it keeps managed, is never seeded), and a SHELL's inherited
+  //     membership edges.
+  // An edge a membership the view pruned folded onto its publication (its
+  // table or a column of it): the seed never replays that membership.
+  const prunedMemberships = new Set<string>();
+  for (const fct of targetFb.facts()) {
+    if (fct.id.kind === "publicationRel" && view.get(fct.id) === undefined) {
+      prunedMemberships.add(encodeId(fct.id));
+    }
+  }
+  const fromPrunedMembership = (e: DependencyEdge): boolean => {
+    if (e.from.kind !== "publication" || !("schema" in e.to)) return false;
+    if (e.to.schema === null) return false;
+    const table =
+      "table" in e.to ? e.to.table : "name" in e.to ? e.to.name : "";
+    return prunedMemberships.has(
+      encodeId({
+        kind: "publicationRel",
+        publication: e.from.name,
+        schema: e.to.schema,
+        table,
+      }),
+    );
+  };
+  const addedMemberExts = new Set<string>();
   for (const e of targetFb.edges) {
     if (e.kind !== "depends") continue;
     const from = encodeId(e.from);
@@ -241,13 +270,31 @@ export function deriveAssumedSchemaSeed(
       continue;
     }
     if (
-      view.get(e.to) === undefined &&
-      (e.from.kind === "publication" ||
-        (e.from.kind === "extension" && e.to.kind !== "extension"))
+      e.from.kind === "publication" &&
+      (view.get(e.to) === undefined || fromPrunedMembership(e))
     ) {
       continue;
     }
+    if (
+      e.from.kind === "extension" &&
+      e.to.kind !== "extension" &&
+      view.get(e.to) === undefined
+    ) {
+      if (e.to.kind !== "schema") addedMemberExts.add(from);
+      continue;
+    }
     excludedIds.add(from);
+  }
+  //     A candidate using such an extension may need that added member.
+  for (const e of targetFb.edges) {
+    if (
+      e.kind === "depends" &&
+      e.from.kind !== "extension" &&
+      candidateIds.has(encodeId(e.from)) &&
+      addedMemberExts.has(encodeId(e.to))
+    ) {
+      excludedIds.add(encodeId(e.from));
+    }
   }
   //     An assumed extension's install schema is the same kind of dependency,
   //     decided here from the payload: its edge exists only when a member
@@ -364,7 +411,8 @@ export function deriveAssumedSchemaSeed(
     if (!finalIds.has(from) || shellIds.has(from)) continue;
     const to = encodeId(e.to);
     if (finalIds.has(to) || view.referenceOnly.has(to)) continue;
-    if (view.getByEncoded(to) === undefined) continue;
+    if (view.getByEncoded(to) === undefined || fromPrunedMembership(e))
+      continue;
     throw new Error(
       `deriveAssumedSchemaSeed: seed fact ${from} still depends on managed fact ` +
         `${to}, which the seed does not create; the exclusion closure is incomplete`,

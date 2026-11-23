@@ -726,21 +726,31 @@ describe("deriveAssumedSchemaSeed", () => {
   test("an assumed extension depending on POLICY-PRUNED facts is still seeded", () => {
     // Extract folds member objects onto the extension, so it `depends` on its
     // install schema `public`, and on `private` and `private.mood` through a
-    // member `ALTER EXTENSION … ADD` put there. `CREATE EXTENSION` needs none.
+    // member `ALTER EXTENSION … ADD` put there. `CREATE EXTENSION` needs none,
+    // but it never recreates that member, so `uses_ext` is omitted.
     const ext: StableId = { kind: "extension", name: "platform_ext" };
     const schemaPrivate: StableId = { kind: "schema", name: "private" };
     const mood: StableId = { kind: "type", schema: "private", name: "mood" };
+    const usesExt: StableId = {
+      kind: "function",
+      schema: "platform",
+      name: "uses_ext",
+      args: [],
+    };
     const target = buildFactBase(
       [
         f(schemaPublic),
         f(schemaPrivate),
+        f(schemaPlatform),
         { id: mood, parent: schemaPrivate, payload: {} },
         f(ext, extensionPayload("public", true)),
+        f(usesExt, routinePayload("CREATE FUNCTION platform.uses_ext()", [])),
       ],
       [
         { from: ext, to: schemaPublic, kind: "depends" },
         { from: ext, to: schemaPrivate, kind: "depends" },
         { from: ext, to: mood, kind: "depends" },
+        { from: usesExt, to: ext, kind: "depends" },
       ],
     );
     const seed = deriveAssumedSchemaSeed(target, {
@@ -750,8 +760,8 @@ describe("deriveAssumedSchemaSeed", () => {
           {
             match: {
               any: [
-                { schema: ["public", "private"] },
-                { name: ["public", "private"] },
+                { schema: ["public", "private", "platform"] },
+                { name: ["public", "private", "platform"] },
               ],
             },
             action: "exclude",
@@ -761,13 +771,15 @@ describe("deriveAssumedSchemaSeed", () => {
             action: "exclude",
           },
         ],
+        assumedSchemas: ["platform"],
         assumedExtensions: ["platform_ext"],
       },
-      assumedSchemas: [],
+      assumedSchemas: ["platform"],
       assumedRoles: [],
       assumedExtensions: ["platform_ext"],
     });
     expect(seed.sql).toContain('CREATE EXTENSION "platform_ext"');
+    expect(seed.sql).not.toContain("uses_ext");
   });
 
   test("an assumed extension using a member of an omitted extension is still seeded", () => {
@@ -984,6 +996,66 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.sql).not.toContain("q_jobs");
   });
 
+  test("a membership pruned apart from its managed table keeps its publication", () => {
+    // The filter prunes the `app.u` membership but not `app.u`; the edge it
+    // folds onto the publication is not a replay requirement.
+    const pub: StableId = { kind: "publication", name: "platform_pub" };
+    const kept: StableId = { kind: "table", schema: "platform", name: "t" };
+    const managed: StableId = { kind: "table", schema: "app", name: "u" };
+    const rel = (schema: string, table: string): Fact => ({
+      id: {
+        kind: "publicationRel",
+        publication: "platform_pub",
+        schema,
+        table,
+      },
+      parent: pub,
+      payload: { columns: null, where: null },
+    });
+    const seed = deriveAssumedSchemaSeed(
+      buildFactBase(
+        [
+          f(schemaPlatform),
+          f(schemaApp),
+          f(pub, { allTables: false, viaRoot: false, publish: ["insert"] }),
+          { id: kept, parent: schemaPlatform, payload: { persistence: "p" } },
+          { id: managed, parent: schemaApp, payload: { persistence: "p" } },
+          rel("platform", "t"),
+          rel("app", "u"),
+        ],
+        [
+          { from: pub, to: kept, kind: "depends" },
+          { from: pub, to: managed, kind: "depends" },
+          { from: rel("platform", "t").id, to: kept, kind: "depends" },
+          { from: rel("app", "u").id, to: managed, kind: "depends" },
+        ],
+      ),
+      {
+        policy: {
+          id: "test-pub-pruned-membership",
+          filter: [
+            {
+              match: {
+                any: [
+                  { schema: "platform" },
+                  { name: ["platform", "platform_pub"] },
+                  { all: [{ kind: "publicationRel" }, { schema: "app" }] },
+                ],
+              },
+              action: "exclude",
+            },
+          ],
+          assumedSchemas: ["platform"],
+          assumedPublications: ["platform_pub"],
+        },
+        assumedSchemas: ["platform"],
+        assumedRoles: [],
+        assumedPublications: ["platform_pub"],
+      },
+    );
+    expect(seed.sql).toContain('FOR TABLE "platform"."t"');
+  });
+
   test("a pruned SATELLITE does not make its candidate a shell", () => {
     // supabasePolicy hard-prunes the comment; the managed `app.mood` still omits auth.f.
     const mood: StableId = { kind: "type", schema: "app", name: "mood" };
@@ -1095,6 +1167,6 @@ describe("deriveAssumedSchemaSeed", () => {
       assumedPublications: ["platform_pub"],
     });
     expect(seed.sql).toContain('CREATE TABLE "platform"."t"');
-    expect(seed.sql).not.toContain("later");
+    expect(seed.sql).not.toContain("PUBLICATION");
   });
 });
