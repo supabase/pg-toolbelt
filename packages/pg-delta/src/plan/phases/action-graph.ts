@@ -75,22 +75,23 @@ function readsOwnTableColumn(desired: FactBase, id: StableId): boolean {
  *    plpgsql or quoted SQL body), so only the evaluator stratum keeps the
  *    column after it. No chain edge starts from such a column; the next column
  *    chains from the last one before it instead. A generated column on a table
- *    this plan creates is exempt when it reads a column of its own table:
- *    Postgres computes it per row, and the new table has none. One that reads
- *    no column of its own table can be constant-folded, so Postgres runs its
- *    function at ADD COLUMN time, or at CREATE TABLE time after every column
- *    in the statement exists (#554). It does not lead either, so the later
- *    columns that run no user function do not wait on it, but each later
- *    evaluator column gets an edge from it: that column's function may read
- *    it. Known limits: Postgres also folds an IMMUTABLE call with only
- *    constant arguments inside an expression that reads a column, and such a
- *    column still leads; and a generated column that reads no column can still
- *    run its function before a later evaluator column it reads exists, or fold
- *    into CREATE TABLE ahead of a later column that stays an ADD COLUMN.
+ *    this plan creates is exempt: Postgres computes it per row, and the new
+ *    table has none. Except when it reads no column of its own table: Postgres
+ *    can then constant-fold it and run its function at ADD COLUMN time, or at
+ *    CREATE TABLE time after every column in the statement exists, and that
+ *    function may read a later column (#554). Such a column starts no chain
+ *    edge: the columns it would lead chain from wherever its own chain edge
+ *    came from, if it has one, but it still precedes every action that runs a
+ *    user function downstream of them, as the chain edges kept it. Known
+ *    limits: Postgres also folds an IMMUTABLE call with only constant arguments
+ *    inside an expression that reads a column, and such a column still leads;
+ *    its function can still run before a later evaluator column it reads
+ *    exists, or fold into CREATE TABLE ahead of a later column that stays an
+ *    ADD COLUMN; and once a cycle cuts its chain edge, a later evaluator column
+ *    that reads it can still run first, as before.
  *  - a column whose chain edge would close a cycle with a real dependency (a
  *    generated column reading a column declared after it). That edge is
- *    skipped, and so are the edges into that column from generated columns
- *    that read no column, as are any others here that would close one.
+ *    skipped.
  *
  * Ordering edges change no SQL text, but a wrong edge can make the plan fail to
  * apply, so every edge here must be one Postgres can honor.
@@ -124,6 +125,13 @@ function chainColumnCreatesByPosition(
     successorsOf.set(before, list);
   };
   for (const [before, after] of edges) addSuccessor(before, after);
+  // The chain edges a generated column that reads no column would start (see
+  // the doc comment), kept out of `edges`.
+  const released = new Map<number, number[]>();
+  const next = (index: number): number[] => [
+    ...(successorsOf.get(index) ?? []),
+    ...(released.get(index) ?? []),
+  ];
   // Walks forwards from `from` over its dependents. Columns are chained in
   // position order, so `from` has no outgoing chain edge yet and the walk
   // covers only its real downstream closure (constraints, indexes, views),
@@ -132,7 +140,7 @@ function chainColumnCreatesByPosition(
     const seen = new Set<number>([from]);
     const stack = [from];
     while (stack.length > 0) {
-      for (const s of successorsOf.get(stack.pop() as number) ?? []) {
+      for (const s of next(stack.pop() as number)) {
         if (s === target) return true;
         if (seen.has(s)) continue;
         seen.add(s);
@@ -152,49 +160,52 @@ function chainColumnCreatesByPosition(
     const tableProducer = producerOf.get(encodeId(fact.parent));
     return (
       tableProducer !== undefined &&
-      (actions[tableProducer] as Action).verb === "create" &&
-      readsOwnTableColumn(desired, id)
+      (actions[tableProducer] as Action).verb === "create"
     );
   };
-
-  // A generated column on a table this plan creates that cannot lead: it
-  // reads no column of its table (see the doc comment).
+  // A generated column that leads but reads no column of its own table.
   const trails = (index: number): boolean =>
-    !canLead(index) &&
-    (actions[index] as Action).produces.some((id) => {
-      const fact = desired.get(id);
-      if (fact?.payload["generatedExpr"] == null || fact.parent === undefined) {
-        return false;
-      }
-      const tableProducer = producerOf.get(encodeId(fact.parent));
-      return (
-        tableProducer !== undefined &&
-        (actions[tableProducer] as Action).verb === "create"
-      );
-    });
+    evaluatorActions.has(index) &&
+    canLead(index) &&
+    !readsOwnTableColumn(
+      desired,
+      (actions[index] as Action).produces[0] as StableId,
+    );
 
   for (const columns of columnsByTable.values()) {
     columns.sort((a, b) => a.position - b.position);
     let before: number | undefined;
-    const trailing: number[] = [];
+    // Where each trailing column's own chain edge came from, if it has one.
+    const chainedFrom = new Map<number, number | undefined>();
     for (const { index: after } of columns) {
       // `before → after` closes a cycle iff `after` already precedes `before`.
-      const chained = before === undefined || !reaches(after, before);
-      if (before !== undefined && chained) {
-        edges.push([before, after]);
-        addSuccessor(before, after);
+      let from =
+        before !== undefined && !reaches(after, before) ? before : undefined;
+      if (from !== undefined && trails(from)) {
+        released.set(from, [...(released.get(from) ?? []), after]);
+        from = chainedFrom.get(from);
       }
-      if (chained && evaluatorActions.has(after)) {
-        // `after` runs a user function, which may read these columns.
-        // `last → after` closes a cycle iff `after` already precedes `last`.
-        for (const last of trailing) {
-          if (reaches(after, last)) continue;
-          edges.push([last, after]);
-          addSuccessor(last, after);
-        }
+      if (from !== undefined) {
+        edges.push([from, after]);
+        addSuccessor(from, after);
       }
+      if (trails(after)) chainedFrom.set(after, from);
       if (canLead(after)) before = after;
-      else if (trails(after)) trailing.push(after);
+    }
+  }
+  // Keep each trailing column ahead of the actions that run a user function
+  // downstream of the columns it released.
+  for (const [from, targets] of released) {
+    const seen = new Set<number>(targets);
+    const stack = [...targets];
+    while (stack.length > 0) {
+      const index = stack.pop() as number;
+      if (evaluatorActions.has(index)) edges.push([from, index]);
+      for (const s of next(index)) {
+        if (seen.has(s)) continue;
+        seen.add(s);
+        stack.push(s);
+      }
     }
   }
 }
