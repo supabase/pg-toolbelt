@@ -651,17 +651,26 @@ export function actionTieKey(
 
 /**
  * The object a statement is placed with, in the plan's tie-break and in the
- * export's in-file order: its subject, except that a default-privilege cleanup
- * goes with the object it cleans. It then lands straight after that object's
- * create — before the object's GRANTs, which would otherwise be split by it
- * and stop merging, and before any OWNER TO, after which an applier that is
- * not a member of the new owner can no longer revoke.
+ * export's in-file order: its subject, except that
+ *  - a default-privilege cleanup goes with the object it cleans. It then lands
+ *    straight after that object's create — before the object's GRANTs, which
+ *    would otherwise be split by it and stop merging, and before any OWNER TO,
+ *    after which an applier that is not a member of the new owner can no
+ *    longer revoke;
+ *  - an identity add goes with the sequence it creates, which sorts before
+ *    the table: past the table's OWNER TO, an applier that can SET ROLE to
+ *    the new owner without inheriting it no longer owns the table.
  */
 export function placementOf(action: Action): StableId {
-  const { subject } = action;
-  return action.change?.kind === "defaultPrivileges" && isAclId(subject)
-    ? subject.target
-    : subject;
+  const { subject, change } = action;
+  if (change?.kind === "defaultPrivileges" && isAclId(subject))
+    return subject.target;
+  // an identity alter produces nothing but its backing sequence
+  if (change?.kind === "attribute" && change.name === "identity") {
+    const [sequence] = action.produces;
+    if (sequence !== undefined) return sequence;
+  }
+  return subject;
 }
 
 /**
