@@ -45,6 +45,19 @@ function columnCreateSlot(
   return { tableKey: `${id.schema}\x00${id.table}`, position };
 }
 
+/** Whether a generated column has a pg_depend edge to a column of its own
+ *  table. An inherited column is recorded as an edge to the table itself. */
+function readsOwnTableColumn(desired: FactBase, id: StableId): boolean {
+  const table = desired.get(id)?.parent;
+  if (table === undefined) return false;
+  const tableKey = encodeId(table);
+  return desired.outgoingEdges(id).some((edge) => {
+    if (encodeId(edge.to) === tableKey) return true;
+    const parent = desired.get(edge.to)?.parent;
+    return parent !== undefined && encodeId(parent) === tableKey;
+  });
+}
+
 /**
  * `ADD COLUMN` always appends, so a table's new columns must be added in
  * declared order (`_position`, pg_attribute.attnum). The tie-break in
@@ -54,8 +67,8 @@ function columnCreateSlot(
  * go first (#518). Chain each table's column creates by position so each one
  * waits for the one before it.
  *
- * Two kinds of column keep only the tie-break order, so they can land after
- * the columns declared behind them:
+ * Two kinds of column are exceptions, so they can land after the columns
+ * declared behind them:
  *  - an evaluator column (`evaluatorActions`): its DEFAULT calls a user
  *    function, which Postgres runs at ADD COLUMN time even on an empty table.
  *    The function may read a later column with no pg_depend edge to it (a
@@ -63,7 +76,23 @@ function columnCreateSlot(
  *    column after it. No chain edge starts from such a column; the next column
  *    chains from the last one before it instead. A generated column on a table
  *    this plan creates is exempt: Postgres computes it per row, and the new
- *    table has none.
+ *    table has none. Except when it reads no column of its own table: Postgres
+ *    can then constant-fold it and run its function at ADD COLUMN time, or at
+ *    CREATE TABLE time after every column in the statement exists, and that
+ *    function may read a later column (#554). Such a column starts no chain
+ *    edge: the columns it would lead chain from wherever its own chain edge
+ *    came from, if it has one, but it still precedes every action that runs a
+ *    user function downstream of them, as the chain edges kept it. A later
+ *    evaluator column downstream of them starts no chain edge either. Known
+ *    limits, all as before:
+ *     - Postgres also folds an IMMUTABLE call with only constant arguments
+ *       inside an expression that reads a column; such a column still leads
+ *       unless it runs after one that reads none.
+ *     - Its function can still run before a later evaluator column it reads
+ *       exists, or fold into CREATE TABLE ahead of a later column that stays
+ *       an ADD COLUMN.
+ *     - Once a cycle cuts its chain edge, a later evaluator column that reads
+ *       it can still run first.
  *  - a column whose chain edge would close a cycle with a real dependency (a
  *    generated column reading a column declared after it). That edge is
  *    skipped.
@@ -100,15 +129,22 @@ function chainColumnCreatesByPosition(
     successorsOf.set(before, list);
   };
   for (const [before, after] of edges) addSuccessor(before, after);
-  // Walks forwards from `from` over its dependents. Columns are chained in
-  // position order, so `from` has no outgoing chain edge yet and the walk
+  // Chain edges kept out of `edges`, keyed by the column that starts none
+  // (see the doc comment).
+  const released = new Map<number, number[]>();
+  const next = (index: number): number[] => [
+    ...(successorsOf.get(index) ?? []),
+    ...(released.get(index) ?? []),
+  ];
+  // Walks forwards from `from` over its dependents and released chain edges.
+  // In the cycle check `from` has no outgoing chain edge yet, so the walk
   // covers only its real downstream closure (constraints, indexes, views),
   // not the earlier columns of the chain.
   const reaches = (from: number, target: number): boolean => {
     const seen = new Set<number>([from]);
     const stack = [from];
     while (stack.length > 0) {
-      for (const s of successorsOf.get(stack.pop() as number) ?? []) {
+      for (const s of next(stack.pop() as number)) {
         if (s === target) return true;
         if (seen.has(s)) continue;
         seen.add(s);
@@ -131,17 +167,61 @@ function chainColumnCreatesByPosition(
       (actions[tableProducer] as Action).verb === "create"
     );
   };
+  // A generated column that leads but reads no column of its own table.
+  const trails = (index: number): boolean =>
+    evaluatorActions.has(index) &&
+    canLead(index) &&
+    !readsOwnTableColumn(
+      desired,
+      (actions[index] as Action).produces[0] as StableId,
+    );
 
   for (const columns of columnsByTable.values()) {
     columns.sort((a, b) => a.position - b.position);
     let before: number | undefined;
+    // Each column whose chain edges are released, mapped to where its own
+    // chain edge starts, if it has one.
+    const chainedFrom = new Map<number, number | undefined>();
+    // The columns of this table released so far.
+    const freed: number[] = [];
     for (const { index: after } of columns) {
       // `before → after` closes a cycle iff `after` already precedes `before`.
-      if (before !== undefined && !reaches(after, before)) {
-        edges.push([before, after]);
-        addSuccessor(before, after);
+      let from =
+        before !== undefined && !reaches(after, before) ? before : undefined;
+      if (from !== undefined && chainedFrom.has(from)) {
+        released.set(from, [...(released.get(from) ?? []), after]);
+        freed.push(after);
+        from = chainedFrom.get(from);
+      }
+      if (from !== undefined) {
+        edges.push([from, after]);
+        addSuccessor(from, after);
+      }
+      // An evaluator column downstream of a released one runs after the column
+      // that released it (see below), so it starts no chain edge either.
+      if (
+        trails(after) ||
+        (evaluatorActions.has(after) &&
+          freed.some((index) => index === after || reaches(index, after)))
+      ) {
+        chainedFrom.set(after, from);
       }
       if (canLead(after)) before = after;
+    }
+  }
+  // Keep each column ahead of the actions that run a user function downstream
+  // of the columns it released.
+  for (const [from, targets] of released) {
+    const seen = new Set<number>(targets);
+    const stack = [...targets];
+    while (stack.length > 0) {
+      const index = stack.pop() as number;
+      if (evaluatorActions.has(index)) edges.push([from, index]);
+      for (const s of next(index)) {
+        if (seen.has(s)) continue;
+        seen.add(s);
+        stack.push(s);
+      }
     }
   }
 }
@@ -235,8 +315,9 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   // ── graph edges + deterministic order ─────────────────────────────────
   // Actions that RUN a user expression at apply time (a DEFAULT / generated
   // column backfill, a validated CHECK scan, an expression-index build).
-  // Classified during the edge walk and fed to the tie-break ONLY — never as an
-  // edge — so they sink below every simultaneously ready DEFINITION action
+  // Classified during the edge walk and fed to the tie-break, never as an edge
+  // of its own (the column chain below only orders columns within main's
+  // chain), so they sink below every simultaneously ready DEFINITION action
   // without making legitimate routine<->relation cycles unplannable.
   const evaluatorActions = new Set<number>();
   const overlayWipeActions = new Set<number>();
