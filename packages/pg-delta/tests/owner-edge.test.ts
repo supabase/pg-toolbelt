@@ -696,12 +696,12 @@ describe("owner edge: owner moves back to the default owner", () => {
 
     await srcDb.pool.query(`
         CREATE SCHEMA s;
-        CREATE TABLE s.t (id int);
+        CREATE TABLE s.t (id serial);
         ALTER TABLE s.t OWNER TO ownedge_dflt_r;
       `);
     await dstDb.pool.query(`
         CREATE SCHEMA s;
-        CREATE TABLE s.t (id int);
+        CREATE TABLE s.t (id serial);
       `);
 
     const [srcState, dstState] = await Promise.all([
@@ -716,6 +716,8 @@ describe("owner edge: owner moves back to the default owner", () => {
 
     const opts = { defaultOwner, scope: "database" } as const;
     const thePlan = plan(srcState.factBase, dstState.factBase, opts);
+    // the serial column's sequence moves with its table: Postgres refuses an
+    // owner change on a linked sequence
     expect(
       thePlan.actions
         .filter((a) => a.sql.includes("OWNER TO"))
