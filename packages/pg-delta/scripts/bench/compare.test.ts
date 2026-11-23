@@ -65,7 +65,14 @@ describe("benchmark gate", () => {
       [100, 90],
       [100, 95],
     ]);
-    for (const r of [outlier, tiny, mixed]) {
+    // 4 rounds need all 4 slower: one fast round passes a +20% head.
+    const fourRounds = results([
+      [100, 120],
+      [100, 120],
+      [100, 120],
+      [100, 99],
+    ]);
+    for (const r of [outlier, tiny, mixed, fourRounds]) {
       expect(verdicts(r)["time"]).toBe("unchanged");
       expect(failures(compare(r))).toBe(0);
     }
