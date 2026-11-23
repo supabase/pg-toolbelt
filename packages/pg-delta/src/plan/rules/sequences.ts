@@ -58,16 +58,28 @@ export const sequenceRules: Record<string, KindRules> = {
       const id = fact.id as { schema: string; name: string };
       return `ALTER SEQUENCE ${rel(id.schema, id.name)}`;
     },
-    ownerCarrier: (desired, source) => {
+    ownerCarrier: (desired, source, view) => {
       type Link = { schema: string; table: string } | null | undefined;
       const to = desired.payload["ownedBy"] as Link;
       const from = source?.payload["ownedBy"] as Link;
-      return to != null &&
-        from != null &&
-        to.schema === from.schema &&
-        to.table === from.table
-        ? { kind: "table", schema: to.schema, name: to.table }
-        : undefined;
+      if (
+        to == null ||
+        from == null ||
+        to.schema !== from.schema ||
+        to.table !== from.table
+      )
+        return undefined;
+      // OWNED BY also accepts a column of a view or of a foreign table
+      const relation = (kind: "table" | "view" | "foreignTable"): StableId => ({
+        kind,
+        schema: to.schema,
+        name: to.table,
+      });
+      return (
+        [relation("view"), relation("foreignTable")].find(
+          (id) => view.get(id) !== undefined,
+        ) ?? relation("table")
+      );
     },
     attributes: {
       // Every value option routes through the SAME combined-alter helper, which

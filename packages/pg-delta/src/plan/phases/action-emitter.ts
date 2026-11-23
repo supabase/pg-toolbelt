@@ -824,6 +824,13 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         renamedOwnerId.set(encodeId(dstId), ownerEdge.to);
       }
     }
+    // the owner each kept owner link sets, by object: a linked object's
+    // owner may only be left to its carrier when the carrier's change is here
+    const ownerLinked = new Map<string, string>();
+    for (const delta of deltas) {
+      if (delta.verb === "link" && delta.edge.kind === "owner")
+        ownerLinked.set(encodeId(delta.edge.from), encodeId(delta.edge.to));
+    }
     // objKeys whose owner a link delta already (re-)established below, so the
     // replaced-fact pass does not emit a second ALTER … OWNER TO for them.
     const ownerEmitted = new Set<string>();
@@ -842,12 +849,25 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       const ownerAlterPrefix = ruleFlag(fact.id.kind, "ownerAlterPrefix");
       if (!ownerAlterPrefix) continue;
       // its owner follows another object's owner change in this plan
-      if (
-        !replaceIds.has(objKey) &&
-        ruleFlag(fact.id.kind, "ownerCarrier")?.(fact, source.get(objId)) !==
-          undefined
-      )
-        continue;
+      const carrier = replaceIds.has(objKey)
+        ? undefined
+        : ruleFlag(fact.id.kind, "ownerCarrier")?.(
+            fact,
+            source.get(objId),
+            desired,
+          );
+      if (carrier !== undefined) {
+        if (ownerLinked.get(encodeId(carrier)) === encodeId(delta.edge.to))
+          continue;
+        // the carrier's change was filtered out (or sets another owner):
+        // nothing in this plan can move this object's owner, and dropping the
+        // statement would leave its ACL rewritten for an owner it never gets
+        throw new Error(
+          `cannot change the owner of ${objKey}: it is linked to ${encodeId(carrier)} and only changes owner with it, ` +
+            `but that relation's owner change is not part of this plan. ` +
+            `Include ${encodeId(carrier)} in the plan, or exclude ${objKey} as well`,
+        );
+      }
       const prefix = ownerAlterPrefix(fact);
       const newRoleId = delta.edge.to;
       if (newRoleId.kind !== "role") continue;
