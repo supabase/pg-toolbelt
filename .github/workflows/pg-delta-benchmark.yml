@@ -75,9 +75,13 @@ jobs:
         working-directory: packages/pg-delta
         env:
           PGDELTA_TEST_IMAGE: postgres:17-alpine
-        # 6 rounds (~15 s each) keep the verdict stable; --budget is the hard cap
-        # if a slow head stretches the rounds.
-        run: bun scripts/bench/run.ts --base ../../.bench-base --rounds 6 --budget 150 --out "$RUNNER_TEMP/bench-results.json"
+        # Two worker pairs of 2 rounds each (~25 s per round, and as much per
+        # pair to set up): a second pair steadies the verdict more than extra
+        # rounds from the first. --budget is the hard cap if a slow head
+        # stretches the rounds. With 4 rounds the 80% consistency rule needs
+        # the head slower in every round (3/3 if the budget trims one): no
+        # fast-outlier tolerance, by choice, so one biased pair cannot fail it.
+        run: bun scripts/bench/run.ts --base ../../.bench-base --rounds 4 --restart-every 2 --budget 150 --out "$RUNNER_TEMP/bench-results.json"
       - name: Upload results
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
