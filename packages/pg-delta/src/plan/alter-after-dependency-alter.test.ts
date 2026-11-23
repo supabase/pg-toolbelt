@@ -12,7 +12,7 @@
  * the weight tie-break (default 6 < type 7). No Docker — synthetic fact bases.
  */
 import { describe, expect, test } from "bun:test";
-import { buildFactBase, type Fact } from "../core/fact.ts";
+import { buildFactBase, type DependencyEdge, type Fact } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
 import { plan } from "./plan.ts";
 
@@ -290,5 +290,183 @@ describe("plan() — in-place alter of a dependent follows its dependency's alte
       `ALTER TABLE "public"."t" ADD COLUMN "c" public.d`,
       `ALTER SEQUENCE "public"."q" OWNED BY "public"."t"."c"`,
     ]);
+  });
+});
+
+describe("plan() — SET NOT NULL follows the column's new default", () => {
+  // The real `default -> column` edge is kept, so default-first has to lift
+  // the alter-before-dependent edge it implies.
+  const state = (
+    notNull: boolean,
+    expr: string | null,
+    extra: { facts?: Fact[]; edges?: DependencyEdge[] } = {},
+  ) => {
+    const facts: Fact[] = [
+      { id: schemaId, payload: {} },
+      { id: tableId, parent: schemaId, payload: { persistence: "p" } },
+      {
+        id: columnId,
+        parent: tableId,
+        payload: { type: "text", notNull, _position: 2 },
+      },
+      ...(extra.facts ?? []),
+    ];
+    const edges = [...(extra.edges ?? [])];
+    if (expr !== null) {
+      facts.push({ id: defaultId, parent: columnId, payload: { expr } });
+      edges.push({ from: defaultId, to: columnId, kind: "depends" });
+    }
+    return buildFactBase(facts, edges);
+  };
+  const sqlOf = (source: ReturnType<typeof state>, desired: typeof source) =>
+    plan(source, desired).actions.map((a) => a.sql);
+  const fnId: StableId = {
+    kind: "function",
+    schema: "public",
+    name: "f",
+    args: [],
+  };
+  // a BEGIN ATOMIC body records pg_depend edges to what it reads
+  const fn = (reads: string): Fact => ({
+    id: fnId,
+    parent: schemaId,
+    payload: {
+      def: `CREATE FUNCTION public.f() RETURNS text LANGUAGE sql BEGIN ATOMIC SELECT max(${reads}) FROM public.t; END`,
+    },
+  });
+
+  test("a new default runs before SET NOT NULL", () => {
+    expect(sqlOf(state(false, null), state(true, "'new'::text")))
+      .toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET DEFAULT 'new'::text",
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET NOT NULL",
+      ]
+    `);
+  });
+
+  test("a changed default runs before SET NOT NULL", () => {
+    expect(sqlOf(state(false, "'old'::text"), state(true, "'new'::text")))
+      .toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET DEFAULT 'new'::text",
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET NOT NULL",
+      ]
+    `);
+  });
+
+  test("default-first gives way to a function that reads the column", () => {
+    // f reads s, so SET NOT NULL must precede CREATE FUNCTION and SET DEFAULT
+    // must follow it.
+    expect(
+      sqlOf(
+        state(false, "'old'::text"),
+        state(true, "public.f()", {
+          facts: [fn("s")],
+          edges: [
+            { from: defaultId, to: fnId, kind: "depends" },
+            { from: fnId, to: columnId, kind: "depends" },
+          ],
+        }),
+      ),
+    ).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET NOT NULL",
+        "CREATE FUNCTION public.f() RETURNS text LANGUAGE sql BEGIN ATOMIC SELECT max(s) FROM public.t; END",
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET DEFAULT public.f()",
+      ]
+    `);
+  });
+
+  test("default-first keeps new columns in declared order", () => {
+    // g reads s through an existing function, so it waits for SET NOT NULL;
+    // h does not. Default-first would delay g behind SET DEFAULT and let h
+    // be added first.
+    const f1: StableId = { ...fnId, args: ["text"] };
+    const column = (name: string, position: number, reads?: string): Fact => ({
+      id: { ...columnId, name },
+      parent: tableId,
+      payload: {
+        type: "text",
+        notNull: false,
+        _position: position,
+        generatedExpr: reads === undefined ? null : `public.f(${reads})`,
+      },
+    });
+    const x = column("x", 3);
+    const g = column("g", 4, "s");
+    const h = column("h", 5, "x");
+    const f: Fact = {
+      id: f1,
+      parent: schemaId,
+      payload: {
+        def: "CREATE FUNCTION public.f(text) RETURNS text IMMUTABLE LANGUAGE sql AS 'SELECT $1'",
+      },
+    };
+    expect(
+      sqlOf(
+        state(false, null, { facts: [x, f] }),
+        state(true, "public.f('new'::text)", {
+          facts: [x, f, g, h],
+          edges: [
+            { from: defaultId, to: f1, kind: "depends" },
+            { from: g.id, to: columnId, kind: "depends" },
+            { from: g.id, to: f1, kind: "depends" },
+            { from: h.id, to: x.id, kind: "depends" },
+            { from: h.id, to: f1, kind: "depends" },
+          ],
+        }),
+      ),
+    ).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET NOT NULL",
+        "ALTER TABLE "public"."t" ADD COLUMN "g" text GENERATED ALWAYS AS (public.f(s)) STORED",
+        "ALTER TABLE "public"."t" ADD COLUMN "h" text GENERATED ALWAYS AS (public.f(x)) STORED",
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET DEFAULT public.f('new'::text)",
+      ]
+    `);
+  });
+
+  test("default-first gives way to declared column order", () => {
+    // g (position 3) reads s; f reads h (position 4). Default-first would
+    // close the cycle h -> f -> SET DEFAULT -> SET NOT NULL -> g -> h, so it
+    // gives way to the column-order chain.
+    const column = (
+      name: string,
+      position: number,
+      generatedExpr: string | null = null,
+    ): Fact => ({
+      id: { ...columnId, name },
+      parent: tableId,
+      payload: {
+        type: "text",
+        notNull: false,
+        _position: position,
+        generatedExpr,
+      },
+    });
+    const g = column("g", 3, "(s || 'x'::text)");
+    const h = column("h", 4);
+    expect(
+      sqlOf(
+        state(false, null),
+        state(true, "public.f()", {
+          facts: [g, h, fn("h")],
+          edges: [
+            { from: g.id, to: columnId, kind: "depends" },
+            { from: defaultId, to: fnId, kind: "depends" },
+            { from: fnId, to: h.id, kind: "depends" },
+          ],
+        }),
+      ),
+    ).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET NOT NULL",
+        "ALTER TABLE "public"."t" ADD COLUMN "g" text GENERATED ALWAYS AS ((s || 'x'::text)) STORED",
+        "ALTER TABLE "public"."t" ADD COLUMN "h" text",
+        "CREATE FUNCTION public.f() RETURNS text LANGUAGE sql BEGIN ATOMIC SELECT max(h) FROM public.t; END",
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET DEFAULT public.f()",
+      ]
+    `);
   });
 });

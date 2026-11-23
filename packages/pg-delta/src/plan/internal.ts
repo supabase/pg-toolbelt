@@ -126,6 +126,14 @@ export function buildActionGraph(
   // the relation being rebuilt must not be pinned before that relation's DROP
   // (it consumes the re-CREATE, so DROP → CREATE → leader → DROP would cycle).
   implicitDestroys: ReadonlyMap<number, ReadonlySet<string>> = new Map(),
+  // action index → encoded ids it should follow (`ActionSpec.after`). Lifts
+  // this alterer's "alter before dependent create" and alter-after-dependency
+  // edges for those ids; the reverse soft edges go to `softEdges` and the
+  // lifted ones to `liftedEdges`, for the caller to add last with
+  // `addSoftEdges`.
+  softAfter: ReadonlyMap<number, ReadonlySet<string>> = new Map(),
+  softEdges: Array<[before: number, after: number]> = [],
+  liftedEdges: Array<[before: number, after: number]> = [],
 ): Array<[number, number]> {
   const edges: Array<[number, number]> = [];
 
@@ -411,9 +419,11 @@ export function buildActionGraph(
                 const altererConsumesSubject = (
                   actions[alterer] as Action
                 ).consumes.some((c) => encodeId(c) === subjectKey);
-                if (!altererConsumesSubject) {
-                  alterAfterDep.push([alterer, index]);
-                }
+                const altererFollowsSubject =
+                  softAfter.get(alterer)?.has(subjectKey) === true;
+                if (altererConsumesSubject) continue;
+                if (altererFollowsSubject) liftedEdges.push([alterer, index]);
+                else alterAfterDep.push([alterer, index]);
               }
               continue;
             }
@@ -473,7 +483,13 @@ export function buildActionGraph(
             const altererConsumesProduct = (
               actions[alterer] as Action
             ).consumes.some((c) => producesKeys.has(encodeId(c)));
-            if (!altererConsumesProduct) edges.push([alterer, index]);
+            const follows = softAfter.get(alterer);
+            const altererFollowsProduct =
+              follows !== undefined &&
+              [...producesKeys].some((k) => follows.has(k));
+            if (altererConsumesProduct) continue;
+            if (altererFollowsProduct) liftedEdges.push([alterer, index]);
+            else edges.push([alterer, index]);
           }
           // A produced fact's DEPENDS edge must resolve to something this plan
           // produces or the target already has — "it's in the desired view" is
@@ -581,6 +597,15 @@ export function buildActionGraph(
     }
   });
 
+  for (const [index, keys] of softAfter) {
+    for (const key of keys) {
+      const producer = producerOf.get(key);
+      if (producer !== undefined) softEdges.push([producer, index]);
+      for (const alterer of alterersOf.get(key) ?? []) {
+        if (alterer !== index) softEdges.push([alterer, index]);
+      }
+    }
+  }
   for (const [before, after] of alterAfterDep) {
     if (!actionReaches(edges, after, before)) edges.push([before, after]);
   }
@@ -593,13 +618,72 @@ function actionReaches(
   from: number,
   to: number,
 ): boolean {
-  if (from === to) return true;
   const adj = new Map<number, number[]>();
   for (const [u, v] of edges) {
     const list = adj.get(u) ?? [];
     list.push(v);
     adj.set(u, list);
   }
+  return reachesIn(adj, from, to);
+}
+
+/** Push each candidate `[before, after]`, in order, unless it could change
+ *  what the plan does; a skipped candidate gets back the edges its
+ *  `ActionSpec.after` lifted (`lifted`), so the plan keeps its previous order.
+ *  The edge delays `after` and everything it reaches, so a candidate is
+ *  skipped when:
+ *  - the plan commits more than once (`singleTransaction`), since a reorder
+ *    changes what is committed before a failure;
+ *  - it closes a cycle;
+ *  - `before` is an evaluator (`evaluatorActions`), which would sink `after`
+ *    and its dependents below definitions another evaluator may read;
+ *  - `after` reaches a new column of a table gaining several
+ *    (`columnsByTable`), which could then be added after one declared behind
+ *    it. */
+export function addSoftEdges(
+  edges: Array<[before: number, after: number]>,
+  candidates: readonly [before: number, after: number][],
+  lifted: readonly [before: number, after: number][],
+  singleTransaction: boolean,
+  evaluatorActions: ReadonlySet<number>,
+  columnsByTable: readonly (readonly number[])[],
+): void {
+  if (candidates.length === 0) return;
+  const adj = new Map<number, number[]>();
+  const link = (u: number, v: number): void => {
+    const list = adj.get(u) ?? [];
+    list.push(v);
+    adj.set(u, list);
+  };
+  for (const [u, v] of edges) link(u, v);
+  const push = (u: number, v: number): void => {
+    edges.push([u, v]);
+    link(u, v);
+  };
+  for (const [before, after] of candidates) {
+    const skip =
+      !singleTransaction ||
+      reachesIn(adj, after, before) ||
+      evaluatorActions.has(before) ||
+      columnsByTable.some((columns) =>
+        columns.some((c) => reachesIn(adj, after, c)),
+      );
+    if (!skip) {
+      push(before, after);
+      continue;
+    }
+    for (const [u, v] of lifted) {
+      if (u === after && v === before && !reachesIn(adj, v, u)) push(u, v);
+    }
+  }
+}
+
+function reachesIn(
+  adj: ReadonlyMap<number, readonly number[]>,
+  from: number,
+  to: number,
+): boolean {
+  if (from === to) return true;
   const seen = new Set<number>([from]);
   const queue = [from];
   while (queue.length > 0) {

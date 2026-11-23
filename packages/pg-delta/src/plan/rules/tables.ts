@@ -446,10 +446,16 @@ export const tableRules: Record<string, KindRules> = {
         ],
       },
       notNull: {
-        alter: (fact, _from, to) => {
+        alter: (fact, _from, to, view) => {
           const { schema, table, column } = columnRef(fact);
+          // SET NOT NULL after the column's new default, so a backfill can
+          // go between them
+          const def = to
+            ? view.childrenOf(fact.id).find((c) => c.id.kind === "default")
+            : undefined;
           return {
             sql: `ALTER TABLE ${rel(schema, table)} ALTER COLUMN ${qid(column)} ${to ? "SET" : "DROP"} NOT NULL`,
+            ...(def ? { after: [def.id] } : {}),
           };
         },
       },
@@ -544,10 +550,12 @@ export const tableRules: Record<string, KindRules> = {
     },
     attributes: {
       expr: {
-        alter: (fact, _from, to) => {
+        alter: (fact, _from, to, view) => {
           const { schema, table, column } = columnRef(fact);
           return {
             sql: `ALTER TABLE ${rel(schema, table)} ALTER COLUMN ${qid(column)} SET DEFAULT ${str(to)}`,
+            // after a same-plan create of what the new expression references
+            consumes: dependencyConsumes(view, fact.id),
           };
         },
       },
