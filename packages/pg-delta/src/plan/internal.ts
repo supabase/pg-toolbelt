@@ -665,9 +665,9 @@ export function placementOf(action: Action): StableId {
   const { subject, change } = action;
   if (change?.kind === "defaultPrivileges" && isAclId(subject))
     return subject.target;
-  // an identity alter produces nothing but its backing sequence
+  // an identity add produces, and a drop destroys, only its backing sequence
   if (change?.kind === "attribute" && change.name === "identity") {
-    const [sequence] = action.produces;
+    const [sequence] = [...action.produces, ...action.destroys];
     if (sequence !== undefined) return sequence;
   }
   return subject;
