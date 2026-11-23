@@ -29,7 +29,7 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
    grant itself, is granted to it once (at the start, or right after the plan creates the
    role) and given back once at the end. "Needs": the owner of the object the statement
    is on; the owner of its schema, only to create or rename in it without CREATE
-   there, to lend (rule 2), or when nobody the statement runs through has USAGE on that
+   there, to drop an object whose own owner is out of reach, to lend (rule 2), or when nobody the statement runs through has USAGE on that
    schema (and then only if that owner can be borrowed); the owners of what the object references (a foreign key's
    table, a trigger's function) and of its inheritance children, only when the object
    itself is created or altered; the new owner of an owner change. If the applier had already granted itself that
