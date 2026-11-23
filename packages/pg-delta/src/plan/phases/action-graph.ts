@@ -247,9 +247,10 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   // ── graph edges + deterministic order ─────────────────────────────────
   // Actions that RUN a user expression at apply time (a DEFAULT / generated
   // column backfill, a validated CHECK scan, an expression-index build).
-  // Classified during the edge walk and fed to the tie-break ONLY — never as an
-  // edge — so they sink below every simultaneously ready DEFINITION action
-  // without making legitimate routine<->relation cycles unplannable.
+  // Classified during the edge walk and fed to the tie-break (and to the
+  // soft-edge veto in `addSoftEdges`), never as an edge, so they sink below
+  // every simultaneously ready DEFINITION action without making legitimate
+  // routine<->relation cycles unplannable.
   const evaluatorActions = new Set<number>();
   const overlayWipeActions = new Set<number>();
   if (overlayAdpWipes.length > 0) {
@@ -262,6 +263,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     });
   }
   const softEdges: Array<[number, number]> = [];
+  const liftedEdges: Array<[number, number]> = [];
   const edges = buildActionGraph(
     actions,
     producerOf,
@@ -276,6 +278,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     implicitDestroys,
     softAfter,
     softEdges,
+    liftedEdges,
   );
   const columnsByTable = columnCreatesByTable(actions, desired);
   chainColumnCreatesByPosition(
@@ -290,7 +293,9 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   addSoftEdges(
     edges,
     softEdges,
+    liftedEdges,
     actions.every((a) => a.transactionality === "transactional"),
+    evaluatorActions,
     columnsByTable,
   );
 

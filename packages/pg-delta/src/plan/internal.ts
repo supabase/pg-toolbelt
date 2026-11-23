@@ -128,10 +128,12 @@ export function buildActionGraph(
   implicitDestroys: ReadonlyMap<number, ReadonlySet<string>> = new Map(),
   // action index → encoded ids it should follow (`ActionSpec.after`). Lifts
   // this alterer's "alter before dependent create" and alter-after-dependency
-  // edges for those ids; the reverse soft edges go to `softEdges`, for the
-  // caller to add last with `addSoftEdges`.
+  // edges for those ids; the reverse soft edges go to `softEdges` and the
+  // lifted ones to `liftedEdges`, for the caller to add last with
+  // `addSoftEdges`.
   softAfter: ReadonlyMap<number, ReadonlySet<string>> = new Map(),
   softEdges: Array<[before: number, after: number]> = [],
+  liftedEdges: Array<[before: number, after: number]> = [],
 ): Array<[number, number]> {
   const edges: Array<[number, number]> = [];
 
@@ -419,9 +421,9 @@ export function buildActionGraph(
                 ).consumes.some((c) => encodeId(c) === subjectKey);
                 const altererFollowsSubject =
                   softAfter.get(alterer)?.has(subjectKey) === true;
-                if (!altererConsumesSubject && !altererFollowsSubject) {
-                  alterAfterDep.push([alterer, index]);
-                }
+                if (altererConsumesSubject) continue;
+                if (altererFollowsSubject) liftedEdges.push([alterer, index]);
+                else alterAfterDep.push([alterer, index]);
               }
               continue;
             }
@@ -485,8 +487,9 @@ export function buildActionGraph(
             const altererFollowsProduct =
               follows !== undefined &&
               [...producesKeys].some((k) => follows.has(k));
-            if (!altererConsumesProduct && !altererFollowsProduct)
-              edges.push([alterer, index]);
+            if (altererConsumesProduct) continue;
+            if (altererFollowsProduct) liftedEdges.push([alterer, index]);
+            else edges.push([alterer, index]);
           }
           // A produced fact's DEPENDS edge must resolve to something this plan
           // produces or the target already has — "it's in the desired view" is
@@ -624,20 +627,28 @@ function actionReaches(
   return reachesIn(adj, from, to);
 }
 
-/** Push each candidate `[before, after]`, in order, unless it closes a cycle
- *  or could undo an order the tie-break keeps. The edge delays `after` and
- *  everything it reaches, so nothing is pushed unless the plan runs in one
- *  transaction (`singleTransaction`): with a commit, a reorder changes what is
- *  committed before a failure. A candidate is also skipped when `after`
- *  reaches a new column (`columnsByTable`: column creates of tables gaining
- *  several), which could then be added after one declared behind it. */
+/** Push each candidate `[before, after]`, in order, unless it could change
+ *  what the plan does; a skipped candidate gets back the edges its
+ *  `ActionSpec.after` lifted (`lifted`), so the plan keeps its previous order.
+ *  The edge delays `after` and everything it reaches, so a candidate is
+ *  skipped when:
+ *  - the plan commits more than once (`singleTransaction`), since a reorder
+ *    changes what is committed before a failure;
+ *  - it closes a cycle;
+ *  - `before` is an evaluator (`evaluatorActions`), which would sink `after`
+ *    and its dependents below definitions another evaluator may read;
+ *  - `after` reaches a new column of a table gaining several
+ *    (`columnsByTable`), which could then be added after one declared behind
+ *    it. */
 export function addSoftEdges(
   edges: Array<[before: number, after: number]>,
   candidates: readonly [before: number, after: number][],
+  lifted: readonly [before: number, after: number][],
   singleTransaction: boolean,
+  evaluatorActions: ReadonlySet<number>,
   columnsByTable: readonly (readonly number[])[],
 ): void {
-  if (candidates.length === 0 || !singleTransaction) return;
+  if (candidates.length === 0) return;
   const adj = new Map<number, number[]>();
   const link = (u: number, v: number): void => {
     const list = adj.get(u) ?? [];
@@ -645,13 +656,25 @@ export function addSoftEdges(
     adj.set(u, list);
   };
   for (const [u, v] of edges) link(u, v);
+  const push = (u: number, v: number): void => {
+    edges.push([u, v]);
+    link(u, v);
+  };
   for (const [before, after] of candidates) {
-    if (reachesIn(adj, after, before)) continue;
-    const delaysColumn = (columns: readonly number[]): boolean =>
-      columns.some((c) => reachesIn(adj, after, c));
-    if (columnsByTable.some(delaysColumn)) continue;
-    edges.push([before, after]);
-    link(before, after);
+    const skip =
+      !singleTransaction ||
+      reachesIn(adj, after, before) ||
+      evaluatorActions.has(before) ||
+      columnsByTable.some((columns) =>
+        columns.some((c) => reachesIn(adj, after, c)),
+      );
+    if (!skip) {
+      push(before, after);
+      continue;
+    }
+    for (const [u, v] of lifted) {
+      if (u === after && v === before && !reachesIn(adj, v, u)) push(u, v);
+    }
   }
 }
 
