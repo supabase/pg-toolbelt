@@ -320,6 +320,60 @@ describe("applier authorization", () => {
     ]);
   });
 
+  test("a borrowed role that holds a grant option is not held while the grant runs", () => {
+    const other: StableId = { kind: "table", schema: "app", name: "u" };
+    const side = (rowSecurity: boolean, extra: Fact[]) =>
+      buildFactBase(
+        [
+          role("app"),
+          role("owner_a"),
+          role("owner_b"),
+          role("reader"),
+          { id: schema, payload: {} },
+          tableFact,
+          {
+            ...tableFact,
+            id: other,
+            payload: { ...tableFact.payload, rowSecurity },
+          },
+          // owner_b may grant SELECT on owner_a's table
+          {
+            id: { kind: "acl", target: table, grantee: "owner_b" },
+            parent: table,
+            payload: { privileges: ["SELECT"], grantable: ["SELECT"] },
+          },
+          ...extra,
+        ],
+        [owned(schema, "app"), owned(table, "owner_a"), owned(other, "owner_b")],
+      );
+    // one statement needs owner_b (its own table), another is a GRANT on a
+    // table where owner_b holds the grant option: borrowed for the first only
+    const p = plan(
+      side(false, []),
+      side(true, [
+        {
+          id: { kind: "acl", target: table, grantee: "reader" },
+          parent: table,
+          payload: { privileges: ["SELECT"], grantable: [] },
+        },
+      ]),
+      { capability: applier },
+    );
+    expect(p.blockers).toBeUndefined();
+    const sql = sqlOf(p);
+    const at = (needle: string) => sql.findIndex((x) => x.includes(needle));
+    const open = at('GRANT "owner_b" TO "app"');
+    const close = at('REVOKE "owner_b" FROM "app"');
+    const alter = at('ALTER TABLE "app"."u"');
+    const grant = at('ON TABLE "app"."t" TO "reader"');
+    expect(open).toBeGreaterThanOrEqual(0);
+    expect(open < alter && alter < close).toBe(true);
+    expect(grant < open || grant > close).toBe(true);
+    // the table's own owner is held for the whole plan, as before
+    expect(sql[0]).toBe('GRANT "owner_a" TO "app"');
+    expect(sql.at(-1)).toBe('REVOKE "owner_a" FROM "app"');
+  });
+
   test("a new owner the applier can neither set nor grant itself is a blocker", () => {
     const p = plan(state("owner_a"), state("owner_b"), {
       capability: { ...applier, adminOf: ["owner_a"] },
