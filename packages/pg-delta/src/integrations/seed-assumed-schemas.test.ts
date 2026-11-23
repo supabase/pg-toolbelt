@@ -911,8 +911,8 @@ describe("deriveAssumedSchemaSeed", () => {
   });
 
   test("a membership on a managedBy-pruned table still seeds its publication empty", () => {
-    // supabase_realtime publishing a pgmq queue: `q_jobs` is pruned
-    // (`managedBy`), so its membership is omitted, not the publication.
+    // `q_jobs` is pruned (`managedBy`) by an extension the profile does not
+    // assume, so its membership is omitted, not the publication.
     const pub: StableId = { kind: "publication", name: "platform_pub" };
     const qext: StableId = { kind: "extension", name: "qext" };
     const queue: StableId = {
