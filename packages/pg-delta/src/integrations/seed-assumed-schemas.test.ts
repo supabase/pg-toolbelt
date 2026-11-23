@@ -531,7 +531,11 @@ describe("deriveAssumedSchemaSeed", () => {
 
   // `public` and `xext` are hard-pruned, so the member table `public.xt` leaves
   // the view; whether `uses_x` replays depends on the seed creating `xext`.
-  const prunedMemberSeed = (assumedExtensions: string[]) => {
+  const prunedMemberSeed = (
+    assumedExtensions: string[],
+    installSchema = "public",
+    satellites: Fact[] = [],
+  ) => {
     const ext: StableId = { kind: "extension", name: "xext" };
     const memberTable: StableId = {
       kind: "table",
@@ -548,13 +552,15 @@ describe("deriveAssumedSchemaSeed", () => {
       [
         f(schemaPlatform),
         f(schemaPublic),
-        f(ext, extensionPayload("public", true)),
+        f(schemaApp),
+        f(ext, extensionPayload(installSchema, true)),
         {
           id: memberTable,
           parent: schemaPublic,
           payload: { persistence: "p" },
         },
         f(usesX, routinePayload("CREATE FUNCTION platform.uses_x()", [])),
+        ...satellites,
       ],
       [
         { from: memberTable, to: ext, kind: "memberOfExtension" },
@@ -593,6 +599,27 @@ describe("deriveAssumedSchemaSeed", () => {
     const seed = prunedMemberSeed([]);
     expect(seed.sql).not.toContain("platform.uses_x()");
     expect(seed.sql).toContain('CREATE SCHEMA "platform"');
+  });
+
+  test("a candidate depending on a member of an assumed extension the seed omits is omitted", () => {
+    // `xext` is installed in the MANAGED `app`, so the install-schema check
+    // omits it, and with it anything using its pruned member table, even one
+    // with a managed grant.
+    const usesX: StableId = {
+      kind: "function",
+      schema: "platform",
+      name: "uses_x",
+      args: [],
+    };
+    const seed = prunedMemberSeed(["xext"], "app", [
+      {
+        id: { kind: "acl", target: usesX, grantee: "app_user" },
+        parent: usesX,
+        payload: {},
+      },
+    ]);
+    expect(seed.sql).not.toContain("xext");
+    expect(seed.sql).not.toContain("platform.uses_x()");
   });
 
   test("without susetGucs: routine def retained verbatim (byte-identical), ADP still omitted", () => {
@@ -696,21 +723,24 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.sql).toBe("");
   });
 
-  test("an assumed extension depending on POLICY-PRUNED schemas is still seeded", () => {
+  test("an assumed extension depending on POLICY-PRUNED facts is still seeded", () => {
     // Extract folds member objects onto the extension, so it `depends` on its
-    // install schema `public` and on `private`, where `ALTER EXTENSION … ADD`
-    // put a member. `CREATE EXTENSION` needs neither.
+    // install schema `public`, and on `private` and `private.mood` through a
+    // member `ALTER EXTENSION … ADD` put there. `CREATE EXTENSION` needs none.
     const ext: StableId = { kind: "extension", name: "platform_ext" };
     const schemaPrivate: StableId = { kind: "schema", name: "private" };
+    const mood: StableId = { kind: "type", schema: "private", name: "mood" };
     const target = buildFactBase(
       [
         f(schemaPublic),
         f(schemaPrivate),
+        { id: mood, parent: schemaPrivate, payload: {} },
         f(ext, extensionPayload("public", true)),
       ],
       [
         { from: ext, to: schemaPublic, kind: "depends" },
         { from: ext, to: schemaPrivate, kind: "depends" },
+        { from: ext, to: mood, kind: "depends" },
       ],
     );
     const seed = deriveAssumedSchemaSeed(target, {
@@ -738,6 +768,74 @@ describe("deriveAssumedSchemaSeed", () => {
       assumedExtensions: ["platform_ext"],
     });
     expect(seed.sql).toContain('CREATE EXTENSION "platform_ext"');
+  });
+
+  test("an assumed extension using a member of an omitted extension is still seeded", () => {
+    // `base_ext` is omitted (managed install schema); `platform_ext`'s edge to
+    // its member table comes from an added member `CREATE EXTENSION` skips.
+    const baseExt: StableId = { kind: "extension", name: "base_ext" };
+    const ext: StableId = { kind: "extension", name: "platform_ext" };
+    const baseTable: StableId = { kind: "table", schema: "public", name: "bt" };
+    const seed = deriveAssumedSchemaSeed(
+      buildFactBase(
+        [
+          f(schemaApp),
+          f(schemaPublic),
+          f(baseExt, extensionPayload("app", true)),
+          f(ext, extensionPayload("pg_catalog", false)),
+          {
+            id: baseTable,
+            parent: schemaPublic,
+            payload: { persistence: "p" },
+          },
+        ],
+        [
+          { from: baseTable, to: baseExt, kind: "memberOfExtension" },
+          { from: ext, to: baseTable, kind: "depends" },
+        ],
+      ),
+      {
+        policy: {
+          id: "test-ext-uses-omitted-member",
+          filter: [
+            { match: { kind: "extension" }, action: "exclude" },
+            {
+              match: { any: [{ schema: "public" }, { name: "public" }] },
+              action: "exclude",
+            },
+          ],
+          assumedExtensions: ["base_ext", "platform_ext"],
+        },
+        assumedSchemas: [],
+        assumedRoles: [],
+        assumedExtensions: ["base_ext", "platform_ext"],
+      },
+    );
+    expect(seed.sql).toContain('CREATE EXTENSION "platform_ext"');
+    expect(seed.sql).not.toContain("base_ext");
+  });
+
+  test("an assumed extension requiring a POLICY-PRUNED extension is omitted", () => {
+    // `CREATE EXTENSION platform_ext` would fail without `base_ext`.
+    const ext: StableId = { kind: "extension", name: "platform_ext" };
+    const baseExt: StableId = { kind: "extension", name: "base_ext" };
+    const seed = deriveAssumedSchemaSeed(
+      buildFactBase(
+        [f(ext, extensionPayload("pg_catalog", false)), f(baseExt)],
+        [{ from: ext, to: baseExt, kind: "depends" }],
+      ),
+      {
+        policy: {
+          id: "test-ext-requires-pruned",
+          filter: [{ match: { kind: "extension" }, action: "exclude" }],
+          assumedExtensions: ["platform_ext"],
+        },
+        assumedSchemas: [],
+        assumedRoles: [],
+        assumedExtensions: ["platform_ext"],
+      },
+    );
+    expect(seed.sql).toBe("");
   });
 
   // An assumed publication with one membership on `public.t`; extract folds
@@ -801,15 +899,89 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.facts).toBe(1);
   });
 
-  test("an assumed publication whose memberships are all POLICY-PRUNED is still a shell", () => {
+  test("an assumed publication whose memberships are all POLICY-PRUNED is still seeded empty", () => {
     // `public` is hard-pruned, taking the member table AND its `publicationRel`
-    // out of the view; the publication still replays as an empty shell.
+    // out of the view; the publication still replays with no members.
     const seed = publicationShellSeed([
       { match: { schema: "public" }, action: "exclude" },
     ]);
     expect(seed.sql).toContain('CREATE PUBLICATION "platform_pub"');
     expect(seed.sql).not.toMatch(/ADD TABLE|FOR TABLE/i);
     expect(seed.facts).toBe(1);
+  });
+
+  test("a membership on a managedBy-pruned table still seeds its publication empty", () => {
+    // supabase_realtime publishing a pgmq queue: `q_jobs` is pruned
+    // (`managedBy`), so its membership is omitted, not the publication.
+    const pub: StableId = { kind: "publication", name: "platform_pub" };
+    const qext: StableId = { kind: "extension", name: "qext" };
+    const queue: StableId = {
+      kind: "table",
+      schema: "private",
+      name: "q_jobs",
+    };
+    const seed = deriveAssumedSchemaSeed(
+      buildFactBase(
+        [
+          f(schemaPlatform),
+          f({ kind: "schema", name: "private" }),
+          f(qext),
+          f(pub, { allTables: false, viaRoot: false, publish: ["insert"] }),
+          {
+            id: queue,
+            parent: { kind: "schema", name: "private" },
+            payload: { persistence: "p" },
+          },
+          {
+            id: {
+              kind: "publicationRel",
+              publication: "platform_pub",
+              schema: "private",
+              table: "q_jobs",
+            },
+            parent: pub,
+            payload: { columns: null, where: null },
+          },
+        ],
+        [
+          { from: queue, to: qext, kind: "managedBy" },
+          { from: pub, to: queue, kind: "depends" },
+          {
+            from: {
+              kind: "publicationRel",
+              publication: "platform_pub",
+              schema: "private",
+              table: "q_jobs",
+            },
+            to: queue,
+            kind: "depends",
+          },
+        ],
+      ),
+      {
+        policy: {
+          id: "test-pub-pruned-member",
+          filter: [
+            {
+              match: {
+                any: [
+                  { schema: "private" },
+                  { name: ["private", "platform_pub"] },
+                ],
+              },
+              action: "exclude",
+            },
+          ],
+          assumedSchemas: ["private"],
+          assumedPublications: ["platform_pub"],
+        },
+        assumedSchemas: ["private"],
+        assumedRoles: [],
+        assumedPublications: ["platform_pub"],
+      },
+    );
+    expect(seed.sql).toContain('CREATE PUBLICATION "platform_pub"');
+    expect(seed.sql).not.toContain("q_jobs");
   });
 
   test("a pruned SATELLITE does not make its candidate a shell", () => {
@@ -853,5 +1025,76 @@ describe("deriveAssumedSchemaSeed", () => {
     });
     expect(seed.sql).not.toContain("auth.f()");
     expect(seed.facts).toBe(1);
+  });
+
+  test("a POLICY-PRUNED membership does not hide a kept membership's managed dependency", () => {
+    // The kept `platform.t (later)` membership folds an edge to the MANAGED
+    // column `later` onto the publication; the pruned `private.t` membership
+    // must not let the seed list that column before the files create it.
+    const pub: StableId = { kind: "publication", name: "platform_pub" };
+    const schemaPrivate: StableId = { kind: "schema", name: "private" };
+    const kept: StableId = { kind: "table", schema: "platform", name: "t" };
+    const pruned: StableId = { kind: "table", schema: "private", name: "t" };
+    const later: StableId = {
+      kind: "column",
+      schema: "platform",
+      table: "t",
+      name: "later",
+    };
+    const rel = (schema: string, columns: string[] | null): Fact => ({
+      id: {
+        kind: "publicationRel",
+        publication: "platform_pub",
+        schema,
+        table: "t",
+      },
+      parent: pub,
+      payload: { columns, where: null },
+    });
+    const target = buildFactBase(
+      [
+        f(schemaPlatform),
+        f(schemaPrivate),
+        f(pub, { allTables: false, viaRoot: false, publish: ["insert"] }),
+        { id: kept, parent: schemaPlatform, payload: { persistence: "p" } },
+        {
+          id: later,
+          parent: kept,
+          payload: { type: "integer", notNull: false },
+        },
+        { id: pruned, parent: schemaPrivate, payload: { persistence: "p" } },
+        rel("platform", ["later"]),
+        rel("private", null),
+      ],
+      [
+        { from: pub, to: later, kind: "depends" },
+        { from: pub, to: pruned, kind: "depends" },
+      ],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: {
+        id: "test-pub-managed-column",
+        filter: [
+          {
+            match: {
+              any: [
+                { all: [{ kind: "table" }, { schema: "platform" }] },
+                { all: [{ kind: "publicationRel" }, { schema: "platform" }] },
+                { schema: "private" },
+                { name: ["platform", "private", "platform_pub"] },
+              ],
+            },
+            action: "exclude",
+          },
+        ],
+        assumedSchemas: ["platform"],
+        assumedPublications: ["platform_pub"],
+      },
+      assumedSchemas: ["platform"],
+      assumedRoles: [],
+      assumedPublications: ["platform_pub"],
+    });
+    expect(seed.sql).toContain('CREATE TABLE "platform"."t"');
+    expect(seed.sql).not.toContain("later");
   });
 });
