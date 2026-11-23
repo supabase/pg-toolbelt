@@ -228,8 +228,9 @@ export function deriveAssumedSchemaSeed(
   //     target edges, since the view drops every edge to a pruned fact. Allowed:
   //     reference-only non-candidates (extension member, ADP: the contract the
   //     plan's requirement guard exempts via `assumedSchemas`), a pruned
-  //     extension member whose extension the seed creates, and a SHELL's
-  //     inherited membership edges.
+  //     extension member whose extension the seed creates, an extension's edge
+  //     into a pruned schema (ambient, as in the install-schema check below),
+  //     and a SHELL's inherited membership edges.
   for (const e of targetFb.edges) {
     if (e.kind !== "depends") continue;
     const from = encodeId(e.from);
@@ -243,15 +244,15 @@ export function deriveAssumedSchemaSeed(
     if (
       e.from.kind === "extension" &&
       e.to.kind === "schema" &&
-      e.to.name === view.get(e.from)?.payload["schema"]
+      view.get(e.to) === undefined
     ) {
       continue;
     }
     excludedIds.add(from);
   }
-  //     An assumed extension's install schema is the same kind of dependency.
-  //     Its edge exists only when a member object folds onto the extension, so
-  //     the edge pass above skips it and this check decides from the payload.
+  //     An assumed extension's install schema is the same kind of dependency,
+  //     decided here from the payload: its edge exists only when a member
+  //     object folds onto the extension.
   for (const fct of candidateFacts) {
     if (fct.id.kind !== "extension") continue;
     const schema = fct.payload["schema"];

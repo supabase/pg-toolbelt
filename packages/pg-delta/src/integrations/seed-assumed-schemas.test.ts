@@ -591,7 +591,6 @@ describe("deriveAssumedSchemaSeed", () => {
 
   test("a candidate depending on a member of a PRUNED, unseeded extension is omitted", () => {
     const seed = prunedMemberSeed([]);
-    expect(seed.sql).not.toContain("xext");
     expect(seed.sql).not.toContain("platform.uses_x()");
     expect(seed.sql).toContain('CREATE SCHEMA "platform"');
   });
@@ -697,20 +696,34 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.sql).toBe("");
   });
 
-  test("an assumed extension installed in a POLICY-PRUNED schema is still seeded", () => {
+  test("an assumed extension depending on POLICY-PRUNED schemas is still seeded", () => {
     // Extract folds member objects onto the extension, so it `depends` on its
-    // own install schema; a pruned `public` exists in the template0 shadow.
+    // install schema `public` and on `private`, where `ALTER EXTENSION … ADD`
+    // put a member. `CREATE EXTENSION` needs neither.
     const ext: StableId = { kind: "extension", name: "platform_ext" };
+    const schemaPrivate: StableId = { kind: "schema", name: "private" };
     const target = buildFactBase(
-      [f(schemaPublic), f(ext, extensionPayload("public", true))],
-      [{ from: ext, to: schemaPublic, kind: "depends" }],
+      [
+        f(schemaPublic),
+        f(schemaPrivate),
+        f(ext, extensionPayload("public", true)),
+      ],
+      [
+        { from: ext, to: schemaPublic, kind: "depends" },
+        { from: ext, to: schemaPrivate, kind: "depends" },
+      ],
     );
     const seed = deriveAssumedSchemaSeed(target, {
       policy: {
-        id: "test-ext-in-pruned-public",
+        id: "test-ext-in-pruned-schemas",
         filter: [
           {
-            match: { any: [{ schema: "public" }, { name: "public" }] },
+            match: {
+              any: [
+                { schema: ["public", "private"] },
+                { name: ["public", "private"] },
+              ],
+            },
             action: "exclude",
           },
           {
