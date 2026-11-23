@@ -93,6 +93,10 @@ export interface ActionEmitterOutput {
    *  (rule-declared `implicitlyDestroys`), for the graph: reproduce edge only,
    *  no teardown edges. Transient, never persisted. */
   implicitDestroys: Map<number, Set<string>>;
+  /** action index → encoded fact id, for the in-place alters that swap a
+   *  definition still firing on data changes (`firesUntilAltered`).
+   *  Transient, never persisted. */
+  firingAlters: Map<number, string>;
 }
 
 /**
@@ -131,6 +135,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
 
   // side-effect wipes per action (see ActionEmitterOutput.implicitDestroys)
   const implicitDestroys = new Map<number, Set<string>>();
+  const firingAlters = new Map<number, string>();
 
   const pushAction = (
     verb: Action["verb"],
@@ -780,8 +785,14 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         projectedDesired,
         source,
       );
+      const sourceFact = source.get(fact.id);
+      let swapsFiringDefinition =
+        sourceFact !== undefined &&
+        attrRule.firesUntilAltered?.(sourceFact) === true;
       for (const spec of Array.isArray(specs) ? specs : [specs]) {
-        pushAction("alter", spec, { consumes: [fact.id] });
+        const index = pushAction("alter", spec, { consumes: [fact.id] });
+        if (swapsFiringDefinition) firingAlters.set(index, key);
+        swapsFiringDefinition = false;
       }
     }
   }
@@ -923,5 +934,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     acceptsFolds,
     renameActionIndices,
     implicitDestroys,
+    firingAlters,
   };
 }

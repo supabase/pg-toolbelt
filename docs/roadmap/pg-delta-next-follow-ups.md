@@ -2228,19 +2228,70 @@ than dropped and recreated. These narrower gaps are deferred.
 
 ## PR #580 review triage — trigger def change after a dependency drop
 
-#580 plans a changed trigger definition as `CREATE OR REPLACE TRIGGER`. One
-case still drops and recreates it, deferred.
+Partly resolved in #583. A trigger whose `CREATE OR REPLACE` def alter no
+longer references a **function or procedure** this plan drops now alters in
+place before that drop. The rule-table flag `restatesDefinition` (set on the
+trigger `def` rule) lets the forced-rebuild walk in
+`src/plan/phases/replacement-expansion.ts` skip it.
 
-- **A function or column the old definition used is dropped in the same
-  plan.** Switching `EXECUTE FUNCTION f_old` to `f_new` while dropping
-  `f_old`, or dropping a column the old `UPDATE OF` or `WHEN` used, plans
-  `DROP TRIGGER` + `CREATE TRIGGER`, so it still takes ACCESS EXCLUSIVE and
-  table ownership. The forced-rebuild walk in
-  `src/plan/phases/replacement-expansion.ts` marks the trigger for replace
-  from its source-side edge before any alter exists, so `releases` on the
-  OR REPLACE spec alone cannot help. A fix would skip a dependent in that walk
-  when its in-place def alter no longer needs the dropped object, and give the
-  alter `releases` of its source-side deps so it runs before the drop.
+The released routine's drop then waits for the trigger's alter instead of
+running with the other teardowns. Everything else in the plan keeps its usual
+order, so the trigger's alter sits where it would if the routine were kept.
+The skip applies unless one of these holds, which keeps drop + create:
+
+- **Something the dropped routine itself relies on changes.** Its own
+  dependencies and schema must be identical on both sides and not rebuilt:
+  their change would have to wait behind the delayed drop (a helper it calls
+  being replaced, an enum it takes gaining a value, a schema owner change, a
+  table it read becoming a same-name view).
+- **The dropped routine's name is reused.** An overload sharing its
+  schema-qualified name makes the trigger's definition text ambiguous, or
+  bind to the wrong overload, while both exist.
+- **The dropped object is not a routine.** A dropped `UPDATE OF` / `WHEN`
+  column gains nothing in place: `DROP COLUMN` takes ACCESS EXCLUSIVE and
+  table ownership anyway.
+- **Only a partial alter exists.** A policy whose unchanged `USING` resolves
+  to a new overload is rebuilt even when its roles change, since
+  `ALTER POLICY … TO` leaves `USING` alone.
+
+The first condition is conservative: such a change only conflicts when the
+trigger's new definition, or a same-name object, waits on it. Narrowing it
+would mean reasoning about both ends of the action order at once.
+
+### Old trigger definition firing during the plan
+
+An in-place trigger alter leaves the old definition firing until the alter
+runs; drop + create leaves no trigger in that window. #583 falls back to
+drop + create when the alter of an enabled trigger is ordered after an action
+that evaluates a user routine (a DEFAULT backfill, a validated CHECK, an
+expression index build, a materialized view), using the planner's existing
+evaluator classification (`firesUntilAltered` in `src/plan/rules.ts`).
+
+Deferred, because the planner cannot see what the code does and covering them
+would send most trigger changes back to drop + create:
+
+- **Event triggers.** One that writes to a table fires on every statement of
+  the plan, so the old trigger can fire on those writes. Treating every action
+  as running user code while an enabled event trigger exists would cover it,
+  at the cost of the in-place alter for every project that has one. The
+  Supabase profile hides the platform's own event triggers, which only notify
+  and grant.
+- **`CREATE EXTENSION` install scripts** that write to a user table.
+
+A function body change behaves the same way and has no drop + create
+fallback: the old body runs until its `CREATE OR REPLACE`.
+
+The guard is as precise as the evaluator classification, and a review found
+three edges, deferred as too unusual to justify more machinery:
+
+- **Over-counted.** An alter that only touches an evaluated fact counts as
+  evaluating it: `SET NOT NULL` on a stored generated column that calls a
+  routine sends a trigger reading that column back to drop + create, which
+  needs table ownership where the in-place alter did not.
+- **Not counted.** `ALTER COLUMN TYPE` running a function-backed user cast.
+- **Disabled exemption.** A trigger disabled on a partitioned parent with
+  `ALTER TABLE ONLY` can leave its partition clones enabled. Clones are not
+  extracted, so the parent's `D` state exempts a trigger that can still fire.
 
 ## PR #584 review triage (Codex) — assumed-schema seed gaps
 

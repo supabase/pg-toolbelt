@@ -30,6 +30,10 @@ export interface ReplacementExpansionInput {
   projectedDesired: FactBase;
   /** id-keyed rule resolver (schema kinds + `extensionIntent`) */
   rulesForId: RulesForId;
+  /** encoded ids to replace regardless of their attribute rules: facts whose
+   *  in-place alter an earlier planning round found ordered after an action
+   *  that could fire their old definition (`firesUntilAltered`) */
+  forcedReplace?: ReadonlySet<string>;
 }
 
 export interface ReplacementExpansion {
@@ -37,6 +41,98 @@ export interface ReplacementExpansion {
   replaceIds: Set<string>;
   /** encoded id → encoded id of the drop action that subsumes it (suppression) */
   dropRootOf: Map<string, string>;
+}
+
+function restatesDefinition(
+  fact: Fact,
+  sets: readonly Extract<Delta, { verb: "set" }>[] | undefined,
+  rulesForId: RulesForId,
+): boolean {
+  const attributes = rulesForId(fact.id).attributes;
+  return (sets ?? []).some((s) => {
+    const rule = attributes[s.attr];
+    return typeof rule === "object" && rule.restatesDefinition === true;
+  });
+}
+
+function dependencyKeys(base: FactBase, id: StableId): string {
+  return base
+    .outgoingEdges(id)
+    .map((e) => `${e.kind}\0${encodeId(e.to)}`)
+    .sort()
+    .join("\n");
+}
+
+/** Present on both sides with the same attributes and dependencies. */
+function isUnchanged(id: StableId, input: ReplacementExpansionInput): boolean {
+  const { source, desired, setsByFact } = input;
+  return (
+    source.has(id) &&
+    desired.has(id) &&
+    !setsByFact.has(encodeId(id)) &&
+    dependencyKeys(source, id) === dependencyKeys(desired, id)
+  );
+}
+
+function routineName(id: StableId): string | undefined {
+  return "args" in id ? `${id.schema}\0${id.name}` : undefined;
+}
+
+function routineNames(base: FactBase): Set<string> {
+  const names = new Set<string>();
+  for (const fact of base.facts()) {
+    const name = routineName(fact.id);
+    if (name !== undefined) names.add(name);
+  }
+  return names;
+}
+
+/**
+ * Whether `dependent` RELEASES the removed `routine`: its own alter re-states
+ * its definition without the routine (a trigger switching functions), so the
+ * routine's drop can follow that alter instead of forcing the dependent's
+ * rebuild. Any other change (a policy's roles, while its unchanged USING
+ * resolves to a new overload) still needs the rebuild.
+ */
+function releasesRoutine(
+  dependent: Fact,
+  routine: StableId,
+  input: ReplacementExpansionInput,
+): boolean {
+  const { setsByFact, desired, rulesForId } = input;
+  const routineKey = encodeId(routine);
+  return (
+    rulesForId(routine).releasedByDependentAlter === true &&
+    restatesDefinition(
+      dependent,
+      setsByFact.get(encodeId(dependent.id)),
+      rulesForId,
+    ) &&
+    !desired
+      .outgoingEdges(dependent.id)
+      .some((e) => encodeId(e.to) === routineKey)
+  );
+}
+
+/**
+ * A released routine's drop waits for the dependent's alter instead of running
+ * with the other teardowns. A change to anything the routine itself requires
+ * (its dependencies, its parent) would have to wait behind that drop too (a
+ * table it read becoming a same-name view), so the drop can wait only while
+ * each of them is unchanged and not in `touched`, the rebuild walk's targets.
+ */
+function dropCanWait(
+  routine: StableId,
+  input: ReplacementExpansionInput,
+  touched: ReadonlySet<string>,
+): boolean {
+  const { source } = input;
+  const requires = source.outgoingEdges(routine).map((e) => e.to);
+  const parent = source.get(routine)?.parent;
+  if (parent !== undefined) requires.push(parent);
+  return requires.every(
+    (id) => !touched.has(encodeId(id)) && isUnchanged(id, input),
+  );
 }
 
 /**
@@ -58,7 +154,7 @@ export function expandReplacements(
   } = input;
 
   // ── classify set-deltas: in-place alter vs replace ────────────────────
-  const replaceIds = new Set<string>();
+  const replaceIds = new Set<string>(input.forcedReplace);
   // alters that invalidate dependents (e.g. an enum value-set replacement, or an
   // ALTER COLUMN TYPE that views/policies reference) seed the forced-rebuild
   // pass without replacing the fact itself. The value is the set of dependent
@@ -185,7 +281,41 @@ export function expandReplacements(
     // and survives in `desired` is replaced, and itself becomes a full-destroy
     // target so its own subtree rebuilds.
     const worklist = [...targets];
-    while (worklist.length > 0) {
+    const rebuild = (key: string): void => {
+      replaceIds.add(key);
+      fullDestroy.add(key);
+      targets.add(key);
+      worklist.push(key);
+    };
+    // dependents the walk skips because they release the routines it reached
+    // them from (`releasesRoutine`): encoded dependent id → those routines
+    const released = new Map<string, StableId[]>();
+    // A routine sharing the removed routine's schema-qualified name makes the
+    // dependent's definition text ambiguous (or bind to the wrong overload)
+    // while both exist, so such a routine is never released.
+    let desiredRoutineNames: Set<string> | undefined;
+    const nameIsReused = (id: StableId): boolean => {
+      const name = routineName(id);
+      if (name === undefined) return false;
+      desiredRoutineNames ??= routineNames(desired);
+      return desiredRoutineNames.has(name);
+    };
+    // The walk can reach something a released routine requires after the
+    // release is recorded, so each time the worklist drains, the dependents
+    // whose routines' drops can no longer wait are rebuilt after all. True
+    // when that queued more work.
+    const requeueBrokenReleases = (): boolean => {
+      for (const [key, routines] of released) {
+        if (targets.has(key)) {
+          released.delete(key);
+        } else if (!routines.every((r) => dropCanWait(r, input, targets))) {
+          released.delete(key);
+          rebuild(key);
+        }
+      }
+      return worklist.length > 0;
+    };
+    while (worklist.length > 0 || requeueBrokenReleases()) {
       const toKey = worklist.pop() as string;
       // Scan childrenOf as well as incoming `depends`. Views/policies often
       // depend on columns, not the table; partitions hang off the schema and
@@ -230,15 +360,22 @@ export function expandReplacements(
           continue;
         }
         if (!isRebuildable(dependent.id.kind)) continue;
+        if (
+          removed.has(toKey) &&
+          releasesRoutine(dependent, edge.to, input) &&
+          !nameIsReused(edge.to)
+        ) {
+          const routines = released.get(fromKey) ?? [];
+          routines.push(edge.to);
+          released.set(fromKey, routines);
+          continue;
+        }
         // reached only via a kind-restricted seed: honor the allowed kinds
         if (!fullDestroy.has(toKey)) {
           const allowed = rebuildSeeds.get(toKey);
           if (allowed && !allowed.has(dependent.id.kind)) continue;
         }
-        replaceIds.add(fromKey);
-        fullDestroy.add(fromKey);
-        targets.add(fromKey);
-        worklist.push(fromKey);
+        rebuild(fromKey);
       }
     }
     // ── survivors wiped as a side effect of a create / drop of this plan ───
