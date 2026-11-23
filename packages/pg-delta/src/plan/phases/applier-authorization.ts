@@ -706,12 +706,10 @@ export function authorizeForApplier(
   });
   const touched = new Set<string>();
   const missing = new Set<string>();
-  const neededBy = new Map<Action, Set<string>>();
   {
     const walk = tracker();
     for (const a of planned) {
       const needs = needsOf(a, walk.ownerNow);
-      neededBy.set(a, needs.touched);
       for (const r of needs.touched) touched.add(r);
       for (const r of needs.missing) missing.add(r);
       walk.step(a);
@@ -808,7 +806,40 @@ export function authorizeForApplier(
   // to be refused. Kept to plain cases: a role borrowed for itself, that is
   // a member of nothing, and that the plan does not create, drop or grant.
   const narrow = new Map<string, Set<Action>>();
+  // what each statement of the final list needs (`without` may have cloned
+  // a statement, so this is not read from the first walk)
+  const neededBy = new Map<Action, Set<string>>();
+  {
+    const needs = tracker();
+    for (const a of list) {
+      neededBy.set(a, needsOf(a, needs.ownerNow).touched);
+      needs.step(a);
+    }
+  }
+  // a role holding a grant option on a schema could become the grantor of a
+  // CREATE the pass lends there, at one end of the lend only
+  const grantsOnSchema = new Set<string>();
+  for (const fb of views) {
+    for (const fact of fb.facts()) {
+      const id = fact.id;
+      if (
+        "target" in id &&
+        "grantee" in id &&
+        rootOf(id.target) === id.target &&
+        parentOf(id.target) === undefined &&
+        ((fact.payload["grantable"] as string[] | undefined) ?? []).length > 0
+      )
+        grantsOnSchema.add(id.grantee);
+    }
+  }
   const narrowable = (h: string): boolean =>
+    !grantsOnSchema.has(h) &&
+    // an interval cannot span a statement that runs outside a transaction
+    !list.some(
+      (a) =>
+        a.transactionality !== "transactional" &&
+        neededBy.get(a)?.has(h) === true,
+    ) &&
     !createdByPlan.has(h) &&
     !planGrants.has(h) &&
     !planRevokes.has(h) &&
@@ -1001,7 +1032,12 @@ export function authorizeForApplier(
         last = undefined;
       };
       for (const a of list) {
-        if (avoid.has(a) || a.newSegmentBefore) flush();
+        if (
+          avoid.has(a) ||
+          a.newSegmentBefore ||
+          a.transactionality !== "transactional"
+        )
+          flush();
         if (neededBy.get(a)?.has(r) === true) {
           first ??= a;
           last = a;

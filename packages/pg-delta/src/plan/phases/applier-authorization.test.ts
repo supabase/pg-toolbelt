@@ -370,7 +370,11 @@ describe("applier authorization", () => {
           },
           ...extra,
         ],
-        [owned(schema, "app"), owned(table, "owner_a"), owned(other, "owner_b")],
+        [
+          owned(schema, "app"),
+          owned(table, "owner_a"),
+          owned(other, "owner_b"),
+        ],
       );
     const p = plan(
       side(false, []),
