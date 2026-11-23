@@ -67,8 +67,8 @@ function readsOwnTableColumn(desired: FactBase, id: StableId): boolean {
  * go first (#518). Chain each table's column creates by position so each one
  * waits for the one before it.
  *
- * Two kinds of column keep only the tie-break order, so they can land after
- * the columns declared behind them:
+ * Two kinds of column are exceptions, so they can land after the columns
+ * declared behind them:
  *  - an evaluator column (`evaluatorActions`): its DEFAULT calls a user
  *    function, which Postgres runs at ADD COLUMN time even on an empty table.
  *    The function may read a later column with no pg_depend edge to it (a
@@ -84,13 +84,15 @@ function readsOwnTableColumn(desired: FactBase, id: StableId): boolean {
  *    came from, if it has one, but it still precedes every action that runs a
  *    user function downstream of them, as the chain edges kept it. A later
  *    evaluator column downstream of them starts no chain edge either. Known
- *    limits: Postgres also folds an IMMUTABLE call with only constant arguments
- *    inside an expression that reads a column, and such a column still leads
- *    unless it runs after one that reads none; its function can still run
- *    before a later evaluator column it reads exists, or fold into CREATE
- *    TABLE ahead of a later column that stays an ADD COLUMN; and once a cycle
- *    cuts its chain edge, a later evaluator column that reads it can still run
- *    first, as before.
+ *    limits, all as before:
+ *     - Postgres also folds an IMMUTABLE call with only constant arguments
+ *       inside an expression that reads a column; such a column still leads
+ *       unless it runs after one that reads none.
+ *     - Its function can still run before a later evaluator column it reads
+ *       exists, or fold into CREATE TABLE ahead of a later column that stays
+ *       an ADD COLUMN.
+ *     - Once a cycle cuts its chain edge, a later evaluator column that reads
+ *       it can still run first.
  *  - a column whose chain edge would close a cycle with a real dependency (a
  *    generated column reading a column declared after it). That edge is
  *    skipped.
@@ -177,8 +179,8 @@ function chainColumnCreatesByPosition(
   for (const columns of columnsByTable.values()) {
     columns.sort((a, b) => a.position - b.position);
     let before: number | undefined;
-    // Each column that starts no chain edge, mapped to where its own chain
-    // edge starts, if it has one.
+    // Each column whose chain edges are released, mapped to where its own
+    // chain edge starts, if it has one.
     const chainedFrom = new Map<number, number | undefined>();
     // The columns of this table released so far.
     const freed: number[] = [];
@@ -313,8 +315,9 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   // ── graph edges + deterministic order ─────────────────────────────────
   // Actions that RUN a user expression at apply time (a DEFAULT / generated
   // column backfill, a validated CHECK scan, an expression-index build).
-  // Classified during the edge walk and fed to the tie-break ONLY — never as an
-  // edge — so they sink below every simultaneously ready DEFINITION action
+  // Classified during the edge walk and fed to the tie-break, never as an edge
+  // of its own (the column chain below only orders columns within main's
+  // chain), so they sink below every simultaneously ready DEFINITION action
   // without making legitimate routine<->relation cycles unplannable.
   const evaluatorActions = new Set<number>();
   const overlayWipeActions = new Set<number>();

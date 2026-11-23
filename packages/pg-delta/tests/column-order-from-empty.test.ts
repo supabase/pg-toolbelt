@@ -323,8 +323,8 @@ describe("column order of a table planned from empty (#518)", () => {
   }, 60_000);
 
   test("a later generated column whose existing function reads a generated column that reads no column waits on it", async () => {
-    // app.f2() reads `g`. `g` no longer leads, but `g2` still runs a user
-    // function, so it must not fold into CREATE TABLE ahead of `g`.
+    // app.f2() reads `g`, and `g2` runs a user function, so it must not fold
+    // into CREATE TABLE ahead of `g`.
     const fns = `create schema app;
        create function app.f2() returns int language plpgsql immutable
          as $$ begin return (select count(g) from app.orders); end $$;`;
