@@ -34,7 +34,8 @@ runs only restore it, since GitHub shares only `main`'s caches across PRs.
 
 `setup-cli` options:
 
-- `SUPABASE_CLI_REF`: CLI branch or tag, default `develop`.
+- `SUPABASE_CLI_REF`: CLI branch or tag, default `develop`. Its `init` must
+  write `config.jsonc` (supabase/cli#7756 or later).
 - `SUPABASE_CLI_DIR`: checkout location, default `.cli/cli`. Use a directory
   `setup-cli` creates. Re-runs force-reset it, so it refuses any existing
   checkout it did not clone, including your own `supabase/cli` clone.

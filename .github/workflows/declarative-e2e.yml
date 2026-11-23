@@ -37,7 +37,7 @@ on:
           - legacy
         default: both
       cli_ref:
-        description: supabase/cli branch or tag
+        description: supabase/cli branch or tag whose init writes config.jsonc (supabase/cli#7756 or later)
         type: string
         default: develop
 
