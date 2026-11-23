@@ -341,6 +341,53 @@ describe("applier authorization", () => {
     expect(sql.at(-1)).toBe('REVOKE "owner_a" FROM "app"');
   });
 
+  test("a borrowed role with a grant option on a schema is not narrowed", () => {
+    const other: StableId = { kind: "table", schema: "app", name: "u" };
+    const side = (rowSecurity: boolean, extra: Fact[]) =>
+      buildFactBase(
+        [
+          role("app"),
+          role("owner_a"),
+          role("owner_b"),
+          role("reader"),
+          { id: schema, payload: {} },
+          tableFact,
+          {
+            ...tableFact,
+            id: other,
+            payload: { ...tableFact.payload, rowSecurity },
+          },
+          {
+            id: { kind: "acl", target: table, grantee: "owner_b" },
+            parent: table,
+            payload: { privileges: ["SELECT"], grantable: ["SELECT"] },
+          },
+          // it could also become the grantor of a CREATE the pass lends
+          {
+            id: { kind: "acl", target: schema, grantee: "owner_b" },
+            parent: schema,
+            payload: { privileges: ["CREATE"], grantable: ["CREATE"] },
+          },
+          ...extra,
+        ],
+        [owned(schema, "app"), owned(table, "owner_a"), owned(other, "owner_b")],
+      );
+    const p = plan(
+      side(false, []),
+      side(true, [
+        {
+          id: { kind: "acl", target: table, grantee: "reader" },
+          parent: table,
+          payload: { privileges: ["SELECT"], grantable: [] },
+        },
+      ]),
+      { capability: applier },
+    );
+    expect(p.blockers?.map((b) => [b.code, b.role])).toEqual([
+      ["capability_acl_grantor", "owner_b"],
+    ]);
+  });
+
   test("a new owner the applier can neither set nor grant itself is a blocker", () => {
     const p = plan(state("owner_a"), state("owner_b"), {
       capability: { ...applier, adminOf: ["owner_a"] },
