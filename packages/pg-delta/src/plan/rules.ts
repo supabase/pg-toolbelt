@@ -186,6 +186,16 @@ export interface KindRules {
    *  used by the planner to emit owner actions from owner-edge link deltas.
    *  Absent for kinds that are not ownable (have no ALTER … OWNER TO). */
   ownerAlterPrefix?: (fact: Fact) => string;
+  /** The object whose owner change carries this object's owner (a sequence
+   *  linked to the same relation on both sides: `ALTER TABLE … OWNER TO`
+   *  cascades to it, and Postgres refuses to re-own it alone), so no
+   *  `ALTER … OWNER TO` may be emitted for it. `view` is the desired state,
+   *  to tell which kind of relation it is. Undefined otherwise. */
+  ownerCarrier?: (
+    desired: Fact,
+    source: Fact | undefined,
+    view: FactView,
+  ) => StableId | undefined;
 
   // ── graph/suppression policy (guardrail 3: per-kind knowledge lives
   //    HERE, never in the planner body) ──────────────────────────────────

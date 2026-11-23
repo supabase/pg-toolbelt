@@ -91,6 +91,48 @@ describe("policy filter: schema projection roundtrip", () => {
   }, 60_000);
 });
 
+describe("policy filter: a linked sequence whose table is excluded", () => {
+  test("an owner change the plan cannot carry is refused, not silently skipped", async () => {
+    const cluster = await sharedCluster();
+    const main = await cluster.createDb("polf_seq_main");
+    const desired = await cluster.createDb("polf_seq_dst");
+    try {
+      for (const role of ["polf_seq_r1", "polf_seq_r2"]) {
+        await cluster.adminPool
+          .query(`CREATE ROLE ${role} NOLOGIN`)
+          .catch(() => {});
+      }
+      const setup = (owner: string) => `
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id serial);
+        ALTER TABLE app.t OWNER TO ${owner};
+      `;
+      await main.pool.query(setup("polf_seq_r1"));
+      await desired.pool.query(setup("polf_seq_r2"));
+      // the table is out of the plan, its serial sequence is not: the
+      // sequence's owner can only move with the table's
+      const policy: Policy = {
+        id: "exclude-table-t",
+        filter: [
+          {
+            match: { all: [{ kind: "table" }, { name: ["t"] }] },
+            action: "exclude",
+          },
+        ],
+      };
+      const [s, d] = await Promise.all([
+        extract(main.pool),
+        extract(desired.pool),
+      ]);
+      expect(() => plan(s.factBase, d.factBase, { policy })).toThrow(
+        /sequence:app\.t_id_seq.*table:app\.t/,
+      );
+    } finally {
+      await Promise.all([main.drop(), desired.drop()]);
+    }
+  }, 60_000);
+});
+
 describe("policy filter: partitionOf projection roundtrip", () => {
   test("differing partition sets stay unmanaged on both sides; the rest converges", async () => {
     const cluster = await sharedCluster();
