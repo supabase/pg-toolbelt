@@ -2266,7 +2266,17 @@ behaves the same on `main` before #584 unless noted.
   membership folds onto it. If `p` publishes `platform.t (id, later)` and a
   managed `app.t`, with `platform.t.later` managed, the seed emits `CREATE
   PUBLICATION p FOR TABLE platform.t (id, later)` before `later` exists. A fix
-  skips only the edges from memberships the seed leaves out.
+  skips only the edges from memberships the seed leaves out. The same
+  happens through a pruned partition membership: #593 waives its root's
+  column edges, which a kept sibling partition's column list shares.
+- **Extension member provenance.** Extract folds member references onto the
+  extension id, so the seed cannot tell an `ALTER EXTENSION … ADD` member from
+  one the install script creates. #593 seeds an extension whose folded edges
+  reach pruned non-extension facts and omits every candidate that uses it.
+  A candidate using only stock members (a `public.hstore` column) is omitted,
+  as on `main`; an extension whose own install script needs a pruned plain
+  object is now seeded and fails `CREATE EXTENSION` (`main` omitted it), though
+  no assumed extension does this. A fix needs member provenance from extract.
 - **Assumed schema whose own schema fact is not excluded.** A filter matching
   only `{ schema: [...] }` (the #578 repro's policy) excludes the objects in an
   assumed schema but not the schema itself, so the schema stays managed while
