@@ -302,7 +302,7 @@ function cliEnv(): Record<string, string> {
   }
   env["SUPABASE_NO_UPDATE_NOTIFIER"] = "1";
   env["SUPABASE_TELEMETRY_DISABLED"] = "1";
-  // Each project's config.toml selects the backend, names its containers, and picks its ports;
+  // Each project's config selects the backend, names its containers, and picks its ports;
   // inherited overrides would mask that, and shared ids or ports collide across parallel databases.
   for (const key of [
     "SUPABASE_EXPERIMENTAL_STACK",
@@ -473,6 +473,33 @@ async function countRows(projectDir: string, table: string): Promise<number> {
 // Shared so concurrent legacy projects never pick the same host port.
 const assignedPorts = new Set<number>();
 
+type ConfigTable = Record<string, unknown>;
+
+function configTable(parent: ConfigTable, key: string): ConfigTable {
+  const value = parent[key];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`init config has no ${key} table`);
+  }
+  return value as ConfigTable;
+}
+
+/** Moves every host port `init` wrote to a free one, so concurrent projects never collide. */
+async function assignFreePorts(node: ConfigTable): Promise<void> {
+  for (const [key, value] of Object.entries(node)) {
+    if (typeof value === "object" && value !== null) {
+      await assignFreePorts(value as ConfigTable);
+    } else if (
+      typeof value === "number" &&
+      /^(?:port|smtp_port|pop3_port|inspector_port|shadow_port)$/.test(key)
+    ) {
+      let port = await freePort();
+      while (assignedPorts.has(port)) port = await freePort();
+      assignedPorts.add(port);
+      node[key] = port;
+    }
+  }
+}
+
 /** Initializes a project for `target` and starts its database; scenarios reset it in turn. */
 async function startStack(projectDir: string, target: Target): Promise<void> {
   requireSuccess(
@@ -484,44 +511,31 @@ async function startStack(projectDir: string, target: Target): Promise<void> {
     ),
     "init",
   );
-  const configFile = Bun.file(path.join(projectDir, "supabase", "config.toml"));
-  const config = await configFile.text();
-  if (!config.includes("[experimental.pgdelta]\nenabled = true")) {
-    throw new Error("init did not enable experimental pg-delta in config.toml");
+  const configPath = path.join(projectDir, "supabase", "config.jsonc");
+  const config = Bun.JSONC.parse(
+    await Bun.file(configPath).text(),
+  ) as ConfigTable;
+  const experimental = configTable(config, "experimental");
+  const pgdelta = configTable(experimental, "pgdelta");
+  const db = configTable(config, "db");
+  if (pgdelta["enabled"] !== true) {
+    throw new Error("init did not enable experimental.pgdelta");
   }
-  if (/^stack = true$/mu.test(config) !== (BACKEND === "stack")) {
+  if ((experimental["stack"] === true) !== (BACKEND === "stack")) {
     throw new Error(
-      `init config.toml does not match the ${BACKEND} backend (experimental.stack)`,
+      `init config does not match the ${BACKEND} backend (experimental.stack)`,
     );
   }
-  const majorVersionLine = /^major_version = \d+$/mu;
-  if (!majorVersionLine.test(config))
-    throw new Error("init wrote no [db] major_version");
-  if (target.orioledb && !/^orioledb_version = "[^"]+"$/mu.test(config)) {
-    throw new Error("init --use-orioledb wrote no [db] orioledb_version");
+  if (typeof db["major_version"] !== "number") {
+    throw new Error("init wrote no db.major_version");
   }
-  const lines: string[] = [];
-  for (const line of config
-    .replace(majorVersionLine, `major_version = ${target.pg}`)
-    .replace(
-      '# declarative_schema_path = "./schemas"',
-      'declarative_schema_path = "./schemas"',
-    )
-    .split("\n")) {
-    const match =
-      /^(\s*(?:port|smtp_port|pop3_port|inspector_port|shadow_port) = )\d+$/.exec(
-        line,
-      );
-    if (match === null) {
-      lines.push(line);
-      continue;
-    }
-    let port = await freePort();
-    while (assignedPorts.has(port)) port = await freePort();
-    assignedPorts.add(port);
-    lines.push(`${match[1]}${port}`);
+  if (target.orioledb && !db["orioledb_version"]) {
+    throw new Error("init --use-orioledb wrote no db.orioledb_version");
   }
-  await Bun.write(configFile, lines.join("\n"));
+  db["major_version"] = target.pg;
+  pgdelta["declarative_schema_path"] = "./schemas";
+  await assignFreePorts(config);
+  await Bun.write(configPath, JSON.stringify(config, null, 2));
   if (BACKEND === "stack") {
     // `db start` has no runtime flag; it reuses the runtime saved when `start` creates the stack.
     requireSuccess(

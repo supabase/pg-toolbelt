@@ -2284,3 +2284,46 @@ behaves the same on `main` before #584 unless noted.
   references missing parent schema:…` (same on `main`). Matching
   `{ name: [...] }` too avoids it; a fix should report the policy mistake
   instead of the raw error.
+
+## PR #587 review triage — default-first and unrelated commits
+
+#587 runs `SET DEFAULT` before `SET NOT NULL` on the same column through a
+soft edge (`addSoftEdges` in `src/plan/internal.ts`). The edge is dropped
+whenever it could reorder what main applies. These gaps are deferred.
+
+- **Any commit in the plan turns default-first off.** The edge is kept only
+  when the whole plan runs in one transaction, so an enum `ADD VALUE` or a
+  concurrent index, related or not, brings back `SET NOT NULL` first. With a
+  commit, the delay changes what is committed before a failure: it can move
+  the `newSegmentBefore` mark of an `ADD VALUE` onto `SET DEFAULT`, or run
+  `SET DEFAULT` and unrelated statements before a failing concurrent index. A
+  narrower check would compare the full segment layout with and without the
+  edge and keep it only when they match. The opt-in lock-budget split
+  (`splitPlan`, `apply --split-to-fit` / `--max-locks`) adds commits after
+  planning and can still separate the pair; its extra commits are already
+  documented as unsafe.
+- **A default that can run a user function keeps `SET NOT NULL` first.** Such
+  a `SET DEFAULT` (a function call, or a domain whose CHECK calls one) is an
+  evaluator, so the tie-break sinks it below every definition. The edge would
+  sink `SET NOT NULL` and its dependents with it, past an evaluator that reads
+  one of them (an `ADD COLUMN` whose plpgsql default reads a view over the
+  column), so it is skipped. A fix would check that no evaluator outside the
+  edge's reach reads what the edge delays.
+- **A retyped column re-sets its default before a new type it casts to.**
+  `column.type.alter` re-emits `SET DEFAULT` with no `consumes`, so
+  `integer DEFAULT 1` to `text DEFAULT 'calm'::mood` with a new `mood` fails at
+  apply, as on main. Adding `dependencyConsumes` to that spec would order it
+  after `CREATE TYPE`.
+- **Default-first is off whenever `SET NOT NULL` reaches a new column.** This
+  holds even when the table's new columns are already chained, as in
+  `t(s text)` to `t(s text NOT NULL DEFAULT 'new', g ... AS (upper(s)), h text)`.
+  Checking only that each delayed column reaches the next one declared is not
+  enough: an earlier evaluator column has no chain edge, so a delayed later
+  column it reads could be added after it. A narrower check must also keep the
+  unreached earlier columns ahead of the delayed ones.
+- **Columns appended through inheritance are grouped by the table the action
+  names.** A parent's recursive `ADD COLUMN` and an inheriting table's own
+  `ADD COLUMN` both append to the child, so delaying one can swap them there.
+  Main gets this right only through the tie-break's table-name order. A fix
+  counts a parent's new column against each inheriting table in
+  `columnCreatesByTable`.
