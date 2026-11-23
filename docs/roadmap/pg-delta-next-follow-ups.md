@@ -2242,24 +2242,12 @@ case still drops and recreates it, deferred.
   when its in-place def alter no longer needs the dropped object, and give the
   alter `releases` of its source-side deps so it runs before the drop.
 
-## PR #584 review triage (Codex) — assumed-schema seed gaps
+## PR #584 review triage — assumed-schema seed gaps
 
 #584 omits a seed candidate whose dependency was pruned from the managed view.
 Neighbouring shapes still replay a candidate the shadow cannot create. Each
 behaves the same on `main` before #584 unless noted.
 
-- **Member of an extension excluded after pass (1).** An assumed extension
-  installed into a MANAGED schema is excluded by the install-schema pass, but a
-  candidate depending on one of its member TABLES (pruned or reference-only)
-  stays seeded: the cascade walks `view.edges` and never treats an excluded
-  extension's members as excluded. Member functions/types are unaffected
-  (extract resolves those references to the extension id). A fix makes the
-  cascade walk the raw target edges and treat an edge into a member of an
-  excluded extension as excluded, skipping shells so an empty publication shell
-  is not dropped. #584 adds a narrow second trigger: a member added with
-  `ALTER EXTENSION … ADD` that depends on a pruned non-schema object gives the
-  extension a raw edge to it, so pass (1) excludes the extension. Pass (1)'s
-  member exemption should hold only while the extension stays in the seed.
 - **Assumed table or view with a managed satellite.** A managed in-view child
   (e.g. its ACL) makes the candidate a shell, so pass (1) never checks its own
   `depends` edges and a view reading a pruned or managed relation is still
@@ -2272,11 +2260,17 @@ behaves the same on `main` before #584 unless noted.
   install schema (e.g. an excluded `extensions`) is never created there, so the
   seed's `CREATE EXTENSION … SCHEMA extensions` fails at replay. A fix treats a
   pruned install schema as ambient only when the shadow template ships it.
-- **Publication shell with a kept membership on a managed column.** A pruned
+- **Publication shell with a kept membership on a managed column.** A MANAGED
   `publicationRel` makes its publication a shell, and a shell skips every
-  outgoing edge, including the column-list edges a kept membership folds onto
-  it. If `p` publishes `platform.t (id, later)` and a pruned `private.t`, with
-  `platform.t.later` managed, the seed emits `CREATE PUBLICATION p FOR TABLE
-  platform.t (id, later)` before `later` exists. Managed memberships already do
-  this on `main`. A fix skips only the edges from memberships the seed leaves
-  out.
+  outgoing edge, including the column-list and row-filter edges a kept
+  membership folds onto it. If `p` publishes `platform.t (id, later)` and a
+  managed `app.t`, with `platform.t.later` managed, the seed emits `CREATE
+  PUBLICATION p FOR TABLE platform.t (id, later)` before `later` exists. A fix
+  skips only the edges from memberships the seed leaves out.
+- **Assumed schema whose own schema fact is not excluded.** A filter matching
+  only `{ schema: [...] }` (the #578 repro's policy) excludes the objects in an
+  assumed schema but not the schema itself, so the schema stays managed while
+  its tables are reference-only. The seed then throws `FactBase: fact table:…
+  references missing parent schema:…` (same on `main`). Matching
+  `{ name: [...] }` too avoids it; a fix should report the policy mistake
+  instead of the raw error.

@@ -202,13 +202,10 @@ export function deriveAssumedSchemaSeed(
   // therefore NOT a replay requirement: `CREATE PUBLICATION supabase_realtime`
   // with no `FOR TABLE` needs none of its members (#370 seeds it EMPTY on
   // purpose). Computed by walking each NON-candidate view fact up to its
-  // candidate ancestors; a pruned `publicationRel` still counts.
+  // candidate ancestors.
   const shellIds = new Set<string>();
-  for (const fct of targetFb.facts()) {
+  for (const fct of view.facts()) {
     if (candidateIds.has(encodeId(fct.id))) continue;
-    if (fct.id.kind !== "publicationRel" && view.get(fct.id) === undefined) {
-      continue;
-    }
     let ancestor = fct.parent;
     while (ancestor !== undefined) {
       const key = encodeId(ancestor);
@@ -228,9 +225,11 @@ export function deriveAssumedSchemaSeed(
   //     target edges, since the view drops every edge to a pruned fact. Allowed:
   //     reference-only non-candidates (extension member, ADP: the contract the
   //     plan's requirement guard exempts via `assumedSchemas`), a pruned
-  //     extension member whose extension the seed creates, an extension's edge
-  //     into a pruned schema (ambient, as in the install-schema check below),
-  //     and a SHELL's inherited membership edges.
+  //     extension member whose extension the seed creates, a folded edge into
+  //     a pruned fact from an extension (`CREATE EXTENSION` replays no added
+  //     member; the install schema is checked below; a pruned required
+  //     extension still counts) or a publication (a pruned membership is never
+  //     seeded), and a SHELL's inherited membership edges.
   for (const e of targetFb.edges) {
     if (e.kind !== "depends") continue;
     const from = encodeId(e.from);
@@ -242,9 +241,9 @@ export function deriveAssumedSchemaSeed(
       continue;
     }
     if (
-      e.from.kind === "extension" &&
-      e.to.kind === "schema" &&
-      view.get(e.to) === undefined
+      view.get(e.to) === undefined &&
+      (e.from.kind === "publication" ||
+        (e.from.kind === "extension" && e.to.kind !== "extension"))
     ) {
       continue;
     }
@@ -306,13 +305,24 @@ export function deriveAssumedSchemaSeed(
     let changed = true;
     while (changed) {
       changed = false;
-      for (const e of view.edges) {
+      for (const e of targetFb.edges) {
         if (e.kind !== "depends") continue;
         const from = encodeId(e.from);
+        if (!candidateIds.has(from) || excludedIds.has(from)) continue;
+        const to = encodeId(e.to);
+        // a member of an extension the seed omits is missing too (edges
+        // folded onto a publication or extension are not replayed)
+        const exts =
+          e.from.kind === "publication" || e.from.kind === "extension"
+            ? undefined
+            : memberExts.get(to);
         if (
-          candidateIds.has(from) &&
-          !excludedIds.has(from) &&
-          excludedIds.has(encodeId(e.to))
+          excludedIds.has(to) ||
+          (exts?.some((x) => excludedIds.has(encodeId(x))) &&
+            !exts.some((x) => {
+              const k = encodeId(x);
+              return candidateIds.has(k) && !excludedIds.has(k);
+            }))
         ) {
           excludedIds.add(from);
           changed = true;
