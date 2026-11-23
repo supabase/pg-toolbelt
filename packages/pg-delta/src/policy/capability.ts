@@ -24,10 +24,20 @@ export interface ApplierCapability {
   role: string;
   /** superuser bypasses most permission checks (incl. FDW GRANT/REVOKE) */
   isSuperuser: boolean;
-  /** roles the applier is a member of (can SET ROLE / own objects as). A plain
-   *  array (not a Set) so the capability persists losslessly in the Plan
-   *  artifact's JSON (follow-up 2 productization). */
+  /** roles the applier can SET ROLE to, i.e. hand objects to (PG <= 15: any
+   *  membership; PG16+: membership with the SET option — a CREATEROLE creator
+   *  only holds ADMIN). A plain array (not a Set) so the capability persists
+   *  losslessly in the Plan artifact's JSON (follow-up 2 productization). */
   memberOf: readonly string[];
+  /** PG16+: roles the applier holds ADMIN OPTION on, so it can grant itself
+   *  membership. Omitted on legacy artifacts / hand-built fixtures. */
+  adminOf?: readonly string[];
+  /** PG16+ `createrole_self_grant` of the applying session (e.g. "set,
+   *  inherit"); "" when unset. Omitted before PG16 and on legacy artifacts. */
+  createroleSelfGrant?: string;
+  /** supautils `reserved_memberships`: roles nobody but the superuser may
+   *  grant. Omitted when supautils is not loaded. */
+  reservedMemberships?: readonly string[];
   /** CREATEROLE on the applying role. Omitted on legacy artifacts / hand-built
    *  fixtures — membership projection stays off. */
   createRole?: boolean;
@@ -50,9 +60,18 @@ export async function probeApplierCapability(
            (current_setting('server_version_num')::int / 10000) AS pg_major,
            ARRAY(
              SELECT r.rolname::text FROM pg_catalog.pg_roles r
-             WHERE pg_catalog.pg_has_role(current_user, r.oid, 'MEMBER')
+             WHERE pg_catalog.pg_has_role(current_user, r.oid,
+                     CASE WHEN current_setting('server_version_num')::int >= 160000
+                          THEN 'SET' ELSE 'MEMBER' END)
                AND r.rolname NOT LIKE 'pg\\_%'
-           ) AS member_of
+           ) AS member_of,
+           ARRAY(
+             SELECT r.rolname::text FROM pg_catalog.pg_roles r
+             WHERE pg_catalog.pg_has_role(current_user, r.oid, 'MEMBER WITH ADMIN OPTION')
+               AND r.rolname NOT LIKE 'pg\\_%'
+           ) AS admin_of,
+           current_setting('createrole_self_grant', true) AS createrole_self_grant,
+           current_setting('supautils.reserved_memberships', true) AS reserved_memberships
   `);
   const row = res.rows[0] as {
     role: string;
@@ -60,13 +79,28 @@ export async function probeApplierCapability(
     create_role: boolean;
     pg_major: number;
     member_of: string[] | null;
+    admin_of: string[] | null;
+    createrole_self_grant: string | null;
+    reserved_memberships: string | null;
   };
   return {
     role: String(row.role),
     isSuperuser: Boolean(row.is_superuser),
     memberOf: row.member_of ?? [],
+    adminOf: row.admin_of ?? [],
     createRole: Boolean(row.create_role),
     pgMajor: Number(row.pg_major),
+    ...(row.createrole_self_grant !== null
+      ? { createroleSelfGrant: row.createrole_self_grant }
+      : {}),
+    ...(row.reserved_memberships
+      ? {
+          reservedMemberships: row.reserved_memberships
+            .split(",")
+            .map((name) => name.trim())
+            .filter((name) => name.length > 0),
+        }
+      : {}),
   };
 }
 
@@ -101,9 +135,10 @@ export function capabilityExcludedRoots(
 }
 
 /**
- * Whether the applier can run `ALTER <obj> OWNER TO roleName` — PostgreSQL
- * requires the applier to be a superuser or a member of the target role (the
- * owner residue, move 6 / follow-up 1).
+ * Whether the applier can run `ALTER <obj> OWNER TO roleName` directly —
+ * PostgreSQL requires a superuser or a role that can SET ROLE to the new owner
+ * (the owner residue, move 6 / follow-up 1). See `canSelfGrantOwner` for the
+ * case the planner bridges with a temporary self-grant.
  *
  * Unlike an FDW ACL (a leaf fact that projects out cleanly), an owner cannot be
  * silently skipped: leaving an object applier-owned ripples into its
@@ -114,4 +149,59 @@ export function capabilityExcludedRoots(
  */
 export function canSetOwner(cap: ApplierCapability, roleName: string): boolean {
   return cap.isSuperuser || cap.memberOf.includes(roleName);
+}
+
+/**
+ * Whether the applier may `GRANT roleName TO <applier>` itself, so the planner
+ * can bracket an owner change it cannot run directly (#563):
+ *   - PG <= 15: CREATEROLE may grant any non-superuser role;
+ *   - PG16+: needs ADMIN OPTION on the role, which a CREATEROLE creator gets
+ *     automatically — so a role this plan creates qualifies.
+ * A supautils reserved membership is superuser-only either way. Legacy
+ * capabilities (no `pgMajor`) never qualify.
+ */
+export function canSelfGrantOwner(
+  cap: ApplierCapability,
+  roleName: string,
+  role: { createdByPlan: boolean; superuser: boolean },
+): boolean {
+  if (cap.isSuperuser || cap.pgMajor === undefined) return false;
+  if (role.superuser) return false;
+  if (cap.reservedMemberships?.includes(roleName)) return false;
+  if (cap.pgMajor < 16) return cap.createRole === true;
+  return (
+    (cap.adminOf?.includes(roleName) ?? false) ||
+    (role.createdByPlan && cap.createRole === true)
+  );
+}
+
+/**
+ * PG16+ `createrole_self_grant` containing `set` makes CREATE ROLE grant the
+ * creator SET on the new role, so an owner change to a role this plan creates
+ * needs no bracket.
+ */
+export function createRoleGrantsSet(cap: ApplierCapability): boolean {
+  if (cap.pgMajor === undefined || cap.pgMajor < 16) return false;
+  // SET alone passes OWNER TO, but later COMMENT/ACL actions need INHERIT
+  const options = (cap.createroleSelfGrant ?? "")
+    .split(",")
+    .map((option) => option.trim().toLowerCase());
+  return options.includes("set") && options.includes("inherit");
+}
+
+/** An `ALTER … OWNER TO` the applier can neither run nor bridge with a
+ *  self-grant. Typed so callers can report it as a request problem (the
+ *  applier lacks a privilege) rather than an internal failure. */
+export class CapabilityError extends Error {
+  readonly code = "capability_owner";
+  constructor(
+    readonly objectId: string,
+    readonly ownerRole: string,
+    readonly applierRole: string,
+  ) {
+    super(
+      `capability: cannot set owner of ${objectId} to role "${ownerRole}" — applier "${applierRole}" is not a superuser, cannot SET ROLE to it, and cannot grant itself membership; grant membership or apply as a member/superuser`,
+    );
+    this.name = "CapabilityError";
+  }
 }

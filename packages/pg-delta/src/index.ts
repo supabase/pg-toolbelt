@@ -210,6 +210,8 @@ export {
   resolveBaseline,
 } from "./policy/baseline.ts";
 export { supabasePolicy } from "./policy/supabase.ts";
+// thrown by plan() for an owner change the applier can neither run nor bridge
+export { CapabilityError } from "./policy/capability.ts";
 
 // ── integrations (the safe, profile-scoped path) ─────────────────────────────
 // The headline managed-view API: resolve a profile against a source pool, then

@@ -31,5 +31,6 @@ export {
 } from "../policy/extensions/index.ts";
 export {
   type ApplierCapability,
+  CapabilityError,
   probeApplierCapability,
 } from "../policy/capability.ts";
