@@ -9,74 +9,182 @@ import type { FactBase } from "../src/core/fact.ts";
 import type { Action } from "../src/plan/plan.ts";
 import { CorpusContractError } from "./corpus-contract.ts";
 
-/** `<scenario>:<forward|reverse>` -> why the engine rebuilds a kept table. */
-export const KEPT_TABLE_REBUILDS: Readonly<Record<string, string>> = {
-  "dependencies-cycles--partitioned-parent-publication-via-root:forward":
-    "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
-  "dependencies-cycles--partitioned-parent-publication-via-root:reverse":
-    "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
-  "dependencies-cycles--replace-table-drops-fk:forward":
-    "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
-  "dependencies-cycles--replace-table-drops-fk:reverse":
-    "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
-  "dependencies-cycles--replace-table-rowtype-fn-check:forward":
-    "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
-  "dependencies-cycles--replace-table-rowtype-fn-check:reverse":
-    "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
-  "dependencies-cycles--replace-table-rowtype-fn-index:forward":
-    "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
-  "dependencies-cycles--replace-table-rowtype-fn-index:reverse":
-    "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
-  "dependencies-cycles--replace-table-rowtype-fn-kept:forward":
-    "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
-  "dependencies-cycles--replace-table-rowtype-fn-kept:reverse":
-    "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
-  "partitioned-table-operations--add-key-column-under-intermediate:reverse":
-    "adding/dropping a column that keys a sub-partition under the root recurses into it, so the root is replaced",
-  "partitioned-table-operations--drop-subpartition-key-column:forward":
-    "DROP COLUMN on the root recurses into a sub-partition keyed on it and Postgres rejects it; the root is replaced",
-  "partitioned-table-operations--drop-subpartition-key-column:reverse":
-    "DROP COLUMN on the root recurses into a sub-partition keyed on it and Postgres rejects it; the root is replaced",
-  "partitioned-table-operations--partition-dependents:forward":
-    "partitionBound is a replace rule; in-place ATTACH/DETACH PARTITION is not implemented",
-  "partitioned-table-operations--partition-dependents:reverse":
-    "partitionBound is a replace rule; in-place ATTACH/DETACH PARTITION is not implemented",
-  "partitioned-table-operations--partition-key-column-type-change:forward":
-    "retyping a partition key column is a replace rule for the partitioned table",
-  "partitioned-table-operations--partition-key-column-type-change:reverse":
-    "retyping a partition key column is a replace rule for the partitioned table",
+/**
+ * `<scenario>:<forward|reverse>` -> why the engine rebuilds kept tables, and
+ * exactly which ones (sorted encoded stable ids). The set is compared exactly,
+ * so a plan that starts rebuilding one more table, or stops rebuilding one,
+ * fails the corpus instead of hiding behind an existing entry.
+ */
+export const KEPT_TABLE_REBUILDS: Readonly<
+  Record<string, { reason: string; tables: readonly string[] }>
+> = {
+  "dependencies-cycles--partitioned-parent-publication-via-root:forward": {
+    reason:
+      "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
+    tables: ["table:s1.parent"],
+  },
+  "dependencies-cycles--partitioned-parent-publication-via-root:reverse": {
+    reason:
+      "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
+    tables: ["table:s1.parent"],
+  },
+  "dependencies-cycles--replace-table-drops-fk:forward": {
+    reason:
+      "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
+    tables: ["table:public.child"],
+  },
+  "dependencies-cycles--replace-table-drops-fk:reverse": {
+    reason:
+      "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
+    tables: ["table:public.child"],
+  },
+  "dependencies-cycles--replace-table-rowtype-fn-check:forward": {
+    reason:
+      "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
+    tables: ["table:public.bookings"],
+  },
+  "dependencies-cycles--replace-table-rowtype-fn-check:reverse": {
+    reason:
+      "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
+    tables: ["table:public.bookings"],
+  },
+  "dependencies-cycles--replace-table-rowtype-fn-index:forward": {
+    reason:
+      "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
+    tables: ["table:public.bookings"],
+  },
+  "dependencies-cycles--replace-table-rowtype-fn-index:reverse": {
+    reason:
+      "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
+    tables: ["table:public.bookings"],
+  },
+  "dependencies-cycles--replace-table-rowtype-fn-kept:forward": {
+    reason:
+      "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
+    tables: ["table:public.bookings"],
+  },
+  "dependencies-cycles--replace-table-rowtype-fn-kept:reverse": {
+    reason:
+      "heap<->partitioned conversion has no in-place form; partitionKey is a replace rule",
+    tables: ["table:public.bookings"],
+  },
+  "partitioned-table-operations--add-key-column-under-intermediate:reverse": {
+    reason:
+      "adding/dropping a column that keys a sub-partition under the root recurses into it, so the root is replaced",
+    tables: ["table:test_schema.events", "table:test_schema.events_eu"],
+  },
+  "partitioned-table-operations--drop-subpartition-key-column:forward": {
+    reason:
+      "DROP COLUMN on the root recurses into a sub-partition keyed on it and Postgres rejects it; the root is replaced",
+    tables: ["table:test_schema.events", "table:test_schema.events_eu"],
+  },
+  "partitioned-table-operations--drop-subpartition-key-column:reverse": {
+    reason:
+      "DROP COLUMN on the root recurses into a sub-partition keyed on it and Postgres rejects it; the root is replaced",
+    tables: ["table:test_schema.events_eu"],
+  },
+  "partitioned-table-operations--partition-dependents:forward": {
+    reason:
+      "partitionBound is a replace rule; in-place ATTACH/DETACH PARTITION is not implemented",
+    tables: ["table:app.messages_2024"],
+  },
+  "partitioned-table-operations--partition-dependents:reverse": {
+    reason:
+      "partitionBound is a replace rule; in-place ATTACH/DETACH PARTITION is not implemented",
+    tables: ["table:app.messages_2024"],
+  },
+  "partitioned-table-operations--partition-key-column-type-change:forward": {
+    reason:
+      "retyping a partition key column is a replace rule for the partitioned table",
+    tables: ["table:test_schema.messages", "table:test_schema.messages_2024"],
+  },
+  "partitioned-table-operations--partition-key-column-type-change:reverse": {
+    reason:
+      "retyping a partition key column is a replace rule for the partitioned table",
+    tables: ["table:test_schema.messages", "table:test_schema.messages_2024"],
+  },
   "partitioned-table-operations--partition-key-expression-column-type-change:forward":
-    "retyping a column used only in the partition key expression still replaces the table",
+    {
+      reason:
+        "retyping a column used only in the partition key expression still replaces the table",
+      tables: ["table:test_schema.accounts"],
+    },
   "partitioned-table-operations--partition-key-expression-column-type-change:reverse":
-    "retyping a column used only in the partition key expression still replaces the table",
+    {
+      reason:
+        "retyping a column used only in the partition key expression still replaces the table",
+      tables: ["table:test_schema.accounts"],
+    },
   "partitioned-table-operations--repartition-key-identity-sequence-hygiene:forward":
-    "partition key change is a replace rule",
+    {
+      reason: "partition key change is a replace rule",
+      tables: ["table:s1.p1", "table:s1.parent"],
+    },
   "partitioned-table-operations--repartition-key-identity-sequence-hygiene:reverse":
-    "partition key change is a replace rule",
-  "partitioned-table-operations--repartition-key-keeps-partitions:forward":
-    "partition key change is a replace rule; the kept partitions are rebuilt with the parent",
-  "partitioned-table-operations--repartition-key-keeps-partitions:reverse":
-    "partition key change is a replace rule; the kept partitions are rebuilt with the parent",
-  "partitioned-table-operations--subpartition-key-column-type-change:forward":
-    "ALTER COLUMN TYPE on the root recurses into a keyed sub-partition and Postgres rejects it; the root is replaced",
-  "partitioned-table-operations--subpartition-key-column-type-change:reverse":
-    "ALTER COLUMN TYPE on the root recurses into a keyed sub-partition and Postgres rejects it; the root is replaced",
-  "publication-operations--membership-survives-table-replace:forward":
-    "partition key change is a replace rule; the point is publication membership surviving it",
-  "publication-operations--membership-survives-table-replace:reverse":
-    "partition key change is a replace rule; the point is publication membership surviving it",
-  "table-ops--attach-partition:forward":
-    "partitionBound/parentTable are replace rules; in-place ATTACH PARTITION is not implemented",
-  "table-ops--attach-partition:reverse":
-    "partitionBound/parentTable are replace rules; in-place ATTACH PARTITION is not implemented",
-  "table-ops--detach-partition:forward":
-    "partitionBound/parentTable are replace rules; in-place DETACH PARTITION is not implemented",
-  "table-ops--detach-partition:reverse":
-    "partitionBound/parentTable are replace rules; in-place DETACH PARTITION is not implemented",
-  "view-operations--rebuild-on-partition-key-replace:forward":
-    "partition key change is a replace rule; dependent views are rebuilt around it",
-  "view-operations--rebuild-on-partition-key-replace:reverse":
-    "partition key change is a replace rule; dependent views are rebuilt around it",
+    {
+      reason: "partition key change is a replace rule",
+      tables: ["table:s1.p1", "table:s1.parent"],
+    },
+  "partitioned-table-operations--repartition-key-keeps-partitions:forward": {
+    reason:
+      "partition key change is a replace rule; the kept partitions are rebuilt with the parent",
+    tables: ["table:s1.parent", "table:s2.p1", "table:s2.p2", "table:s2.p3"],
+  },
+  "partitioned-table-operations--repartition-key-keeps-partitions:reverse": {
+    reason:
+      "partition key change is a replace rule; the kept partitions are rebuilt with the parent",
+    tables: ["table:s1.parent", "table:s2.p1", "table:s2.p2", "table:s2.p3"],
+  },
+  "partitioned-table-operations--subpartition-key-column-type-change:forward": {
+    reason:
+      "ALTER COLUMN TYPE on the root recurses into a keyed sub-partition and Postgres rejects it; the root is replaced",
+    tables: ["table:test_schema.events", "table:test_schema.events_eu"],
+  },
+  "partitioned-table-operations--subpartition-key-column-type-change:reverse": {
+    reason:
+      "ALTER COLUMN TYPE on the root recurses into a keyed sub-partition and Postgres rejects it; the root is replaced",
+    tables: ["table:test_schema.events", "table:test_schema.events_eu"],
+  },
+  "publication-operations--membership-survives-table-replace:forward": {
+    reason:
+      "partition key change is a replace rule; the point is publication membership surviving it",
+    tables: ["table:s1.parent", "table:s2.p1"],
+  },
+  "publication-operations--membership-survives-table-replace:reverse": {
+    reason:
+      "partition key change is a replace rule; the point is publication membership surviving it",
+    tables: ["table:s1.parent", "table:s2.p1"],
+  },
+  "table-ops--attach-partition:forward": {
+    reason:
+      "partitionBound/parentTable are replace rules; in-place ATTACH PARTITION is not implemented",
+    tables: ["table:test_schema.events_2025"],
+  },
+  "table-ops--attach-partition:reverse": {
+    reason:
+      "partitionBound/parentTable are replace rules; in-place ATTACH PARTITION is not implemented",
+    tables: ["table:test_schema.events_2025"],
+  },
+  "table-ops--detach-partition:forward": {
+    reason:
+      "partitionBound/parentTable are replace rules; in-place DETACH PARTITION is not implemented",
+    tables: ["table:test_schema.events_2025"],
+  },
+  "table-ops--detach-partition:reverse": {
+    reason:
+      "partitionBound/parentTable are replace rules; in-place DETACH PARTITION is not implemented",
+    tables: ["table:test_schema.events_2025"],
+  },
+  "view-operations--rebuild-on-partition-key-replace:forward": {
+    reason:
+      "partition key change is a replace rule; dependent views are rebuilt around it",
+    tables: ["table:s1.p1", "table:s1.parent"],
+  },
+  "view-operations--rebuild-on-partition-key-replace:reverse": {
+    reason:
+      "partition key change is a replace rule; dependent views are rebuilt around it",
+    tables: ["table:s1.p1", "table:s1.parent"],
+  },
 };
 
 function keptTableIds(source: FactBase, desired: FactBase): Set<string> {
@@ -104,18 +212,30 @@ export function enforceKeptTableRebuilds(
       if (kept.has(encoded)) rebuilt.add(encoded);
     }
   }
-  const allowed = Object.hasOwn(KEPT_TABLE_REBUILDS, key);
-  if (rebuilt.size > 0 && !allowed) {
+  const entry = Object.hasOwn(KEPT_TABLE_REBUILDS, key)
+    ? KEPT_TABLE_REBUILDS[key]
+    : undefined;
+  if (entry === undefined) {
+    if (rebuilt.size === 0) return;
     throw new CorpusContractError(
       `[${scenarioName}] ${direction}: plan destroys table(s) that exist in both states: ${[...rebuilt].join(", ")}. ` +
         `Rebuilding a table that exists in both states loses its rows; fix the plan, or add the case ` +
-        `"${key}" to the allowlist in tests/kept-table-rebuilds.ts with the reason.`,
+        `"${key}" to the allowlist in tests/kept-table-rebuilds.ts with the reason and the exact tables.`,
     );
   }
-  if (rebuilt.size === 0 && allowed) {
+  if (rebuilt.size === 0) {
     throw new CorpusContractError(
       `[${scenarioName}] ${direction}: "${key}" is in the kept-table rebuild allowlist ` +
         `(tests/kept-table-rebuilds.ts) but the plan no longer destroys a kept table; remove it from the allowlist.`,
+    );
+  }
+  const recorded = new Set(entry.tables);
+  const unexpected = [...rebuilt].filter((id) => !recorded.has(id)).sort();
+  const missing = entry.tables.filter((id) => !rebuilt.has(id));
+  if (unexpected.length > 0 || missing.length > 0) {
+    throw new CorpusContractError(
+      `[${scenarioName}] ${direction}: rebuilt kept tables differ from the allowlist entry "${key}" ` +
+        `(tests/kept-table-rebuilds.ts). Unexpected: [${unexpected.join(", ")}]. Missing: [${missing.join(", ")}].`,
     );
   }
 }
