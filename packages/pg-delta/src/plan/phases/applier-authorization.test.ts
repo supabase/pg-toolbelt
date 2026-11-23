@@ -307,7 +307,11 @@ describe("applier authorization", () => {
           },
           ...extra,
         ],
-        [owned(schema, "app"), owned(table, "owner_a"), owned(other, "owner_b")],
+        [
+          owned(schema, "app"),
+          owned(table, "owner_a"),
+          owned(other, "owner_b"),
+        ],
       );
     // one statement needs owner_b (its own table), another is a GRANT on a
     // table where owner_b holds the grant option: borrowed for the first only
