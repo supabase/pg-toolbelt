@@ -299,6 +299,68 @@ describe("stage 6: execution", () => {
     }
   }, 60_000);
 
+  test("default-first keeps definitions ahead of evaluators", async () => {
+    // SET DEFAULT app.f() runs a user function, so it sinks below
+    // definitions. SET NOT NULL, and the view after it, must not sink with
+    // it behind ADD COLUMN y, whose default reads the view.
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("exec_evaluator_src");
+    const desired = await cluster.createDb("exec_evaluator_dst");
+    const fns = `CREATE FUNCTION app.f() RETURNS text LANGUAGE sql AS $$SELECT 'x'$$;
+      CREATE FUNCTION app.g() RETURNS bigint STABLE LANGUAGE plpgsql
+        AS $$BEGIN RETURN (SELECT count(*) FROM app.v); END$$;`;
+    try {
+      await source.pool.query(`CREATE SCHEMA app; ${fns}
+        CREATE TABLE app.t (s text); CREATE TABLE app.u (id int);`);
+      await desired.pool.query(`CREATE SCHEMA app; ${fns}
+        CREATE TABLE app.t (s text NOT NULL DEFAULT app.f());
+        CREATE TABLE app.u (id int, y bigint DEFAULT app.g());
+        CREATE VIEW app.v AS SELECT s FROM app.t;`);
+      const thePlan = plan(
+        (await extract(source.pool)).factBase,
+        (await extract(desired.pool)).factBase,
+      );
+      const report = await apply(thePlan, source.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.error?.message).toBeUndefined();
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
+  test("a skipped default-first edge keeps SET NOT NULL first", async () => {
+    // SET NOT NULL waits for the collation's owner change; the enum commit
+    // turns default-first off, so the plan keeps main's order.
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("exec_soft_skip_src");
+    const desired = await cluster.createDb("exec_soft_skip_dst");
+    const base = `CREATE SCHEMA app;
+      DO $$BEGIN CREATE ROLE exec_soft_skip; EXCEPTION WHEN duplicate_object THEN NULL; END$$;
+      CREATE COLLATION app.c (provider = libc, locale = 'C');`;
+    try {
+      await source.pool.query(`${base}
+        CREATE TYPE app.mood AS ENUM ('busy');
+        CREATE TABLE app.t (s text COLLATE app.c DEFAULT 'a');`);
+      await desired.pool.query(`${base}
+        ALTER COLLATION app.c OWNER TO exec_soft_skip;
+        CREATE TYPE app.mood AS ENUM ('busy', 'calm');
+        CREATE TABLE app.t (s text COLLATE app.c NOT NULL DEFAULT 'b');`);
+      const sets = plan(
+        (await extract(source.pool)).factBase,
+        (await extract(desired.pool)).factBase,
+      )
+        .actions.map((a) => a.sql)
+        .filter((sql) => sql.includes(`"s" SET`));
+      expect(sets).toEqual([
+        `ALTER TABLE "app"."t" ALTER COLUMN "s" SET NOT NULL`,
+        `ALTER TABLE "app"."t" ALTER COLUMN "s" SET DEFAULT 'b'::text`,
+      ]);
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
   test("fingerprint gate refuses a stale plan", async () => {
     const cluster = await sharedCluster();
     const source = await cluster.createDb("exec_gate_src");
