@@ -73,7 +73,9 @@ plan, only for a known non-superuser applier. A superuser plan is not touched.
      option the statement asks for. Grant options on other objects, or on other
      privileges, are ignored. Before refusing, one way out is taken: when the borrowed
      role holding the option is not needed by that statement (and is a plain case: borrowed
-     for itself, a member of nothing, not created, dropped or granted by the plan), it
+     for itself, a member of nothing, not created, dropped or granted by the plan, holding
+     no grant option on a schema, not needed by a statement that runs outside a
+     transaction), it
      is borrowed only around the statements that do need it, so it is not held while
      the GRANT / REVOKE runs. That reads `GRANT h TO applier; <its statements>; REVOKE h
      FROM applier`, more than once if the plan interleaves them. Measured: 37 refusals
