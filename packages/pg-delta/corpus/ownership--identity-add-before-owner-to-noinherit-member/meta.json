@@ -1,0 +1,10 @@
+{
+  "isolatedCluster": true,
+  "minVersion": 16,
+  "createroleApplier": true,
+  "forwardOnly": true,
+  "policy": {
+    "id": "grants-unmanaged",
+    "filter": [{ "match": { "kind": "acl" }, "action": "exclude" }]
+  }
+}

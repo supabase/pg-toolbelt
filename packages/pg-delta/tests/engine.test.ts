@@ -117,6 +117,7 @@ async function proveOn(
   seed: string | undefined,
   createroleApplier: boolean,
   settle: boolean,
+  policy: Scenario["meta"]["policy"],
 ): Promise<void> {
   if (createroleApplier) {
     await ensureCreateroleApplier(clusterA);
@@ -152,7 +153,12 @@ async function proveOn(
     // CREATEROLE login when `createroleApplier` is set) so capability-gated
     // compaction sees the same role as extract/prove.
     const capability = await probeApplierCapability(sourceWork);
-    const planOptions = { capability, compact, renames: renames ?? "off" };
+    const planOptions = {
+      capability,
+      compact,
+      renames: renames ?? "off",
+      ...(policy !== undefined ? { policy } : {}),
+    };
     let thePlan: Plan;
     if (settle) {
       const settled = await planSettled(
@@ -312,6 +318,7 @@ async function runDirection(
             seed,
             scenario.meta.createroleApplier === true,
             scenario.meta.settleDesired === true,
+            scenario.meta.policy,
           ),
         ),
       );
@@ -468,7 +475,15 @@ interface Case {
 
 const ALL_CASES: Case[] = CORPUS.flatMap((scenario) => [
   { scenario, direction: "forward", label: `${scenario.name} (a->b)` },
-  { scenario, direction: "reverse", label: `${scenario.name} (b->a)` },
+  ...(scenario.meta.forwardOnly === true
+    ? []
+    : [
+        {
+          scenario,
+          direction: "reverse" as const,
+          label: `${scenario.name} (b->a)`,
+        },
+      ]),
 ]);
 
 // Roles, role memberships, and other cluster-level objects are GLOBAL on the
