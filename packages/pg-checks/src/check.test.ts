@@ -64,7 +64,7 @@ describe("buildCheckBlock", () => {
       "filter (where l.name = any(array['rls_disabled_in_public']::pg_catalog.text[]))",
     );
     expect(outside).toContain(
-      "array['rls_disabled_in_public']::pg_catalog.text[], array['public.o''brien']::pg_catalog.text[]) as x(rule, object)",
+      "array['rls_disabled_in_public']::pg_catalog.text[], array['public']::pg_catalog.text[], array['o''brien']::pg_catalog.text[]) as x(rule, schema, name)",
     );
     expect(outside).toContain("errcode = 'SB001'");
     expect(outside).toContain("errcode = 'SB002'");
@@ -119,7 +119,7 @@ describe("exclusions", () => {
     },
   });
   const filter =
-    "\nwhere not exists (select 1 from unnest(array['rls_disabled_in_public', 'rls_disabled_in_public', 'security_definer_view']::pg_catalog.text[], array['public.a', 'public.o''brien', 'app.v']::pg_catalog.text[]) as x(rule, object) where x.rule = l.name and x.object = (l.metadata->>'schema') || '.' || (l.metadata->>'name'))";
+    "\nwhere not exists (select 1 from unnest(array['rls_disabled_in_public', 'rls_disabled_in_public', 'security_definer_view']::pg_catalog.text[], array['public', 'public', 'app']::pg_catalog.text[], array['a', 'o''brien', 'v']::pg_catalog.text[]) as x(rule, schema, name) where x.rule = l.name and x.schema = l.metadata->>'schema' and x.name = l.metadata->>'name')";
 
   test("filter pairs each rule with its object in the check and the read", () => {
     const check = buildCheckStatements(policy, {})[2] ?? "";
@@ -128,11 +128,22 @@ describe("exclusions", () => {
     expect(read.statements[read.resultIndex]?.includes(filter)).toBe(true);
   });
 
+  test("a dotted name is matched as schema and name, not as one string", () => {
+    const dotted = resolvePolicy({
+      rls_disabled_in_public: "error",
+      exclude: { rls_disabled_in_public: ["a.b.c"] },
+    });
+    const read = buildAfterCommitRead(dotted, {});
+    const select = read.statements[read.resultIndex] ?? "";
+    expect(select).toContain("array['a']::pg_catalog.text[], array['b.c']");
+    expect(select).not.toContain("|| '.' ||");
+  });
+
   test("no exclusions adds no filter", () => {
     expect(buildCheckStatements(allWarn, {})).toEqual([]);
     const read = buildAfterCommitRead(allWarn, {});
     expect(
-      read.statements[read.resultIndex]?.includes("as x(rule, object)"),
+      read.statements[read.resultIndex]?.includes("as x(rule, schema, name)"),
     ).toBe(false);
   });
 });
@@ -141,6 +152,13 @@ describe("buildAfterCommitRead", () => {
   test("reads warn and error rules in a transaction it rolls back", () => {
     const read = buildAfterCommitRead(blocking, { exposedSchemas: ["public"] });
     expect(read.statements[0]).toBe("begin");
+    expect(read.statements[1]).toBe("set local statement_timeout = '2000ms'");
+    expect(
+      buildAfterCommitRead(blocking, { timeoutMs: 750 }).statements[1],
+    ).toBe("set local statement_timeout = '750ms'");
+    expect(() => buildAfterCommitRead(blocking, { timeoutMs: 0 })).toThrow(
+      /timeoutMs/,
+    );
     expect(read.statements.at(-1)).toBe("rollback");
     const select = read.statements[read.resultIndex] ?? "";
     expect(select).toContain(lintUnion(allButSearchPath));
@@ -203,7 +221,7 @@ describe("buildInTransactionWarnRead", () => {
     expect(outside).toContain("pg_catalog.set_config('sbc.findings',");
     expect(outside).not.toContain("raise");
     expect(outside).toContain(
-      "array['rls_disabled_in_public']::pg_catalog.text[], array['public.o''brien']::pg_catalog.text[]) as x(rule, object)",
+      "array['rls_disabled_in_public']::pg_catalog.text[], array['public']::pg_catalog.text[], array['o''brien']::pg_catalog.text[]) as x(rule, schema, name)",
     );
     expect(
       outside.endsWith(

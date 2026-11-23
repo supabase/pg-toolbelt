@@ -280,6 +280,26 @@ describe("parseCheckError", () => {
     ]);
   });
 
+  test("reads the Management API's formatted error text", () => {
+    const detail = JSON.stringify({
+      errors: [row("rls_disabled_in_public", "public", "foo")],
+      warnings: [],
+    });
+    const text = `ERROR:  SB001: security check failed\nDETAIL:  ${detail}\nCONTEXT:  PL/pgSQL function inline_code_block line 19 at RAISE`;
+    for (const error of [text, { message: text }]) {
+      const result = parseCheckError(error);
+      expect(result?.kind).toBe("blocked");
+      if (result?.kind !== "blocked") return;
+      expect(result.errors.map((f) => f.name)).toEqual(["foo"]);
+    }
+    expect(
+      parseCheckError({
+        message: "ERROR:  SB002: security check timed out\nHINT:  retry",
+      }),
+    ).toEqual({ kind: "timed_out", message: "security check timed out" });
+    expect(parseCheckError("ERROR:  42P01: relation missing")).toBeNull();
+  });
+
   test("SB002 is a timeout", () => {
     expect(
       parseCheckError({ code: "SB002", message: "security check timed out" }),

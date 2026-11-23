@@ -136,20 +136,43 @@ export function parseInTransactionWarnRead(
 const QUERY_CANCELED_SQLSTATE = "57014";
 
 /**
+ * The Management API returns no SQLSTATE field: the error is text shaped
+ * `ERROR:  SB001: message\nDETAIL:  {json}\nCONTEXT: ...`.
+ */
+function fromErrorText(text: string): {
+  code: string;
+  message: string;
+  detail: string | undefined;
+} | null {
+  const head = /^ERROR:\s+(SB001|SB002|57014):\s*(.*)$/m.exec(text);
+  if (head === null) return null;
+  const detail = /^DETAIL:\s+(.*)$/m.exec(text)?.[1];
+  return { code: head[1] as string, message: head[2] as string, detail };
+}
+
+/**
  * The check's own failure, from a driver error carrying `code` and `detail`
- * (node-postgres `DatabaseError`, pg-meta's error body). `null` for any other error.
+ * (node-postgres `DatabaseError`, pg-meta's error body), or from the formatted
+ * error text of the Management API (a string, or an object whose `message`
+ * holds it). `null` for any other error.
  * Pass `fromCheck` when the executor knows the error came from a check statement.
  */
 export function parseCheckError(
   error: unknown,
   options: { readonly fromCheck?: boolean } = {},
 ): CheckError | null {
-  if (typeof error !== "object" || error === null) return null;
-  const { code, message, detail } = error as {
-    code?: unknown;
-    message?: unknown;
-    detail?: unknown;
-  };
+  let fields: { code?: unknown; message?: unknown; detail?: unknown };
+  if (typeof error === "string") {
+    fields = fromErrorText(error) ?? {};
+  } else if (typeof error === "object" && error !== null) {
+    fields = error as typeof fields;
+    if (fields.code === undefined && typeof fields.message === "string") {
+      fields = fromErrorText(fields.message) ?? fields;
+    }
+  } else {
+    return null;
+  }
+  const { code, message, detail } = fields;
   if (code === CHECK_TIMED_OUT_SQLSTATE) {
     return {
       kind: "timed_out",

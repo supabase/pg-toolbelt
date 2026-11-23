@@ -20,8 +20,18 @@ export interface Fix {
   readonly why: string;
 }
 
+// Postgres reserved keywords (docs appendix, "reserved"), plus `user`, which
+// cannot be a bare relation name either.
+const RESERVED = new Set(
+  `all analyse analyze and any array as asc asymmetric authorization binary both case cast check collate collation column concurrently constraint create cross current_catalog current_date current_role current_schema current_time current_timestamp current_user default deferrable desc distinct do else end except false fetch for foreign freeze from full grant group having ilike in initially inner intersect into is isnull join lateral leading left like limit localtime localtimestamp natural not notnull null offset on only or order outer overlaps placing primary references returning right select session_user similar some symmetric system_user table tablesample then to trailing true union unique user using variadic verbose when where window with`.split(
+    " ",
+  ),
+);
+
 const ident = (name: string) =>
-  /^[a-z_][a-z0-9_$]*$/.test(name) ? name : `"${name.replaceAll('"', '""')}"`;
+  /^[a-z_][a-z0-9_$]*$/.test(name) && !RESERVED.has(name)
+    ? name
+    : `"${name.replaceAll('"', '""')}"`;
 
 const statement = (label: string, sql: string, why: string): Fix => ({
   kind: "statement",
@@ -101,12 +111,22 @@ export function fixesFor(
     case "rls_policy_always_true": {
       const policy =
         typeof metadata["policy_name"] === "string"
-          ? `"${metadata["policy_name"].replaceAll('"', '""')}"`
+          ? ident(metadata["policy_name"])
           : "<policy>";
+      // Postgres rejects WITH CHECK on SELECT/DELETE policies and USING on INSERT ones.
+      const command =
+        typeof metadata["command"] === "string"
+          ? metadata["command"].toUpperCase()
+          : "";
+      const using = command === "INSERT" ? "" : " using (<condition>)";
+      const check =
+        command === "SELECT" || command === "DELETE"
+          ? ""
+          : " with check (<condition>)";
       return [
         template(
           "Narrow the policy",
-          `alter policy ${policy} on ${object} using (<condition>) with check (<condition>);`,
+          `alter policy ${policy} on ${object}${using}${check};`,
           `Policy ${policy} on ${object} allows every row; replace true with the condition that should apply.`,
         ),
       ];

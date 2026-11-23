@@ -97,10 +97,16 @@ function lintSelect(
   rules: readonly Rule[],
   exclude: ResolvedPolicy["exclude"],
 ): string {
+  // Split on the first dot (policy entries are `schema.name`), compared per
+  // column so a name containing dots cannot collide with another object.
+  const split = exclude.map((e) => {
+    const dot = e.object.indexOf(".");
+    return { schema: e.object.slice(0, dot), name: e.object.slice(dot + 1) };
+  });
   const excluded =
     exclude.length === 0
       ? ""
-      : `\nwhere not exists (select 1 from unnest(${textArray(exclude.map((e) => e.rule))}, ${textArray(exclude.map((e) => e.object))}) as x(rule, object) where x.rule = l.name and x.object = (l.metadata->>'schema') || '.' || (l.metadata->>'name'))`;
+      : `\nwhere not exists (select 1 from unnest(${textArray(exclude.map((e) => e.rule))}, ${textArray(split.map((e) => e.schema))}, ${textArray(split.map((e) => e.name))}) as x(rule, schema, name) where x.rule = l.name and x.schema = l.metadata->>'schema' and x.name = l.metadata->>'name')`;
   const union = RULES.filter((rule) => rules.includes(rule))
     .map(ruleSql)
     .join("\nunion all\n");
@@ -217,17 +223,18 @@ export interface AfterCommitRead {
  */
 export function buildAfterCommitRead(
   policy: ResolvedPolicy,
-  options: Pick<CheckOptions, "exposedSchemas">,
+  options: Pick<CheckOptions, "exposedSchemas" | "timeoutMs">,
 ): AfterCommitRead {
   const rules = [...rulesAt(policy, "error"), ...rulesAt(policy, "warn")];
   if (rules.length === 0) return { statements: [], resultIndex: -1, sql: "" };
   const statements = [
     "begin",
+    `set local statement_timeout = '${checkTimeout(options)}ms'`,
     `select pg_catalog.set_config('search_path', '', true), case when ${dbSchemasDiffer("pg_catalog.current_setting('pgrst.db_schemas', true)", options)} then pg_catalog.set_config('pgrst.db_schemas', ${quoteLiteral(dbSchemas(options))}, true) end`,
     lintSelect("l.*", rules, policy.exclude),
     "rollback",
   ];
-  return { statements, resultIndex: 2, sql: joinStatements(statements) };
+  return { statements, resultIndex: 3, sql: joinStatements(statements) };
 }
 
 /** Column of the one row {@link buildInTransactionWarnRead} returns. */

@@ -9,6 +9,7 @@ import {
   RULES,
   buildCheckBlock,
   buildInTransactionWarnRead,
+  parseCheckError,
   parseInTransactionWarnRead,
   resolvePolicy,
 } from "../src/index.ts";
@@ -141,6 +142,13 @@ create function ${schema}.f() returns int language sql as 'select 1'`;
       );
       expect(response.status).toBe(400);
       expect(JSON.stringify(response.body)).toContain("SB001");
+      const parsed = parseCheckError(response.body);
+      expect(parsed?.kind).toBe("blocked");
+      if (parsed?.kind === "blocked") {
+        expect(parsed.errors.map((f) => f.rule)).toContain(
+          "rls_disabled_in_public",
+        );
+      }
       expect(await state(schema, version)).toEqual({ t: false, history: 0 });
     });
 

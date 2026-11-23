@@ -1,7 +1,7 @@
 name: Sync splinter
 
 # Keeps @supabase/pg-checks on the latest splinter release: vendors it, runs the
-# package tests, and opens (or updates) one PR per release.
+# package tests, and opens one PR per release.
 on:
   schedule:
     - cron: "43 5 * * *"
@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   sync:
+    if: github.repository_owner == 'supabase'
     name: Vendor the latest splinter release
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -68,13 +69,19 @@ jobs:
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       # The app token (not GITHUB_TOKEN) makes the PR trigger the test workflow.
-      - name: Open or update the pull request
+      - name: Open the pull request
         if: steps.vendor.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           VERSION: ${{ steps.vendor.outputs.version }}
         run: |
           branch="chore/sync-splinter-$VERSION"
+          # Never overwrite a branch maintainers may have pushed to, or reopen a closed PR.
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 \
+            || [ -n "$(gh pr list --head "$branch" --state all --json number --jq '.[].number')" ]; then
+            echo "Branch or PR for $branch already exists; leaving it alone."
+            exit 0
+          fi
           cat > ".changeset/sync-splinter-$VERSION.md" <<EOF
           ---
           "@supabase/pg-checks": patch
@@ -87,9 +94,7 @@ jobs:
           git switch -c "$branch"
           git add packages/pg-checks/src/vendor ".changeset/sync-splinter-$VERSION.md"
           git commit -m "chore(pg-checks): vendor splinter $VERSION"
-          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "$branch"
-          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
-            gh pr create --base main --head "$branch" \
-              --title "chore(pg-checks): vendor splinter $VERSION" \
-              --body "Vendors [splinter $VERSION](https://github.com/supabase/splinter/releases/tag/$VERSION) into \`@supabase/pg-checks\`. Opened by the daily \`Sync splinter\` workflow after the vendoring checks and the package tests passed. Review the rule SQL diff in \`src/vendor/splinter.ts\` before merging: a changed checked rule changes what blocks."
-          fi
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "chore(pg-checks): vendor splinter $VERSION" \
+            --body "Vendors [splinter $VERSION](https://github.com/supabase/splinter/releases/tag/$VERSION) into \`@supabase/pg-checks\`. Opened by the daily \`Sync splinter\` workflow after the vendoring checks and the package tests passed. Review the rule SQL diff in \`src/vendor/splinter.ts\` before merging: a changed checked rule changes what blocks."
