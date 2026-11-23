@@ -378,6 +378,55 @@ describe("plan() — SET NOT NULL follows the column's new default", () => {
     `);
   });
 
+  test("default-first keeps new columns in declared order", () => {
+    // g reads s through an existing function, so it waits for SET NOT NULL;
+    // h does not. Default-first would delay g behind SET DEFAULT and let h
+    // be added first.
+    const f1: StableId = { ...fnId, args: ["text"] };
+    const column = (name: string, position: number, reads?: string): Fact => ({
+      id: { ...columnId, name },
+      parent: tableId,
+      payload: {
+        type: "text",
+        notNull: false,
+        _position: position,
+        generatedExpr: reads === undefined ? null : `public.f(${reads})`,
+      },
+    });
+    const x = column("x", 3);
+    const g = column("g", 4, "s");
+    const h = column("h", 5, "x");
+    const f: Fact = {
+      id: f1,
+      parent: schemaId,
+      payload: {
+        def: "CREATE FUNCTION public.f(text) RETURNS text IMMUTABLE LANGUAGE sql AS 'SELECT $1'",
+      },
+    };
+    expect(
+      sqlOf(
+        state(false, null, { facts: [x, f] }),
+        state(true, "public.f('new'::text)", {
+          facts: [x, f, g, h],
+          edges: [
+            { from: defaultId, to: f1, kind: "depends" },
+            { from: g.id, to: columnId, kind: "depends" },
+            { from: g.id, to: f1, kind: "depends" },
+            { from: h.id, to: x.id, kind: "depends" },
+            { from: h.id, to: f1, kind: "depends" },
+          ],
+        }),
+      ),
+    ).toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET NOT NULL",
+        "ALTER TABLE "public"."t" ADD COLUMN "g" text GENERATED ALWAYS AS (public.f(s)) STORED",
+        "ALTER TABLE "public"."t" ADD COLUMN "h" text GENERATED ALWAYS AS (public.f(x)) STORED",
+        "ALTER TABLE "public"."t" ALTER COLUMN "s" SET DEFAULT public.f('new'::text)",
+      ]
+    `);
+  });
+
   test("default-first gives way to declared column order", () => {
     // g (position 3) reads s; f reads h (position 4). Default-first would
     // close the cycle h -> f -> SET DEFAULT -> SET NOT NULL -> g -> h, so it

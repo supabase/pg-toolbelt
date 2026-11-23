@@ -141,6 +141,10 @@ describe("stage 6: execution", () => {
       await source.pool.query("COMMIT");
       const { rows } = await source.pool.query("SELECT status FROM app.t");
       expect(rows).toEqual([{ status: "new" }]);
+      const { rows: notNull } = await source.pool.query(
+        "SELECT attnotnull FROM pg_attribute WHERE attrelid = 'app.t'::regclass AND attname = 'status'",
+      );
+      expect(notNull).toEqual([{ attnotnull: true }]);
     } finally {
       await Promise.all([source.drop(), desired.drop()]);
     }
@@ -193,6 +197,59 @@ describe("stage 6: execution", () => {
           sourceState.factBase.rootHash,
         );
         expect(report.appliedActions).toBe(0);
+      } finally {
+        await Promise.all([source.drop(), desired.drop()]);
+      }
+    }
+  }, 60_000);
+
+  test("new columns keep declared order when SET NOT NULL waits for the default", async () => {
+    // g and h are generated through functions, so only the tie-break orders
+    // them; default-first must not delay one behind the other.
+    const f = `CREATE FUNCTION app.f(text) RETURNS text IMMUTABLE LANGUAGE sql AS 'SELECT $1';`;
+    const atomic = (name: string, column: string, table: string) =>
+      `CREATE FUNCTION app.${name}() RETURNS text IMMUTABLE LANGUAGE sql BEGIN ATOMIC SELECT max(${column}) FROM app.${table}; END;`;
+    const cases = [
+      {
+        source: `${f} CREATE TABLE app.t (s text, x text);`,
+        desired: `${f} CREATE TABLE app.t (s text NOT NULL DEFAULT app.f('new'), x text,
+          g text GENERATED ALWAYS AS (app.f(s)) STORED,
+          h text GENERATED ALWAYS AS (app.f(x)) STORED);`,
+        columns: ["s", "x", "g", "h"],
+      },
+      {
+        source: `${f} CREATE TABLE app.t (s text);
+          CREATE TABLE app.u (s text); CREATE TABLE app.v (s text);`,
+        desired: `${f} CREATE TABLE app.t (s text NOT NULL DEFAULT app.f('new'));
+          CREATE TABLE app.u (s text); CREATE TABLE app.v (s text);
+          ${atomic("fs", "s", "t")}
+          ALTER TABLE app.u ADD COLUMN c text GENERATED ALWAYS AS (app.fs()) STORED;
+          ALTER TABLE app.v ADD COLUMN c text GENERATED ALWAYS AS (app.f(s)) STORED;
+          ${atomic("fg", "c", "u")} ${atomic("fh", "c", "v")}
+          ALTER TABLE app.t ADD COLUMN g text GENERATED ALWAYS AS (app.fg()) STORED;
+          ALTER TABLE app.t ADD COLUMN h text GENERATED ALWAYS AS (app.f(s) || app.fh()) STORED;`,
+        columns: ["s", "g", "h"],
+      },
+    ];
+    const cluster = await sharedCluster();
+    for (const c of cases) {
+      const source = await cluster.createDb("exec_colorder_src");
+      const desired = await cluster.createDb("exec_colorder_dst");
+      try {
+        await source.pool.query(`CREATE SCHEMA app; ${c.source}`);
+        await desired.pool.query(`CREATE SCHEMA app; ${c.desired}`);
+        const thePlan = plan(
+          (await extract(source.pool)).factBase,
+          (await extract(desired.pool)).factBase,
+        );
+        const report = await apply(thePlan, source.pool, {
+          fingerprintGate: false,
+        });
+        expect(report.status).toBe("applied");
+        const { rows } = await source.pool.query(
+          "SELECT attname FROM pg_attribute WHERE attrelid = 'app.t'::regclass AND attnum > 0 ORDER BY attnum",
+        );
+        expect(rows.map((r) => r.attname)).toEqual(c.columns);
       } finally {
         await Promise.all([source.drop(), desired.drop()]);
       }
