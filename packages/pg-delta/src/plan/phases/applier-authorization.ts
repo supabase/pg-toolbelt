@@ -809,8 +809,8 @@ export function authorizeForApplier(
     !planRevokes.has(h) &&
     !inheritedSet.has(h) &&
     !settableSet.has(h) &&
-    !source.has(selfId(h)) &&
-    !desired.has(selfId(h)) &&
+    // PG16+: the creator's ADMIN-only row is not a use of the role
+    (modern ? ownRow(h) === undefined : !source.has(selfId(h))) &&
     upward(h).size === 1 &&
     ![...borrowed].some((r) => r !== h && upward(r).has(h)) &&
     !list.some((a) => roleSubject(a) === h);
