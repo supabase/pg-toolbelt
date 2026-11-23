@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres_version: ["15", "17"]
+        postgres_version: ["14", "15", "16", "17", "18"]
         part: [integration, corpus]
         include:
           # the Supabase-image tests self-skip without this switch, and the
