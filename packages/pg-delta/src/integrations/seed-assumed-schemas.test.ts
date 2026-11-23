@@ -1217,6 +1217,84 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.sql).toContain('CREATE PUBLICATION "platform_pub"');
   });
 
+  test("a POLICY-PRUNED membership on a later INHERITS parent's column keeps its publication", () => {
+    // `colanc` resolves `id` to `app.second`, the parent that defines it,
+    // which the payload lists in `inheritsAlso`, not `parentTable`.
+    const pub: StableId = { kind: "publication", name: "platform_pub" };
+    const schemaPrivate: StableId = { kind: "schema", name: "private" };
+    const first: StableId = { kind: "table", schema: "app", name: "first" };
+    const second: StableId = { kind: "table", schema: "app", name: "second" };
+    const child: StableId = { kind: "table", schema: "private", name: "child" };
+    const secondColumn: StableId = {
+      kind: "column",
+      schema: "app",
+      table: "second",
+      name: "id",
+    };
+    const rel: StableId = {
+      kind: "publicationRel",
+      publication: "platform_pub",
+      schema: "private",
+      table: "child",
+    };
+    const seed = deriveAssumedSchemaSeed(
+      buildFactBase(
+        [
+          f(schemaApp),
+          f(schemaPrivate),
+          f(pub, { allTables: false, viaRoot: false, publish: ["insert"] }),
+          {
+            id: first,
+            parent: schemaApp,
+            payload: { persistence: "p", parentTable: null },
+          },
+          {
+            id: second,
+            parent: schemaApp,
+            payload: { persistence: "p", parentTable: null },
+          },
+          { id: secondColumn, parent: second, payload: { type: "integer" } },
+          {
+            id: child,
+            parent: schemaPrivate,
+            payload: {
+              persistence: "p",
+              parentTable: { schema: "app", name: "first" },
+              inheritsAlso: [{ schema: "app", name: "second" }],
+            },
+          },
+          { id: rel, parent: pub, payload: { columns: ["id"], where: null } },
+        ],
+        [
+          { from: pub, to: child, kind: "depends" },
+          { from: pub, to: secondColumn, kind: "depends" },
+          { from: rel, to: child, kind: "depends" },
+        ],
+      ),
+      {
+        policy: {
+          id: "test-pub-pruned-multi-parent-membership",
+          filter: [
+            {
+              match: {
+                any: [
+                  { schema: "private" },
+                  { name: ["private", "platform_pub"] },
+                ],
+              },
+              action: "exclude",
+            },
+          ],
+          assumedPublications: ["platform_pub"],
+        },
+        assumedSchemas: [],
+        assumedRoles: [],
+        assumedPublications: ["platform_pub"],
+      },
+    );
+    expect(seed.sql).toContain('CREATE PUBLICATION "platform_pub"');
+  });
+
   test("a pruned SATELLITE does not make its candidate a shell", () => {
     // supabasePolicy hard-prunes the comment; the managed `app.mood` still omits auth.f.
     const mood: StableId = { kind: "type", schema: "app", name: "mood" };

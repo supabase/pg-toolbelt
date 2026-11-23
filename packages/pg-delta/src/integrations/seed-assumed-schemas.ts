@@ -244,10 +244,12 @@ export function deriveAssumedSchemaSeed(
       continue;
     }
     // Extract resolves a partition or inheritance child's columns to its
-    // root's own columns (`colanc`), so cover the ancestors too.
+    // ancestors' own columns (`colanc`), so cover every parent too.
     const { publication } = fct.id;
-    let table: unknown = { schema: fct.id.schema, name: fct.id.table };
-    while (typeof table === "object" && table !== null) {
+    const tables: unknown[] = [{ schema: fct.id.schema, name: fct.id.table }];
+    const seen = new Set<string>();
+    for (const table of tables) {
+      if (typeof table !== "object" || table === null) continue;
       const { schema, name } = table as { schema: string; name: string };
       const rel = encodeId({
         kind: "publicationRel",
@@ -255,10 +257,15 @@ export function deriveAssumedSchemaSeed(
         schema,
         table: name,
       });
+      if (seen.has(rel)) continue;
+      seen.add(rel);
       if (view.getByEncoded(rel) === undefined) prunedMemberships.add(rel);
-      table = targetFb.get({ kind: "table", schema, name })?.payload[
-        "parentTable"
-      ];
+      const payload = targetFb.get({ kind: "table", schema, name })?.payload;
+      const also = payload?.["inheritsAlso"];
+      tables.push(
+        payload?.["parentTable"],
+        ...(Array.isArray(also) ? also : []),
+      );
     }
   }
   const fromPrunedMembership = (e: DependencyEdge): boolean => {
