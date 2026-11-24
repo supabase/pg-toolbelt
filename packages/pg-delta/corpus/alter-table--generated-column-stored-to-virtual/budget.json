@@ -1,0 +1,10 @@
+{
+  "a-to-b": {
+    "require": ["replacement:column"],
+    "forbid": ["replacement:table"]
+  },
+  "b-to-a": {
+    "require": ["replacement:column"],
+    "forbid": ["replacement:table"]
+  }
+}

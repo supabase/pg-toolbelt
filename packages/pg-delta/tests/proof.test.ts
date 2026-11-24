@@ -121,6 +121,42 @@ describe("proof: rewrite observation", () => {
       await Promise.all([source.drop(), desired.drop()]);
     }
   }, 60_000);
+
+  test("ADD COLUMN ... VIRTUAL (PG 18) declares no rewrite and none happens", async () => {
+    const cluster = await sharedCluster();
+    if ((await cluster.pgMajor()) < 18) return;
+    const source = await cluster.createDb("proof_rw_virt_src");
+    const desired = await cluster.createDb("proof_rw_virt_dst");
+    try {
+      await source.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer);
+        INSERT INTO app.t SELECT generate_series(1, 5);
+      `);
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer, v integer GENERATED ALWAYS AS (id * 2) VIRTUAL);
+      `);
+      const [s, d] = [await extract(source.pool), await extract(desired.pool)];
+      const thePlan = plan(s.factBase, d.factBase);
+      expect(
+        thePlan.actions.map(({ sql, rewriteRisk }) => ({ sql, rewriteRisk })),
+      ).toMatchInlineSnapshot(`
+        [
+          {
+            "rewriteRisk": false,
+            "sql": "ALTER TABLE "app"."t" ADD COLUMN "v" integer GENERATED ALWAYS AS ((id * 2)) VIRTUAL",
+          },
+        ]
+      `);
+      // a VIRTUAL column is computed on read: the relfilenode check proves no rewrite
+      const verdict = await provePlan(thePlan, source.pool, d.factBase);
+      expect(verdict.rewriteViolations).toHaveLength(0);
+      expect(verdict.ok).toBe(true);
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
 });
 
 describe("proof: auto-seed data preservation", () => {
