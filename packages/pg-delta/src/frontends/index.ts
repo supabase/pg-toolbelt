@@ -79,6 +79,7 @@ export { segmentActions, planSegments, type Segment } from "../apply/apply.ts";
 export {
   STRICT_COVERAGE_CODES,
   hasBlockingDiagnostics,
+  isBlockingDiagnostic,
 } from "./diagnostics.ts";
 export { dataLossActions, type DataLossAction } from "./data-loss-actions.ts";
 export { type SourceDatabaseIdentity } from "../plan/plan.ts";
