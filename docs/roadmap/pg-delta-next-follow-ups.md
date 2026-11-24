@@ -415,7 +415,7 @@ matview populated state `WITH [NO] DATA` (`3530186683`), user-defined base types
 (`3530186693`), user-rule dependency resolution to rule facts (`3530186701`), custom
 identity sequence names (`3530186709`), foreign-column FDW options `attfdwoptions`
 (`3530186714`), ~~PG18 virtual generated columns (`3530186719`)~~ ✅ resolved
-(`relations.ts:266`, `tables.ts:727`), publication
+(`relations.ts:280`, `tables.ts:794`), publication
 `publish_generated_columns` (`3530186730`), role connection limits `rolconnlimit`
 (`3530186736`), multiple-inheritance parents (`3536715681`), foreign-table partition
 attachments (`3536715689`), non-relocatable extension `SET SCHEMA` (`3536715698`),
@@ -2324,3 +2324,32 @@ whenever it could reorder what main applies. These gaps are deferred.
   Main gets this right only through the tie-break's table-name order. A fix
   counts a parent's new column against each inheriting table in
   `columnCreatesByTable`.
+
+## PR #607 review triage — generated columns in inheritance trees
+
+#607 orders a replaced column's parent `DROP COLUMN` before a redeclaring
+`INHERITS` child's, and the child's `ADD COLUMN` before the parent's. It also
+refuses a `STORED`/`VIRTUAL` change when a partition or `INHERITS` child
+overrides the generation expression on a column it does not declare
+(`_generatedOverride`). Left as they are on main:
+
+- **A partition's own generation expression is not extracted** (nor an
+  `INHERITS` child's `SET EXPRESSION` on an inherited column). Its column is
+  not local, so it is no fact. A from-empty create and a parent expression
+  change (`generatedExpr: "replace"`) both leave the partition with the
+  parent's expression, and the next plan reports 0 actions. A fix extracts the
+  override, renders it in `PARTITION OF (... WITH OPTIONS ...)`, and restores
+  it after a parent replace (`SET EXPRESSION`, PG 17+). The #607 guard then
+  goes away.
+- **Replacing only the child's redeclared column fails.** A child-only
+  expression change emits `DROP COLUMN` on the child while the parent keeps
+  the column ("cannot drop inherited column"). `SET EXPRESSION` (PG 17+) is the
+  in-place form.
+- **A grandchild that redeclares the column under a non-redeclaring middle
+  table is not ordered.** `redeclaringChildColumns` walks direct children only.
+- **A table rename in the same plan drops the add-side order.** The create
+  rule looks the desired parent table up on the source, so a renamed parent
+  reads as new and the tie-break orders the two `ADD COLUMN`s.
+- **`type.alter` declares `rewriteRisk` for a `VIRTUAL` column.** PG 18 does
+  not rewrite the table there. Over-declaring is safe; checking the source
+  column's `generatedVirtual` removes the false hazard.

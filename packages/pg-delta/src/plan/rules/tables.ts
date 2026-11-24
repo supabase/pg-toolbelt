@@ -273,7 +273,7 @@ export const tableRules: Record<string, KindRules> = {
         sql: `ALTER TABLE ${rel(schema, table)} RENAME COLUMN ${qid(column)} TO ${qid((to as { name: string }).name)}`,
       };
     },
-    create: (fact, view) => {
+    create: (fact, view, _params, sourceView) => {
       const { schema, table, column } = columnRef(fact);
       // delta-set inlining (§3.4): a column arriving WITH a default must
       // carry it inline — ADD COLUMN … NOT NULL fails on populated tables
@@ -301,6 +301,13 @@ export const tableRules: Record<string, KindRules> = {
         defaultChild !== undefined;
       const spec: ActionSpec = {
         sql: `ALTER TABLE ${rel(schema, table)} ADD COLUMN ${clause}`,
+        // ADD COLUMN recurses into existing children and merges with a column
+        // a child already redeclares, so that child's own ADD COLUMN goes
+        // first ("column ... already exists" otherwise). A parent this plan
+        // creates folds its columns into CREATE TABLE and needs no such order.
+        ...(sourceView && fact.parent && sourceView.get(fact.parent)
+          ? { consumes: redeclaringChildColumns(view, fact).map((c) => c.id) }
+          : {}),
         alsoProduces,
         ...(rewrites ? { rewriteRisk: true } : {}),
       };
@@ -312,10 +319,15 @@ export const tableRules: Record<string, KindRules> = {
       }
       return [spec];
     },
-    drop: (fact) => {
+    drop: (fact, view) => {
       const { schema, table, column } = columnRef(fact);
       return {
         sql: `ALTER TABLE ${rel(schema, table)} DROP COLUMN ${qid(column)}`,
+        // Postgres rejects DROP COLUMN on a child while a parent still has the
+        // column ("cannot drop inherited column"): the parent's drop goes first.
+        ...(view
+          ? { releases: redeclaringChildColumns(view, fact).map((c) => c.id) }
+          : {}),
         dataLoss: "destructive",
       };
     },
@@ -528,8 +540,27 @@ export const tableRules: Record<string, KindRules> = {
       },
       collation: "replace",
       generatedExpr: "replace",
-      // PG 18 has no ALTER between STORED and VIRTUAL.
-      generatedVirtual: "replace",
+      generatedVirtual: {
+        // PG 18 has no ALTER between STORED and VIRTUAL, so the column is
+        // always replaced and `alter` never renders. The replacement re-adds
+        // the column on every child with the parent's expression, and a
+        // child's own expression on a column it does not declare is not a
+        // fact that could restore it.
+        replaceWhen: (_from, _to, fact) => {
+          if (p(fact, "_generatedOverride") === true) {
+            const { schema, table, column } = columnRef(fact);
+            throw new Error(
+              `plan: column ${rel(schema, table)}.${qid(column)} cannot change between STORED and VIRTUAL: ` +
+                `a child table overrides its generation expression, and replacing the column would reset it. ` +
+                `Change the kind manually, then re-run.`,
+            );
+          }
+          return true;
+        },
+        alter: () => {
+          throw new Error("unreachable: generatedVirtual is always replaced");
+        },
+      },
     },
   },
 
@@ -704,6 +735,39 @@ function identityOptionAlterSpecs(
   )
     clauses.push("RESTART");
   return [{ sql: `${target} ${clauses.join(" ")}` }];
+}
+
+/** The same-named columns that the table's inheritance children redeclare.
+ *  A child's column is a fact only when it is local, so each one is a
+ *  definition Postgres merged with this inherited column. */
+function redeclaringChildColumns(view: FactView, fact: Fact): Fact[] {
+  const parent = fact.parent;
+  if (parent === undefined) return [];
+  const parentKey = encodeId(parent);
+  const columns: Fact[] = [];
+  for (const edge of view.incomingEdges(parent)) {
+    const child = view.get(edge.from);
+    if (child?.id.kind !== "table") continue;
+    const parents = [
+      p(child, "parentTable"),
+      ...((p(child, "inheritsAlso") as PayloadValue[] | undefined) ?? []),
+    ] as Array<{ schema: string; name: string } | null>;
+    if (
+      !parents.some(
+        (t) => t !== null && encodeId({ kind: "table", ...t }) === parentKey,
+      )
+    ) {
+      continue;
+    }
+    const column = view.get({
+      kind: "column",
+      schema: child.id.schema,
+      table: child.id.name,
+      name: columnRef(fact).column,
+    });
+    if (column !== undefined) columns.push(column);
+  }
+  return columns;
 }
 
 function columnRef(fact: Fact): {

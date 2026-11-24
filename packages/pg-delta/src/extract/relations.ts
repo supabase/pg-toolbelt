@@ -168,6 +168,27 @@ const COLUMNS_SQL = `
                AND d.refobjid = pt.relid AND d.refobjsubid = 0
                AND d.deptype = 'i')
            ELSE false END AS partition_key,
+           -- A partition or INHERITS child may carry its own generation
+           -- expression on a column it does not declare. That column is not
+           -- local, so it is no fact: replacing the parent's column resets it.
+           CASE WHEN a.attgenerated <> '' THEN EXISTS (
+             WITH RECURSIVE kids AS (
+               SELECT i.inhrelid, pa.attnum
+               FROM pg_inherits i
+               JOIN pg_attribute pa ON pa.attrelid = i.inhrelid
+                 AND pa.attname = a.attname AND NOT pa.attislocal
+               WHERE i.inhparent = c.oid
+               UNION
+               SELECT i.inhrelid, pa.attnum
+               FROM kids k
+               JOIN pg_inherits i ON i.inhparent = k.inhrelid
+               JOIN pg_attribute pa ON pa.attrelid = i.inhrelid
+                 AND pa.attname = a.attname AND NOT pa.attislocal)
+             SELECT 1
+             FROM kids k
+             JOIN pg_attrdef pad ON pad.adrelid = k.inhrelid AND pad.adnum = k.attnum
+             WHERE pg_get_expr(pad.adbin, pad.adrelid) <> pg_get_expr(ad.adbin, ad.adrelid))
+           ELSE false END AS generated_override,
            CASE WHEN a.attcollation <> t.typcollation THEN (
              SELECT quote_ident(cn.nspname) || '.' || quote_ident(co.collname)
              FROM pg_collation co JOIN pg_namespace cn ON cn.oid = co.collnamespace
@@ -233,6 +254,11 @@ export const columnsFamily: CatalogFamily = {
             // already hashes the partition key. The `_` prefix keeps this copy
             // out of the hash and diff.
             _partitionKey: Boolean(row["partition_key"]),
+            // Planner-only (plan/rules/tables.ts); absent otherwise, and the
+            // `_` prefix keeps it out of the hash and diff.
+            ...(row["generated_override"] === true
+              ? { _generatedOverride: true }
+              : {}),
             type: String(row["type"]),
             notNull: Boolean(row["not_null"]),
             identity:
