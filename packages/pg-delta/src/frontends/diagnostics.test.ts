@@ -105,12 +105,12 @@ describe("isBlockingDiagnostic", () => {
     );
   });
 
-  test("accepts any object carrying code and severity", () => {
-    const foreign = {
-      code: "unmodeled_kind",
-      severity: "warning",
-      subject: "public.t",
-    } as const;
+  test("accepts a caller's own type with the same severity union", () => {
+    const foreign: {
+      code: string;
+      severity: "error" | "warning" | "info";
+      subject?: string;
+    } = { code: "unmodeled_kind", severity: "warning", subject: "public.t" };
     expect(isBlockingDiagnostic(foreign)).toBe(false);
     expect(isBlockingDiagnostic(foreign, { strictCoverage: true })).toBe(true);
   });

@@ -83,7 +83,7 @@ Library frontends accept pools and SQL files; they return typed data. No
 | **WP3a** export file classification | ✅ #414 | Pure `classifySqlFiles` / `classifySqlContent`. Does **not** export `writeExportFiles`. |
 | **WP3b** prune / dry-run / unmodeled probe | ✅ #416 | `pruneStaleSqlFiles`, `renderApplyScript`, `probeUnmodeledIdentitiesPinned`. |
 | **WP3c** segments | ✅ #421 | `Segment` + `planSegments(plan)` from root/`frontends`. |
-| **WP3d** strict-coverage gate | ✅ #423 | `STRICT_COVERAGE_CODES` + `hasBlockingDiagnostics`. `printDiagnostics` / `exitIfBlocking` stay in the CLI. |
+| **WP3d** strict-coverage gate | ✅ #423 | `STRICT_COVERAGE_CODES` + `hasBlockingDiagnostics` + `isBlockingDiagnostic` (#608). `printDiagnostics` / `exitIfBlocking` stay in the CLI. |
 | **WP3e** data-loss helpers | ✅ #423 | `dataLossActions`. `assertDataLossAllowed` stays in the CLI. |
 | **WP3f** target-identity safety | ✅ #423 | `SourceDatabaseIdentity` + `database-identity.ts` helpers (not URL parsing). |
 
