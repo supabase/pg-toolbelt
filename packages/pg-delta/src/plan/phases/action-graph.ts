@@ -20,6 +20,7 @@ import {
 import type { FoldHint, RulesForId } from "../rules.ts";
 import {
   actionTieKey,
+  addSoftEdges,
   buildActionGraph,
   compactColumnFolds,
   computeSafetyReport,
@@ -43,6 +44,27 @@ function columnCreateSlot(
   const position = desired.get(id)?.payload["_position"];
   if (typeof position !== "number") return undefined;
   return { tableKey: `${id.schema}\x00${id.table}`, position };
+}
+
+/** Each table's column creates, in declared order, for tables with more
+ *  than one. */
+function columnCreatesByTable(
+  actions: readonly Action[],
+  desired: FactBase,
+): number[][] {
+  const byTable = new Map<string, Array<{ position: number; index: number }>>();
+  actions.forEach((action, index) => {
+    const slot = columnCreateSlot(action, action.produces[0], desired);
+    if (slot === undefined) return;
+    const columns = byTable.get(slot.tableKey) ?? [];
+    columns.push({ position: slot.position, index });
+    byTable.set(slot.tableKey, columns);
+  });
+  return [...byTable.values()]
+    .filter((columns) => columns.length > 1)
+    .map((columns) =>
+      columns.sort((a, b) => a.position - b.position).map((c) => c.index),
+    );
 }
 
 /** Whether a generated column has a pg_depend edge to a column of its own
@@ -106,21 +128,9 @@ function chainColumnCreatesByPosition(
   producerOf: ReadonlyMap<string, number>,
   evaluatorActions: ReadonlySet<number>,
   edges: Array<[number, number]>,
+  columnsByTable: readonly (readonly number[])[],
 ): void {
-  const columnsByTable = new Map<
-    string,
-    Array<{ position: number; index: number }>
-  >();
-  actions.forEach((action, index) => {
-    const slot = columnCreateSlot(action, action.produces[0], desired);
-    if (slot === undefined) return;
-    const columns = columnsByTable.get(slot.tableKey) ?? [];
-    columns.push({ position: slot.position, index });
-    columnsByTable.set(slot.tableKey, columns);
-  });
-  if (![...columnsByTable.values()].some((columns) => columns.length > 1)) {
-    return;
-  }
+  if (columnsByTable.length === 0) return;
 
   const successorsOf = new Map<number, number[]>();
   const addSuccessor = (before: number, after: number): void => {
@@ -176,15 +186,14 @@ function chainColumnCreatesByPosition(
       (actions[index] as Action).produces[0] as StableId,
     );
 
-  for (const columns of columnsByTable.values()) {
-    columns.sort((a, b) => a.position - b.position);
+  for (const columns of columnsByTable) {
     let before: number | undefined;
     // Each column whose chain edges are released, mapped to where its own
     // chain edge starts, if it has one.
     const chainedFrom = new Map<number, number | undefined>();
     // The columns of this table released so far.
     const freed: number[] = [];
-    for (const { index: after } of columns) {
+    for (const after of columns) {
       // `before → after` closes a cycle iff `after` already precedes `before`.
       let from =
         before !== undefined && !reaches(after, before) ? before : undefined;
@@ -238,6 +247,8 @@ export interface FinalizeInput {
   /** action index → encoded `destroys` ids that are side-effect wipes (see
    *  ActionEmitterOutput.implicitDestroys). */
   implicitDestroys: ReadonlyMap<number, ReadonlySet<string>>;
+  /** action index → encoded `ActionSpec.after` ids (cycle-guarded soft order). */
+  softAfter: ReadonlyMap<number, ReadonlySet<string>>;
   /** per-action compaction metadata captured during emission (never persisted). */
   foldHints: ReadonlyArray<FoldHint | undefined>;
   acceptsFolds: readonly boolean[];
@@ -299,6 +310,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     desired,
     renameActionIndices,
     implicitDestroys,
+    softAfter,
     foldHints,
     acceptsFolds,
     assumedRoleNames,
@@ -315,10 +327,11 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   // ── graph edges + deterministic order ─────────────────────────────────
   // Actions that RUN a user expression at apply time (a DEFAULT / generated
   // column backfill, a validated CHECK scan, an expression-index build).
-  // Classified during the edge walk and fed to the tie-break, never as an edge
-  // of its own (the column chain below only orders columns within main's
-  // chain), so they sink below every simultaneously ready DEFINITION action
-  // without making legitimate routine<->relation cycles unplannable.
+  // Classified during the edge walk and fed to the tie-break (and to the
+  // soft-edge veto in `addSoftEdges`), never as an edge of its own (the column
+  // chain below only orders columns within main's chain), so they sink below
+  // every simultaneously ready DEFINITION action without making legitimate
+  // routine<->relation cycles unplannable.
   const evaluatorActions = new Set<number>();
   const overlayWipeActions = new Set<number>();
   if (overlayAdpWipes.length > 0) {
@@ -330,6 +343,8 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
       }
     });
   }
+  const softEdges: Array<[number, number]> = [];
+  const liftedEdges: Array<[number, number]> = [];
   const edges = buildActionGraph(
     actions,
     producerOf,
@@ -342,13 +357,27 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     assumedPresentIds,
     evaluatorActions,
     implicitDestroys,
+    softAfter,
+    softEdges,
+    liftedEdges,
   );
+  const columnsByTable = columnCreatesByTable(actions, desired);
   chainColumnCreatesByPosition(
     actions,
     desired,
     producerOf,
     evaluatorActions,
     edges,
+    columnsByTable,
+  );
+  // cosmetic `ActionSpec.after` order, last so it never displaces an edge above
+  addSoftEdges(
+    edges,
+    softEdges,
+    liftedEdges,
+    actions.every((a) => a.transactionality === "transactional"),
+    evaluatorActions,
+    columnsByTable,
   );
 
   // Order a table's ADD COLUMN creates by declared column position
