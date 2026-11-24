@@ -100,6 +100,8 @@ export interface ActionEmitterOutput {
    *  (rule-declared `implicitlyDestroys`), for the graph: reproduce edge only,
    *  no teardown edges. Transient, never persisted. */
   implicitDestroys: Map<number, Set<string>>;
+  /** action index → encoded `ActionSpec.after` ids. Transient, never persisted. */
+  softAfter: Map<number, Set<string>>;
 }
 
 /**
@@ -140,6 +142,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
 
   // side-effect wipes per action (see ActionEmitterOutput.implicitDestroys)
   const implicitDestroys = new Map<number, Set<string>>();
+  const softAfter = new Map<number, Set<string>>();
 
   const pushAction = (
     verb: Action["verb"],
@@ -161,6 +164,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     if (wipes.length > 0) {
       implicitDestroys.set(index, new Set(wipes.map(encodeId)));
       destroys.push(...wipes);
+    }
+    if (spec.after !== undefined && spec.after.length > 0) {
+      softAfter.set(index, new Set(spec.after.map(encodeId)));
     }
     const subjectKind = (produces[0] ?? destroys[0] ?? consumes[0])?.kind;
     actions.push({
@@ -997,5 +1003,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     acceptsFolds,
     renameActionIndices,
     implicitDestroys,
+    softAfter,
   };
 }

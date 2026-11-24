@@ -108,6 +108,259 @@ describe("stage 6: execution", () => {
     }
   }, 60_000);
 
+  test("a backfill fits between SET DEFAULT and SET NOT NULL", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("exec_backfill_src");
+    const desired = await cluster.createDb("exec_backfill_dst");
+    try {
+      await source.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (status text);
+        INSERT INTO app.t VALUES (NULL);
+      `);
+      await desired.pool.query(`
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (status text NOT NULL DEFAULT 'new');
+      `);
+      const [sourceState, desiredState] = [
+        await extract(source.pool),
+        await extract(desired.pool),
+      ];
+      const sql = plan(sourceState.factBase, desiredState.factBase).actions.map(
+        (a) => a.sql,
+      );
+      await source.pool.query("BEGIN");
+      for (const statement of sql) {
+        await source.pool.query(statement);
+        if (statement.includes("SET DEFAULT")) {
+          await source.pool.query(
+            "UPDATE app.t SET status = DEFAULT WHERE status IS NULL",
+          );
+        }
+      }
+      await source.pool.query("COMMIT");
+      const { rows } = await source.pool.query("SELECT status FROM app.t");
+      expect(rows).toEqual([{ status: "new" }]);
+      const { rows: notNull } = await source.pool.query(
+        "SELECT attnotnull FROM pg_attribute WHERE attrelid = 'app.t'::regclass AND attname = 'status'",
+      );
+      expect(notNull).toEqual([{ attnotnull: true }]);
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
+  test("a failed SET NOT NULL is not pushed past an enum ADD VALUE commit", async () => {
+    // the NULL row fails SET NOT NULL; it must fail before the commit, so the
+    // whole apply rolls back. The default reaches the new enum value in the
+    // first case; in the second only the tie-break puts ADD VALUE first.
+    const cases = [
+      {
+        source: `
+          CREATE TYPE app.mood AS ENUM ('busy');
+          CREATE FUNCTION app.old_status() RETURNS text LANGUAGE sql AS 'SELECT 1::text';
+          CREATE TABLE app.t (status text DEFAULT app.old_status());`,
+        desired: `
+          CREATE TYPE app.mood AS ENUM ('busy', 'calm');
+          CREATE TABLE app.t (status text NOT NULL DEFAULT 'calm'::app.mood);`,
+      },
+      {
+        source: `
+          CREATE TYPE app.mood AS ENUM ('busy');
+          CREATE TABLE app.t (status text);`,
+        desired: `
+          CREATE TYPE app.mood AS ENUM ('busy', 'calm');
+          CREATE FUNCTION app.f() RETURNS text LANGUAGE sql AS 'SELECT 1::text';
+          CREATE TABLE app.t (status text NOT NULL DEFAULT app.f());`,
+      },
+    ];
+    const cluster = await sharedCluster();
+    for (const c of cases) {
+      const source = await cluster.createDb("exec_notnull_src");
+      const desired = await cluster.createDb("exec_notnull_dst");
+      try {
+        await source.pool.query(
+          `CREATE SCHEMA app; ${c.source} INSERT INTO app.t VALUES (NULL);`,
+        );
+        await desired.pool.query(`CREATE SCHEMA app; ${c.desired}`);
+        const [sourceState, desiredState] = [
+          await extract(source.pool),
+          await extract(desired.pool),
+        ];
+        const thePlan = plan(sourceState.factBase, desiredState.factBase);
+        const report = await apply(thePlan, source.pool, {
+          fingerprintGate: false,
+        });
+        expect(report.status).toBe("failed");
+        // the persisted schema is exactly the source's
+        expect((await extract(source.pool)).factBase.rootHash).toBe(
+          sourceState.factBase.rootHash,
+        );
+        expect(report.appliedActions).toBe(0);
+      } finally {
+        await Promise.all([source.drop(), desired.drop()]);
+      }
+    }
+  }, 60_000);
+
+  test("a failed SET NOT NULL commits nothing after ADD VALUE", async () => {
+    // ADD VALUE commits in both orders. Default-first must not commit the
+    // default, or an unrelated statement it lets go first, before SET NOT
+    // NULL fails on the NULL row.
+    const cases = [
+      {
+        shared: `CREATE DOMAIN app.dm AS app.mood;
+          CREATE FUNCTION app.d() RETURNS app.mood LANGUAGE plpgsql AS $$BEGIN RETURN 'busy'; END$$;`,
+        source: "CREATE TABLE app.t (m app.dm);",
+        desired: "CREATE TABLE app.t (m app.dm NOT NULL DEFAULT app.d());",
+      },
+      {
+        shared: `CREATE FUNCTION app.d() RETURNS text LANGUAGE sql AS $$SELECT 'busy'$$;`,
+        source: "CREATE TABLE app.t (m app.mood); CREATE TABLE app.z (id int);",
+        desired: `CREATE TABLE app.t (m app.mood NOT NULL DEFAULT app.d()::app.mood);
+          CREATE TABLE app.z (id int CHECK (id > 0));`,
+      },
+    ];
+    const cluster = await sharedCluster();
+    for (const c of cases) {
+      const source = await cluster.createDb("exec_default_seg_src");
+      const desired = await cluster.createDb("exec_default_seg_dst");
+      try {
+        await source.pool.query(`CREATE SCHEMA app;
+          CREATE TYPE app.mood AS ENUM ('busy'); ${c.shared} ${c.source}
+          INSERT INTO app.t VALUES (NULL);`);
+        await desired.pool.query(`CREATE SCHEMA app;
+          CREATE TYPE app.mood AS ENUM ('busy', 'calm'); ${c.shared} ${c.desired}`);
+        const thePlan = plan(
+          (await extract(source.pool)).factBase,
+          (await extract(desired.pool)).factBase,
+        );
+        const report = await apply(thePlan, source.pool, {
+          fingerprintGate: false,
+        });
+        expect(report.status).toBe("failed");
+        expect(report.appliedActions).toBe(1);
+      } finally {
+        await Promise.all([source.drop(), desired.drop()]);
+      }
+    }
+  }, 60_000);
+
+  test("new columns keep declared order when SET NOT NULL waits for the default", async () => {
+    // g and h are generated through functions, so only the tie-break orders
+    // them; default-first must not delay one behind the other.
+    const f = `CREATE FUNCTION app.f(text) RETURNS text IMMUTABLE LANGUAGE sql AS 'SELECT $1';`;
+    const atomic = (name: string, column: string, table: string) =>
+      `CREATE FUNCTION app.${name}() RETURNS text IMMUTABLE LANGUAGE sql BEGIN ATOMIC SELECT max(${column}) FROM app.${table}; END;`;
+    const cases = [
+      {
+        source: `${f} CREATE TABLE app.t (s text, x text);`,
+        desired: `${f} CREATE TABLE app.t (s text NOT NULL DEFAULT app.f('new'), x text,
+          g text GENERATED ALWAYS AS (app.f(s)) STORED,
+          h text GENERATED ALWAYS AS (app.f(x)) STORED);`,
+        columns: ["s", "x", "g", "h"],
+      },
+      {
+        source: `${f} CREATE TABLE app.t (s text);
+          CREATE TABLE app.u (s text); CREATE TABLE app.v (s text);`,
+        desired: `${f} CREATE TABLE app.t (s text NOT NULL DEFAULT app.f('new'));
+          CREATE TABLE app.u (s text); CREATE TABLE app.v (s text);
+          ${atomic("fs", "s", "t")}
+          ALTER TABLE app.u ADD COLUMN c text GENERATED ALWAYS AS (app.fs()) STORED;
+          ALTER TABLE app.v ADD COLUMN c text GENERATED ALWAYS AS (app.f(s)) STORED;
+          ${atomic("fg", "c", "u")} ${atomic("fh", "c", "v")}
+          ALTER TABLE app.t ADD COLUMN g text GENERATED ALWAYS AS (app.fg()) STORED;
+          ALTER TABLE app.t ADD COLUMN h text GENERATED ALWAYS AS (app.f(s) || app.fh()) STORED;`,
+        columns: ["s", "g", "h"],
+      },
+    ];
+    const cluster = await sharedCluster();
+    for (const c of cases) {
+      const source = await cluster.createDb("exec_colorder_src");
+      const desired = await cluster.createDb("exec_colorder_dst");
+      try {
+        await source.pool.query(`CREATE SCHEMA app; ${c.source}`);
+        await desired.pool.query(`CREATE SCHEMA app; ${c.desired}`);
+        const thePlan = plan(
+          (await extract(source.pool)).factBase,
+          (await extract(desired.pool)).factBase,
+        );
+        const report = await apply(thePlan, source.pool, {
+          fingerprintGate: false,
+        });
+        expect(report.status).toBe("applied");
+        const { rows } = await source.pool.query(
+          "SELECT attname FROM pg_attribute WHERE attrelid = 'app.t'::regclass AND attnum > 0 ORDER BY attnum",
+        );
+        expect(rows.map((r) => r.attname)).toEqual(c.columns);
+      } finally {
+        await Promise.all([source.drop(), desired.drop()]);
+      }
+    }
+  }, 60_000);
+
+  test("default-first keeps definitions ahead of evaluators", async () => {
+    // SET DEFAULT app.f() runs a user function, so it sinks below
+    // definitions. SET NOT NULL, and the view after it, must not sink with
+    // it behind ADD COLUMN y, whose default reads the view.
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("exec_evaluator_src");
+    const desired = await cluster.createDb("exec_evaluator_dst");
+    const fns = `CREATE FUNCTION app.f() RETURNS text LANGUAGE sql AS $$SELECT 'x'$$;
+      CREATE FUNCTION app.g() RETURNS bigint STABLE LANGUAGE plpgsql
+        AS $$BEGIN RETURN (SELECT count(*) FROM app.v); END$$;`;
+    try {
+      await source.pool.query(`CREATE SCHEMA app; ${fns}
+        CREATE TABLE app.t (s text); CREATE TABLE app.u (id int);`);
+      await desired.pool.query(`CREATE SCHEMA app; ${fns}
+        CREATE TABLE app.t (s text NOT NULL DEFAULT app.f());
+        CREATE TABLE app.u (id int, y bigint DEFAULT app.g());
+        CREATE VIEW app.v AS SELECT s FROM app.t;`);
+      const thePlan = plan(
+        (await extract(source.pool)).factBase,
+        (await extract(desired.pool)).factBase,
+      );
+      const report = await apply(thePlan, source.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.error?.message).toBeUndefined();
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
+  test("a skipped default-first edge keeps SET NOT NULL first", async () => {
+    // SET NOT NULL waits for the collation's owner change; the enum commit
+    // turns default-first off, so the plan keeps main's order.
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("exec_soft_skip_src");
+    const desired = await cluster.createDb("exec_soft_skip_dst");
+    const base = `CREATE SCHEMA app;
+      DO $$BEGIN CREATE ROLE exec_soft_skip; EXCEPTION WHEN duplicate_object THEN NULL; END$$;
+      CREATE COLLATION app.c (provider = libc, locale = 'C');`;
+    try {
+      await source.pool.query(`${base}
+        CREATE TYPE app.mood AS ENUM ('busy');
+        CREATE TABLE app.t (s text COLLATE app.c DEFAULT 'a');`);
+      await desired.pool.query(`${base}
+        ALTER COLLATION app.c OWNER TO exec_soft_skip;
+        CREATE TYPE app.mood AS ENUM ('busy', 'calm');
+        CREATE TABLE app.t (s text COLLATE app.c NOT NULL DEFAULT 'b');`);
+      const sets = plan(
+        (await extract(source.pool)).factBase,
+        (await extract(desired.pool)).factBase,
+      )
+        .actions.map((a) => a.sql)
+        .filter((sql) => sql.includes(`"s" SET`));
+      expect(sets).toEqual([
+        `ALTER TABLE "app"."t" ALTER COLUMN "s" SET NOT NULL`,
+        `ALTER TABLE "app"."t" ALTER COLUMN "s" SET DEFAULT 'b'::text`,
+      ]);
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
+
   test("fingerprint gate refuses a stale plan", async () => {
     const cluster = await sharedCluster();
     const source = await cluster.createDb("exec_gate_src");

@@ -763,6 +763,7 @@ export function plan(
     acceptsFolds,
     renameActionIndices,
     implicitDestroys,
+    softAfter,
   } = emitActions({
     source,
     rawSource,
@@ -802,6 +803,7 @@ export function plan(
     desired,
     renameActionIndices,
     implicitDestroys,
+    softAfter,
     foldHints,
     acceptsFolds,
     assumedRoleNames,
