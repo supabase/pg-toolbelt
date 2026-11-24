@@ -2277,6 +2277,15 @@ behaves the same on `main` before #584 unless noted.
   as on `main`; an extension whose own install script needs a pruned plain
   object is now seeded and fails `CREATE EXTENSION` (`main` omitted it), though
   no assumed extension does this. A fix needs member provenance from extract.
+- **Extension `requires` has no edge.** Extract emits no edge for an
+  extension's `requires` list, so an assumed `A` that requires `B` reaches `B`
+  only through folded member edges. If `A`'s only edge into `B` is to one of
+  `B`'s tables, pass (1) accepts it while `B` is still a candidate. When the
+  install-schema pass then drops `B` (its schema is managed), the cascade does
+  not check an extension's member edges, so `A` stays seeded and `CREATE
+  EXTENSION A` fails without `B`. `main` fails the same way when `A` has no added member; #593 also seeds
+  `A` when it has an added member on a pruned type, which `main` omitted. A fix
+  emits a `requires` edge from extract.
 - **Assumed schema whose own schema fact is not excluded.** A filter matching
   only `{ schema: [...] }` (the #578 repro's policy) excludes the objects in an
   assumed schema but not the schema itself, so the schema stays managed while
