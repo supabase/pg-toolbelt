@@ -414,7 +414,8 @@ role membership SET/INHERIT options (`3530186654`), database-scoped role GUCs
 matview populated state `WITH [NO] DATA` (`3530186683`), user-defined base types
 (`3530186693`), user-rule dependency resolution to rule facts (`3530186701`), custom
 identity sequence names (`3530186709`), foreign-column FDW options `attfdwoptions`
-(`3530186714`), PG18 virtual generated columns (`3530186719`), publication
+(`3530186714`), ~~PG18 virtual generated columns (`3530186719`)~~ ✅ resolved
+(`relations.ts:266`, `tables.ts:727`), publication
 `publish_generated_columns` (`3530186730`), role connection limits `rolconnlimit`
 (`3530186736`), multiple-inheritance parents (`3536715681`), foreign-table partition
 attachments (`3536715689`), non-relocatable extension `SET SCHEMA` (`3536715698`),

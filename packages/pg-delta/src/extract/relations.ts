@@ -262,6 +262,8 @@ export const columnsFamily: CatalogFamily = {
               generated && row["default_expr"] != null
                 ? (row["default_expr"] as string)
                 : null,
+            // PG 18 VIRTUAL (attgenerated 'v'); absent otherwise, so hashes hold.
+            ...(row["generated"] === "v" ? { generatedVirtual: true } : {}),
           },
         },
         row,

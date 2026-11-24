@@ -295,7 +295,8 @@ export const tableRules: Record<string, KindRules> = {
       // rewriteRisk — over-declaring is safe (the proof only fails on
       // UNDER-declared rewrites).
       const rewrites =
-        fact.payload["generatedExpr"] != null ||
+        (fact.payload["generatedExpr"] != null &&
+          fact.payload["generatedVirtual"] !== true) ||
         fact.payload["identity"] != null ||
         defaultChild !== undefined;
       const spec: ActionSpec = {
@@ -527,6 +528,8 @@ export const tableRules: Record<string, KindRules> = {
       },
       collation: "replace",
       generatedExpr: "replace",
+      // PG 18 has no ALTER between STORED and VIRTUAL.
+      generatedVirtual: "replace",
     },
   },
 
@@ -720,7 +723,9 @@ function columnClause(fact: Fact): string {
   if (collation != null) sql += ` COLLATE ${str(collation)}`;
   const generated = p(fact, "generatedExpr");
   if (generated != null)
-    sql += ` GENERATED ALWAYS AS (${str(generated)}) STORED`;
+    sql += ` GENERATED ALWAYS AS (${str(generated)}) ${
+      p(fact, "generatedVirtual") === true ? "VIRTUAL" : "STORED"
+    }`;
   const identity = p(fact, "identity");
   const generation = identityGeneration(identity);
   if (generation === "a" || generation === "d") {
