@@ -144,10 +144,10 @@ function fromErrorText(text: string): {
   message: string;
   detail: string | undefined;
 } | null {
-  const head = /^ERROR:\s+(SB001|SB002|57014):\s*(.*)$/m.exec(text);
+  const head = /^ERROR:[ \t]+(SB001|SB002|57014):[ \t]*(\S.*)?$/m.exec(text);
   if (head === null) return null;
-  const detail = /^DETAIL:\s+(.*)$/m.exec(text)?.[1];
-  return { code: head[1] as string, message: head[2] as string, detail };
+  const detail = /^DETAIL:[ \t]+(\S.*)$/m.exec(text)?.[1];
+  return { code: head[1] as string, message: head[2] ?? "", detail };
 }
 
 /**
