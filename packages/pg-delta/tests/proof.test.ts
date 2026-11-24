@@ -159,6 +159,45 @@ describe("proof: rewrite observation", () => {
   }, 60_000);
 });
 
+describe("plan: generated column kind change", () => {
+  // replacing the parent's column would reset the child's expression to the
+  // parent's, and the override is not a fact, so no proof could see it
+  const overrides = {
+    partition: (kind: string) => `
+      CREATE TABLE app.p (a integer, v integer GENERATED ALWAYS AS (a * 2) ${kind})
+        PARTITION BY RANGE (a);
+      CREATE TABLE app.p1 PARTITION OF app.p (v WITH OPTIONS GENERATED ALWAYS AS (a * 3) ${kind})
+        FOR VALUES FROM (0) TO (100);`,
+    "INHERITS child": (kind: string) => `
+      CREATE TABLE app.p (a integer, v integer GENERATED ALWAYS AS (a * 2) ${kind});
+      CREATE TABLE app.p1 () INHERITS (app.p);
+      ALTER TABLE app.p1 ALTER COLUMN v SET EXPRESSION AS (a * 3);`,
+  };
+  for (const [shape, ddl] of Object.entries(overrides)) {
+    test(`STORED to VIRTUAL (PG 18) is refused when a ${shape} has its own expression`, async () => {
+      const cluster = await sharedCluster();
+      if ((await cluster.pgMajor()) < 18) return;
+      const source = await cluster.createDb("proof_virt_override_src");
+      const desired = await cluster.createDb("proof_virt_override_dst");
+      try {
+        await source.pool.query(`CREATE SCHEMA app; ${ddl("STORED")}`);
+        await desired.pool.query(`CREATE SCHEMA app; ${ddl("VIRTUAL")}`);
+        const [s, d] = [
+          await extract(source.pool),
+          await extract(desired.pool),
+        ];
+        expect(() =>
+          plan(s.factBase, d.factBase),
+        ).toThrowErrorMatchingInlineSnapshot(
+          `"plan: column "app"."p"."v" cannot change between STORED and VIRTUAL: a child table overrides its generation expression, and replacing the column would reset it. Change the kind manually, then re-run."`,
+        );
+      } finally {
+        await Promise.all([source.drop(), desired.drop()]);
+      }
+    }, 60_000);
+  }
+});
+
 describe("proof: auto-seed data preservation", () => {
   test("auto-seed makes an undeclared row loss on a kept table visible", async () => {
     const cluster = await sharedCluster();
