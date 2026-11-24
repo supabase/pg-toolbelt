@@ -2341,6 +2341,13 @@ overrides the generation expression on a column it does not declare
   override, renders it in `PARTITION OF (... WITH OPTIONS ...)`, and restores
   it after a parent replace (`SET EXPRESSION`, PG 17+). The #607 guard then
   goes away.
+- **A redeclared inherited column does not export or create from empty.**
+  The child renders as `CREATE TABLE ... () INHERITS (...)` plus its own
+  `ADD COLUMN`, which Postgres rejects ("column ... already exists"), for any
+  column and on every PG version. That is why #607 covers the `INHERITS`
+  shapes in `tests/proof.test.ts` and not in the corpus, whose export
+  round-trip gate would fail. A fix inlines the redeclared columns in the
+  child's `CREATE TABLE`.
 - **Replacing only the child's redeclared column fails.** A child-only
   expression change emits `DROP COLUMN` on the child while the parent keeps
   the column ("cannot drop inherited column"). `SET EXPRESSION` (PG 17+) is the

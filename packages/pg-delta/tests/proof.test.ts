@@ -160,6 +160,50 @@ describe("proof: rewrite observation", () => {
 });
 
 describe("plan: generated column kind change", () => {
+  // Not a corpus scenario: export cannot round-trip a redeclared inherited
+  // column yet (docs/roadmap/pg-delta-next-follow-ups.md, PR #607 triage).
+  for (const [from, to] of [
+    ["STORED", "VIRTUAL"],
+    ["VIRTUAL", "STORED"],
+  ] as const) {
+    test(`${from} to ${to} (PG 18) converges when an INHERITS child redeclares the column`, async () => {
+      const cluster = await sharedCluster();
+      if ((await cluster.pgMajor()) < 18) return;
+      const source = await cluster.createDb("proof_virt_inh_src");
+      const desired = await cluster.createDb("proof_virt_inh_dst");
+      try {
+        // both name orders, since the tie-break is by table name
+        const pair = (parent: string, child: string, kind: string) => `
+          CREATE TABLE app.${parent} (n integer, v integer GENERATED ALWAYS AS (n * 2) ${kind});
+          CREATE TABLE app.${child} (v integer GENERATED ALWAYS AS (n * 3) ${kind})
+            INHERITS (app.${parent});`;
+        const ddl = (kind: string) => `
+          CREATE SCHEMA app;
+          ${pair("z_parent", "a_child", kind)}
+          ${pair("a_parent", "z_child", kind)}`;
+        await source.pool.query(`${ddl(from)}
+          CREATE TABLE app.b_parent (n integer, v integer GENERATED ALWAYS AS (n * 2) ${from});`);
+        // b_parent's child is new in this plan
+        await desired.pool.query(
+          `${ddl(to)} ${pair("b_parent", "y_child", to)}`,
+        );
+        const [s, d] = [
+          await extract(source.pool),
+          await extract(desired.pool),
+        ];
+        const verdict = await provePlan(
+          plan(s.factBase, d.factBase),
+          source.pool,
+          d.factBase,
+        );
+        expect(verdict.applyError).toBeUndefined();
+        expect(verdict.ok).toBe(true);
+      } finally {
+        await Promise.all([source.drop(), desired.drop()]);
+      }
+    }, 60_000);
+  }
+
   // replacing the parent's column would reset the child's expression to the
   // parent's, and the override is not a fact, so no proof could see it
   const overrides = {
