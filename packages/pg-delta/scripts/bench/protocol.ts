@@ -35,6 +35,9 @@ export type Side = "base" | "head";
 export interface BenchResults {
   meta: {
     rounds: number;
+    /** Pairs of worker processes the rounds were sampled from. Absent in
+     *  results written before the runner replaced its workers. */
+    workerPairs?: number;
     pgImage: string;
     base: string;
     head: string;

@@ -2241,3 +2241,85 @@ case still drops and recreates it, deferred.
   OR REPLACE spec alone cannot help. A fix would skip a dependent in that walk
   when its in-place def alter no longer needs the dropped object, and give the
   alter `releases` of its source-side deps so it runs before the drop.
+
+## PR #584 review triage (Codex) — assumed-schema seed gaps
+
+#584 omits a seed candidate whose dependency was pruned from the managed view.
+Neighbouring shapes still replay a candidate the shadow cannot create. Each
+behaves the same on `main` before #584 unless noted.
+
+- **Member of an extension excluded after pass (1).** An assumed extension
+  installed into a MANAGED schema is excluded by the install-schema pass, but a
+  candidate depending on one of its member TABLES (pruned or reference-only)
+  stays seeded: the cascade walks `view.edges` and never treats an excluded
+  extension's members as excluded. Member functions/types are unaffected
+  (extract resolves those references to the extension id). A fix makes the
+  cascade walk the raw target edges and treat an edge into a member of an
+  excluded extension as excluded, skipping shells so an empty publication shell
+  is not dropped. #584 adds a narrow second trigger: a member added with
+  `ALTER EXTENSION … ADD` that depends on a pruned non-schema object gives the
+  extension a raw edge to it, so pass (1) excludes the extension. Pass (1)'s
+  member exemption should hold only while the extension stays in the seed.
+- **Assumed table or view with a managed satellite.** A managed in-view child
+  (e.g. its ACL) makes the candidate a shell, so pass (1) never checks its own
+  `depends` edges and a view reading a pruned or managed relation is still
+  replayed. Narrowing shells to `publicationRel` is not enough: the omitted
+  candidate's managed ACL then plans a spurious `REVOKE`. A fix needs the diff to
+  treat satellites of a seed-omitted candidate as reference-only too.
+- **Assumed extension installed in a pruned custom schema.** The install-schema
+  pass treats a schema absent from the view as ambient, which holds only for
+  `public` and `pg_catalog` in the template0 shadow. A policy-pruned custom
+  install schema (e.g. an excluded `extensions`) is never created there, so the
+  seed's `CREATE EXTENSION … SCHEMA extensions` fails at replay. A fix treats a
+  pruned install schema as ambient only when the shadow template ships it.
+- **Publication shell with a kept membership on a managed column.** A pruned
+  `publicationRel` makes its publication a shell, and a shell skips every
+  outgoing edge, including the column-list edges a kept membership folds onto
+  it. If `p` publishes `platform.t (id, later)` and a pruned `private.t`, with
+  `platform.t.later` managed, the seed emits `CREATE PUBLICATION p FOR TABLE
+  platform.t (id, later)` before `later` exists. Managed memberships already do
+  this on `main`. A fix skips only the edges from memberships the seed leaves
+  out.
+
+## PR #587 review triage — default-first and unrelated commits
+
+#587 runs `SET DEFAULT` before `SET NOT NULL` on the same column through a
+soft edge (`addSoftEdges` in `src/plan/internal.ts`). The edge is dropped
+whenever it could reorder what main applies. These gaps are deferred.
+
+- **Any commit in the plan turns default-first off.** The edge is kept only
+  when the whole plan runs in one transaction, so an enum `ADD VALUE` or a
+  concurrent index, related or not, brings back `SET NOT NULL` first. With a
+  commit, the delay changes what is committed before a failure: it can move
+  the `newSegmentBefore` mark of an `ADD VALUE` onto `SET DEFAULT`, or run
+  `SET DEFAULT` and unrelated statements before a failing concurrent index. A
+  narrower check would compare the full segment layout with and without the
+  edge and keep it only when they match. The opt-in lock-budget split
+  (`splitPlan`, `apply --split-to-fit` / `--max-locks`) adds commits after
+  planning and can still separate the pair; its extra commits are already
+  documented as unsafe.
+- **A default that can run a user function keeps `SET NOT NULL` first.** Such
+  a `SET DEFAULT` (a function call, or a domain whose CHECK calls one) is an
+  evaluator, so the tie-break sinks it below every definition. The edge would
+  sink `SET NOT NULL` and its dependents with it, past an evaluator that reads
+  one of them (an `ADD COLUMN` whose plpgsql default reads a view over the
+  column), so it is skipped. A fix would check that no evaluator outside the
+  edge's reach reads what the edge delays.
+- **A retyped column re-sets its default before a new type it casts to.**
+  `column.type.alter` re-emits `SET DEFAULT` with no `consumes`, so
+  `integer DEFAULT 1` to `text DEFAULT 'calm'::mood` with a new `mood` fails at
+  apply, as on main. Adding `dependencyConsumes` to that spec would order it
+  after `CREATE TYPE`.
+- **Default-first is off whenever `SET NOT NULL` reaches a new column.** This
+  holds even when the table's new columns are already chained, as in
+  `t(s text)` to `t(s text NOT NULL DEFAULT 'new', g ... AS (upper(s)), h text)`.
+  Checking only that each delayed column reaches the next one declared is not
+  enough: an earlier evaluator column has no chain edge, so a delayed later
+  column it reads could be added after it. A narrower check must also keep the
+  unreached earlier columns ahead of the delayed ones.
+- **Columns appended through inheritance are grouped by the table the action
+  names.** A parent's recursive `ADD COLUMN` and an inheriting table's own
+  `ADD COLUMN` both append to the child, so delaying one can swap them there.
+  Main gets this right only through the tie-break's table-name order. A fix
+  counts a parent's new column against each inheriting table in
+  `columnCreatesByTable`.
