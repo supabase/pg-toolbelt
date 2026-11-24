@@ -276,6 +276,9 @@ export function buildActionGraph(
   const alterersOf = new Map<string, number[]>();
   actions.forEach((action, index) => {
     if (action.verb !== "alter") return;
+    // a rename is ordered by what it produces; as an alterer it would pull a
+    // dependent's teardown (an owned server's DROP) ahead of itself and cycle
+    if (action.change.kind === "rename") return;
     const key = encodeId(action.subject);
     const list = alterersOf.get(key) ?? [];
     list.push(index);

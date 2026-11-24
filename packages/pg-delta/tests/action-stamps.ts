@@ -9,6 +9,7 @@ import { encodeId, type StableId } from "../src/core/stable-id.ts";
 import { relabelRoleNames } from "../src/plan/identity-normalize.ts";
 import type { Action, Plan } from "../src/plan/plan.ts";
 import { lit, qid } from "../src/plan/render.ts";
+import { CorpusContractError } from "./corpus-contract.ts";
 
 /** Every name the id carries that a statement about it must spell out. The
  *  schema is left out: `search_path`-relative definitions omit it. */
@@ -234,6 +235,9 @@ function stampViolations(action: Action, ctx: PlanContext): string[] {
   return out;
 }
 
+/** A contract violation, so an `EXPECTED_RED` pin cannot absorb it. */
+class ActionStampError extends CorpusContractError {}
+
 export function enforceActionStamps(
   label: string,
   thePlan: Plan,
@@ -248,6 +252,8 @@ export function enforceActionStamps(
     ),
   );
   if (problems.length > 0) {
-    throw new Error(`[${label}] action stamps:\n${problems.join("\n")}`);
+    throw new ActionStampError(
+      `[${label}] action stamps:\n${problems.join("\n")}`,
+    );
   }
 }
