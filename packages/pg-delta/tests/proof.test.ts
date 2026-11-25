@@ -212,10 +212,15 @@ describe("plan: generated column kind change", () => {
           CREATE TABLE app.${parent} (n integer, v integer GENERATED ALWAYS AS (n * 2) ${kind});
           CREATE TABLE app.${child} (v integer GENERATED ALWAYS AS (n * 3) ${kind})
             INHERITS (app.${parent});`;
+        // g_mid inherits the column without redeclaring it
         const ddl = (kind: string) => `
           CREATE SCHEMA app;
           ${pair("z_parent", "a_child", kind)}
-          ${pair("a_parent", "z_child", kind)}`;
+          ${pair("a_parent", "z_child", kind)}
+          CREATE TABLE app.g_root (n integer, v integer GENERATED ALWAYS AS (n * 2) ${kind});
+          CREATE TABLE app.g_mid () INHERITS (app.g_root);
+          CREATE TABLE app.a_grand (v integer GENERATED ALWAYS AS (n * 3) ${kind})
+            INHERITS (app.g_mid);`;
         await source.pool.query(`${ddl(from)}
           CREATE TABLE app.b_parent (n integer, v integer GENERATED ALWAYS AS (n * 2) ${from});`);
         // b_parent's child is new in this plan
@@ -241,12 +246,17 @@ describe("plan: generated column kind change", () => {
 
   // replacing the parent's column would reset the child's expression to the
   // parent's, and the override is not a fact, so no proof could see it
+  const partition = (kind: string, own: string) => `
+    CREATE TABLE app.p (a integer, v integer GENERATED ALWAYS AS (a * 2) ${kind})
+      PARTITION BY RANGE (a);
+    CREATE TABLE app.p1 PARTITION OF app.p ${own} FOR VALUES FROM (0) TO (100);`;
+  const own = (kind: string) =>
+    `(v WITH OPTIONS GENERATED ALWAYS AS (a * 3) ${kind})`;
   const overrides = {
-    partition: (kind: string) => `
-      CREATE TABLE app.p (a integer, v integer GENERATED ALWAYS AS (a * 2) ${kind})
-        PARTITION BY RANGE (a);
-      CREATE TABLE app.p1 PARTITION OF app.p (v WITH OPTIONS GENERATED ALWAYS AS (a * 3) ${kind})
-        FOR VALUES FROM (0) TO (100);`,
+    partition: (kind: string) => partition(kind, own(kind)),
+    // the desired side may come from an export, which drops the override
+    "partition on the source only": (kind: string) =>
+      partition(kind, kind === "STORED" ? own(kind) : ""),
     "INHERITS child": (kind: string) => `
       CREATE TABLE app.p (a integer, v integer GENERATED ALWAYS AS (a * 2) ${kind});
       CREATE TABLE app.p1 () INHERITS (app.p);
@@ -268,7 +278,7 @@ describe("plan: generated column kind change", () => {
         expect(() =>
           plan(s.factBase, d.factBase),
         ).toThrowErrorMatchingInlineSnapshot(
-          `"plan: column "app"."p"."v" cannot change between STORED and VIRTUAL: a child table overrides its generation expression, and replacing the column would reset it. Change the kind manually, then re-run."`,
+          `"plan: column "app"."p"."v" cannot change its generation kind: a child table overrides its generation expression, and replacing the column would reset it. Change the kind manually, then re-run."`,
         );
       } finally {
         await Promise.all([source.drop(), desired.drop()]);
