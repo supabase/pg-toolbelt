@@ -177,6 +177,7 @@ const producerIndicesForRequirement = (
 export const buildGraph = (
   nodes: StatementNode[],
   externalProviders?: ObjectRef[],
+  ifNotExistsStatements: ReadonlyMap<number, string> = new Map(),
 ): GraphState => {
   const diagnostics: Diagnostic[] = [];
   const producersByKey = new Map<string, number[]>();
@@ -212,8 +213,25 @@ export const buildGraph = (
     }
   }
 
+  // The same `create … if not exists` repeated is one object, not a conflict:
+  // every copy stays a producer, so consumers order after all of them, and no
+  // duplicate is reported. Statements that differ keep the diagnostics.
+  const repeatedKeys = new Set<string>();
   for (const [producerKey, producerIndices] of producersByKey.entries()) {
-    if (producerIndices.length < 2) {
+    const fingerprint = ifNotExistsStatements.get(producerIndices[0] ?? -1);
+    if (
+      producerIndices.length > 1 &&
+      fingerprint !== undefined &&
+      producerIndices.every(
+        (index) => ifNotExistsStatements.get(index) === fingerprint,
+      )
+    ) {
+      repeatedKeys.add(producerKey);
+    }
+  }
+
+  for (const [producerKey, producerIndices] of producersByKey.entries()) {
+    if (producerIndices.length < 2 || repeatedKeys.has(producerKey)) {
       continue;
     }
     const firstProducerIndex = producerIndices[0];
@@ -270,13 +288,27 @@ export const buildGraph = (
       }
 
       if (producerIndices.length > 1) {
-        if (requiredRef.kind === "constraint") {
+        // A copy that needs its own object (a self-referencing table) needs
+        // nothing from its sibling copies.
+        if (
+          repeatedKeys.has(requiredKey) &&
+          producerIndices.includes(consumerIndex)
+        ) {
+          continue;
+        }
+        if (
+          requiredRef.kind === "constraint" ||
+          repeatedKeys.has(requiredKey)
+        ) {
           const uniqueProducerIndices = [...new Set(producerIndices)].filter(
             (producerIndex) => producerIndex !== consumerIndex,
           );
           for (const producerIndex of uniqueProducerIndices) {
             addEdge(graphState, producerIndex, consumerIndex, {
-              reason: "requires_constraint_key",
+              reason:
+                requiredRef.kind === "constraint"
+                  ? "requires_constraint_key"
+                  : "requires",
               objectRef: requiredRef,
             });
           }
