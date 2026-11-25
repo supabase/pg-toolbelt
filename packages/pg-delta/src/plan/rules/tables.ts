@@ -353,6 +353,8 @@ export const tableRules: Record<string, KindRules> = {
           // a column replace, so whenever `type.alter` runs at all the source
           // and desired generated-ness are necessarily the same.
           const sourceGenerated = sourceColumn.payload["generatedExpr"] != null;
+          const sourceVirtual =
+            sourceColumn.payload["generatedVirtual"] === true;
           // Foreign tables have no local storage, so PostgreSQL rejects the
           // USING cast clause ("<rel> is not a table", 42809) — it would force a
           // rewrite. The plain TYPE change is metadata-only and carries no
@@ -382,15 +384,16 @@ export const tableRules: Record<string, KindRules> = {
               : "";
           // A generated column also rejects the USING clause ("cannot specify
           // USING when altering type of generated column") — PostgreSQL
-          // recomputes the value from the generation expression. That still
-          // rewrites the table, so rewriteRisk stays (unlike the foreign case).
+          // recomputes the value from the generation expression. For a STORED
+          // column that still rewrites the table, so rewriteRisk stays. A
+          // VIRTUAL one (PG 18) stores no value and is not rewritten.
           const usingCast =
             isForeign || sourceGenerated
               ? ""
               : ` USING ${qid(column)}${hop}::${str(to)}`;
           const typeSpec: ActionSpec = {
             sql: `${target} TYPE ${str(to)}${usingCast}`,
-            ...(isForeign ? {} : { rewriteRisk: true }),
+            ...(isForeign || sourceVirtual ? {} : { rewriteRisk: true }),
           };
           if (consumes.length > 0) typeSpec.consumes = consumes;
           if (releases.length > 0) typeSpec.releases = releases;

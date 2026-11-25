@@ -2357,6 +2357,3 @@ overrides the generation expression on a column it does not declare
 - **A table rename in the same plan drops the add-side order.** The create
   rule looks the desired parent table up on the source, so a renamed parent
   reads as new and the tie-break orders the two `ADD COLUMN`s.
-- **`type.alter` declares `rewriteRisk` for a `VIRTUAL` column.** PG 18 does
-  not rewrite the table there. Over-declaring is safe; checking the source
-  column's `generatedVirtual` removes the false hazard.

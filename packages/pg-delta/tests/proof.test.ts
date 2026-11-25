@@ -157,6 +157,41 @@ describe("proof: rewrite observation", () => {
       await Promise.all([source.drop(), desired.drop()]);
     }
   }, 60_000);
+
+  test("ALTER COLUMN TYPE on a VIRTUAL column (PG 18) declares no rewrite and none happens", async () => {
+    const cluster = await sharedCluster();
+    if ((await cluster.pgMajor()) < 18) return;
+    const source = await cluster.createDb("proof_rw_virt_type_src");
+    const desired = await cluster.createDb("proof_rw_virt_type_dst");
+    try {
+      const ddl = (type: string) => `
+        CREATE SCHEMA app;
+        CREATE TABLE app.t (id integer, v ${type} GENERATED ALWAYS AS (id * 2) VIRTUAL);
+      `;
+      await source.pool.query(
+        `${ddl("integer")} INSERT INTO app.t SELECT generate_series(1, 5);`,
+      );
+      await desired.pool.query(ddl("bigint"));
+      const [s, d] = [await extract(source.pool), await extract(desired.pool)];
+      const thePlan = plan(s.factBase, d.factBase);
+      expect(
+        thePlan.actions.map(({ sql, rewriteRisk }) => ({ sql, rewriteRisk })),
+      ).toMatchInlineSnapshot(`
+        [
+          {
+            "rewriteRisk": false,
+            "sql": "ALTER TABLE "app"."t" ALTER COLUMN "v" TYPE bigint",
+          },
+        ]
+      `);
+      // the stored value does not exist: the relfilenode check proves no rewrite
+      const verdict = await provePlan(thePlan, source.pool, d.factBase);
+      expect(verdict.rewriteViolations).toHaveLength(0);
+      expect(verdict.ok).toBe(true);
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 60_000);
 });
 
 describe("plan: generated column kind change", () => {
