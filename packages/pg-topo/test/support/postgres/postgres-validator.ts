@@ -26,7 +26,7 @@ type PostgresValidatorOptions = {
 
 export const validateWithPostgres = async (
   nodes: StatementNode[],
-  graphState: GraphState,
+  graphState: Pick<GraphState, "edges">,
   options: PostgresValidatorOptions = {},
 ): Promise<ValidationResult> => {
   const { initialMigrationSql } = options;

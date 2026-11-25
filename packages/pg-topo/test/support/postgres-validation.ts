@@ -1,5 +1,4 @@
-import { buildGraph } from "../../src/graph/build-graph";
-import type { AnalyzeResult, StatementNode } from "../../src/model/types";
+import type { AnalyzeResult, StatementId } from "../../src/model/types";
 import type { RuntimeDiagnostic } from "./postgres/postgres-types";
 import { validateWithPostgres } from "./postgres/postgres-validator";
 
@@ -11,14 +10,31 @@ type PostgresValidationResult = {
   diagnostics: RuntimeDiagnostic[];
 };
 
+const statementKey = (id: StatementId): string =>
+  `${id.filePath}:${id.statementIndex}`;
+
+// Validate the order against the edges the analysis itself produced, not a
+// rebuilt graph that could miss what only the analysis knew.
 const validateOrderedWithPostgres = async (
-  orderedStatements: StatementNode[],
+  analyzeResult: AnalyzeResult,
   options: PostgresValidationOptions = {},
 ): Promise<PostgresValidationResult> => {
-  const graphState = buildGraph(orderedStatements);
+  const { ordered, graph } = analyzeResult;
+  const indexByKey = new Map(
+    ordered.map((node, index) => [statementKey(node.id), index]),
+  );
+  const edges = new Map<number, Set<number>>();
+  for (const edge of graph.edges) {
+    const fromIndex = indexByKey.get(statementKey(edge.from));
+    const toIndex = indexByKey.get(statementKey(edge.to));
+    if (fromIndex === undefined || toIndex === undefined) {
+      continue;
+    }
+    edges.set(fromIndex, (edges.get(fromIndex) ?? new Set()).add(toIndex));
+  }
   const validationResult = await validateWithPostgres(
-    orderedStatements,
-    graphState,
+    ordered,
+    { edges },
     {
       initialMigrationSql: options.initialMigrationSql,
     },
@@ -45,5 +61,5 @@ export const validateAnalyzeResultWithPostgres = async (
     return { diagnostics: [] };
   }
 
-  return validateOrderedWithPostgres(analyzeResult.ordered, options);
+  return validateOrderedWithPostgres(analyzeResult, options);
 };
