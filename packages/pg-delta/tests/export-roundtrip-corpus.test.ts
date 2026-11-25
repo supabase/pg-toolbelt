@@ -20,7 +20,10 @@ import {
   exportSqlFiles,
   type ExportOptions,
 } from "../src/frontends/export-sql-files.ts";
-import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
+import {
+  loadSqlFiles,
+  ShadowLoadError,
+} from "../src/frontends/load-sql-files.ts";
 import { settleDesired } from "../src/frontends/settle-desired.ts";
 import { type Cluster, startStockCluster } from "./containers.ts";
 import {
@@ -36,19 +39,59 @@ const LAYOUTS: NonNullable<ExportOptions["layout"]>[] = [
   "grouped",
 ];
 
-/** `<scenario>/<a|b>` → tracking reference. A listed case must still fail, so a
- *  fix that makes it pass forces the entry's removal. */
+/** `<scenario>/<a|b>` → tracking reference and the failure every layout must
+ *  report (default: a hash mismatch). A listed case must still fail exactly so,
+ *  so a fix that makes it pass forces the entry's removal. */
 const HASH_MISMATCH = "rootHash differs after reload";
 const FOLLOW_UPS =
   "docs/roadmap/pg-delta-next-follow-ups.md#pr-550--export-round-trip-gate-known-gaps";
-const KNOWN_GAPS = new Map<string, string>([
+const REDECLARED =
+  "docs/roadmap/pg-delta-next-follow-ups.md#redeclared-inherited-columns";
+// The exported child is CREATE TABLE ... INHERITS plus ADD COLUMN for the name
+// it also inherits, which the shadow load cannot apply.
+const REDECLARED_ADD = 'column "x" of relation "z_child" already exists';
+interface KnownGap {
+  ref: string;
+  failure?: string;
+}
+const KNOWN_GAPS = new Map<string, KnownGap>([
   [
     "partitioned-table-operations--subpartition-index-own-options/a",
-    FOLLOW_UPS,
+    { ref: FOLLOW_UPS },
   ],
   [
     "partitioned-table-operations--subpartition-index-own-options/b",
-    FOLLOW_UPS,
+    { ref: FOLLOW_UPS },
+  ],
+  [
+    "table-ops--inherits-redeclared-column/a",
+    { ref: REDECLARED, failure: REDECLARED_ADD },
+  ],
+  [
+    "table-ops--inherits-redeclared-column-parent-default/a",
+    { ref: REDECLARED, failure: REDECLARED_ADD },
+  ],
+  [
+    "table-ops--inherits-redeclared-column-multi-parent/a",
+    {
+      ref: REDECLARED,
+      failure: 'column "x" inherits conflicting default values',
+    },
+  ],
+  [
+    "table-ops--inherits-redeclared-column-add-with-parent/b",
+    { ref: REDECLARED, failure: REDECLARED_ADD },
+  ],
+  [
+    "table-ops--inherits-redeclared-column-drop-with-parent/a",
+    {
+      ref: REDECLARED,
+      failure: 'column "x" of relation "a_child" already exists',
+    },
+  ],
+  [
+    "table-ops--inherits-redeclared-column-on-existing-child/b",
+    { ref: REDECLARED, failure: REDECLARED_ADD },
   ],
 ]);
 
@@ -126,7 +169,16 @@ async function roundTrip(
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        failures.push(`${layout}: ${msg.split("\n").slice(0, 5).join("\n")}`);
+        const causes =
+          error instanceof ShadowLoadError
+            ? error.details
+                .filter((d) => d.severity === "error")
+                .map((d) => `\n    ${d.message.split("\n")[0]}`)
+                .join("")
+            : "";
+        failures.push(
+          `${layout}: ${msg.split("\n").slice(0, 5).join("\n")}${causes}`,
+        );
       } finally {
         await dst.drop();
         await shadow.dropRolesExcept(baseRoles, { strict: true });
@@ -167,12 +219,21 @@ describe("export: corpus round-trip fidelity (all layouts)", () => {
           if (known !== undefined) {
             // A pinned gap must still fail exactly as recorded on every
             // layout; any other outcome is a fix or a new regression.
-            const pinned = LAYOUTS.map((l) => `${l}: ${HASH_MISMATCH}`);
             if (failures.length === 0) {
-              unexpectedPass.push(`${key} (${known})`);
+              unexpectedPass.push(`${key} (${known.ref})`);
               continue;
             }
-            if (failures.join("\n") === pinned.join("\n")) continue;
+            const asPinned =
+              known.failure === undefined
+                ? failures.join("\n") ===
+                  LAYOUTS.map((l) => `${l}: ${HASH_MISMATCH}`).join("\n")
+                : failures.length === LAYOUTS.length &&
+                  LAYOUTS.every(
+                    (l, i) =>
+                      failures[i]?.startsWith(`${l}: `) === true &&
+                      failures[i]?.includes(known.failure as string) === true,
+                  );
+            if (asPinned) continue;
           }
           if (failures.length > 0) {
             const detail = `${key}\n  ${failures.join("\n  ")}`;
