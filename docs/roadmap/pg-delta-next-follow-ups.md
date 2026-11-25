@@ -415,7 +415,7 @@ matview populated state `WITH [NO] DATA` (`3530186683`), user-defined base types
 (`3530186693`), user-rule dependency resolution to rule facts (`3530186701`), custom
 identity sequence names (`3530186709`), foreign-column FDW options `attfdwoptions`
 (`3530186714`), ~~PG18 virtual generated columns (`3530186719`)~~ ✅ resolved
-(`relations.ts:280`, `tables.ts:794`), publication
+(`relations.ts:292`, `tables.ts:802`), publication
 `publish_generated_columns` (`3530186730`), role connection limits `rolconnlimit`
 (`3530186736`), multiple-inheritance parents (`3536715681`), foreign-table partition
 attachments (`3536715689`), non-relocatable extension `SET SCHEMA` (`3536715698`),
@@ -2331,7 +2331,11 @@ whenever it could reorder what main applies. These gaps are deferred.
 `INHERITS` child's, and the child's `ADD COLUMN` before the parent's. It also
 refuses a `STORED`/`VIRTUAL` change when a partition or `INHERITS` child
 overrides the generation expression on a column it does not declare
-(`_generatedOverride`). Left as they are on main:
+(`_generatedOverride`), on either side: an export drops the override, so the
+desired side alone cannot tell a removed override from a lost one. That also
+refuses a plan that drops the override, its child, or the generation
+(`VIRTUAL` to plain) on purpose. Left as they
+are on main:
 
 - **A partition's own generation expression is not extracted** (nor an
   `INHERITS` child's `SET EXPRESSION` on an inherited column). Its column is
@@ -2352,8 +2356,12 @@ overrides the generation expression on a column it does not declare
   expression change emits `DROP COLUMN` on the child while the parent keeps
   the column ("cannot drop inherited column"). `SET EXPRESSION` (PG 17+) is the
   in-place form.
-- **A grandchild that redeclares the column under a non-redeclaring middle
-  table is not ordered.** `redeclaringChildColumns` walks direct children only.
+- **Child-only state on an inherited column is lost when the parent's column
+  is replaced.** `ALTER TABLE ONLY child ALTER COLUMN v SET NOT NULL` on a
+  column the child does not declare is no fact, so replacing the parent's
+  column drops it and the next plan reports 0 actions. Any parent
+  column replace does this (an expression change on main too). The override
+  guard compares generation expressions only.
 - **A table rename in the same plan drops the add-side order.** The create
   rule looks the desired parent table up on the source, so a renamed parent
   reads as new and the tie-break orders the two `ADD COLUMN`s.

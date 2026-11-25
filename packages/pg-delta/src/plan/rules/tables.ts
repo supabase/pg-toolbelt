@@ -553,7 +553,7 @@ export const tableRules: Record<string, KindRules> = {
           if (p(fact, "_generatedOverride") === true) {
             const { schema, table, column } = columnRef(fact);
             throw new Error(
-              `plan: column ${rel(schema, table)}.${qid(column)} cannot change between STORED and VIRTUAL: ` +
+              `plan: column ${rel(schema, table)}.${qid(column)} cannot change its generation kind: ` +
                 `a child table overrides its generation expression, and replacing the column would reset it. ` +
                 `Change the kind manually, then re-run.`,
             );
@@ -740,36 +740,44 @@ function identityOptionAlterSpecs(
   return [{ sql: `${target} ${clauses.join(" ")}` }];
 }
 
-/** The same-named columns that the table's inheritance children redeclare.
- *  A child's column is a fact only when it is local, so each one is a
- *  definition Postgres merged with this inherited column. */
+/** The same-named columns that the table's inheritance descendants
+ *  redeclare. A child's column is a fact only when it is local, so each one
+ *  is a definition Postgres merged with this inherited column. A child
+ *  without one only inherits the column, so the walk continues below it. */
 function redeclaringChildColumns(view: FactView, fact: Fact): Fact[] {
-  const parent = fact.parent;
-  if (parent === undefined) return [];
-  const parentKey = encodeId(parent);
+  if (fact.parent === undefined) return [];
+  const name = columnRef(fact).column;
   const columns: Fact[] = [];
-  for (const edge of view.incomingEdges(parent)) {
-    const child = view.get(edge.from);
-    if (child?.id.kind !== "table") continue;
-    const parents = [
-      p(child, "parentTable"),
-      ...((p(child, "inheritsAlso") as PayloadValue[] | undefined) ?? []),
-    ] as Array<{ schema: string; name: string } | null>;
-    if (
-      !parents.some(
-        (t) => t !== null && encodeId({ kind: "table", ...t }) === parentKey,
-      )
-    ) {
-      continue;
+  const seen = new Set<string>();
+  const walk = (parent: StableId): void => {
+    const parentKey = encodeId(parent);
+    if (seen.has(parentKey)) return;
+    seen.add(parentKey);
+    for (const edge of view.incomingEdges(parent)) {
+      const child = view.get(edge.from);
+      if (child?.id.kind !== "table") continue;
+      const parents = [
+        p(child, "parentTable"),
+        ...((p(child, "inheritsAlso") as PayloadValue[] | undefined) ?? []),
+      ] as Array<{ schema: string; name: string } | null>;
+      if (
+        !parents.some(
+          (t) => t !== null && encodeId({ kind: "table", ...t }) === parentKey,
+        )
+      ) {
+        continue;
+      }
+      const column = view.get({
+        kind: "column",
+        schema: child.id.schema,
+        table: child.id.name,
+        name,
+      });
+      if (column !== undefined) columns.push(column);
+      else walk(child.id);
     }
-    const column = view.get({
-      kind: "column",
-      schema: child.id.schema,
-      table: child.id.name,
-      name: columnRef(fact).column,
-    });
-    if (column !== undefined) columns.push(column);
-  }
+  };
+  walk(fact.parent);
   return columns;
 }
 
