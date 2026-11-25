@@ -141,15 +141,19 @@ export const analyzeAndSort = async (
   }
 
   const statementNodes: StatementNode[] = [];
-  // statement index -> position-free AST of a `create … if not exists`
+  // statement index -> position-free AST and annotations of a `create … if not exists`
   const ifNotExistsStatements = new Map<number, string>();
   for (const parsedStatement of parsedStatements) {
     const root = asRecord(parsedStatement.ast);
     if (asRecord(root && Object.values(root)[0])?.if_not_exists === true) {
       ifNotExistsStatements.set(
         statementNodes.length,
-        JSON.stringify(parsedStatement.ast, (key, value) =>
-          key === "location" ? undefined : value,
+        JSON.stringify(
+          {
+            ast: parsedStatement.ast,
+            annotations: parsedStatement.annotations,
+          },
+          (key, value) => (key === "location" ? undefined : value),
         ),
       );
     }

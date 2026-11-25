@@ -327,6 +327,10 @@ describe("diagnostics", () => {
         "create table if not exists t (a int);",
         "create table if not exists t (b int);",
       ],
+      [
+        "create schema if not exists app;",
+        "-- pg-topo:phase post_data\ncreate schema if not exists app;",
+      ],
     ]) {
       const result = await analyzeAndSort(statements);
       expect(
