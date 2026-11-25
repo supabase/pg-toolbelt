@@ -301,4 +301,52 @@ describe("diagnostics", () => {
 
     expect(unresolved.length).toBe(0);
   });
+
+  test("repeated identical create if not exists statements are one object", async () => {
+    for (const [statement, consumer] of [
+      ["create schema if not exists app;", "create table app.t (id int);"],
+      [
+        "create extension if not exists hstore with schema public;",
+        "comment on extension hstore is 'kv';",
+      ],
+    ]) {
+      const result = await analyzeAndSort([
+        statement,
+        `-- another file\n${statement}`,
+        consumer,
+      ]);
+      expect(result.diagnostics).toEqual([]);
+    }
+  });
+
+  test("a plain create or a differing if not exists create still reports duplicates", async () => {
+    for (const statements of [
+      ["create schema app;", "create schema app;"],
+      ["create schema app;", "create schema if not exists app;"],
+      [
+        "create table if not exists t (a int);",
+        "create table if not exists t (b int);",
+      ],
+    ]) {
+      const result = await analyzeAndSort(statements);
+      expect(
+        result.diagnostics.filter(
+          (diagnostic) => diagnostic.code === "DUPLICATE_PRODUCER",
+        ),
+      ).toHaveLength(2);
+    }
+  });
+
+  test("a repeated self-referencing create is one object, ordered before its consumers", async () => {
+    const createTable =
+      "create table if not exists t (id int primary key, parent int references t (id));";
+    const consumer = "create table c (t_id int references t (id));";
+    const result = await analyzeAndSort([consumer, createTable, createTable]);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.ordered.map((node) => node.sql)).toEqual([
+      createTable,
+      createTable,
+      consumer,
+    ]);
+  });
 });
