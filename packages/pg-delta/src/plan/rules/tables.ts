@@ -319,14 +319,23 @@ export const tableRules: Record<string, KindRules> = {
       }
       return [spec];
     },
-    drop: (fact, view) => {
+    drop: (fact, view, staysInPlace) => {
       const { schema, table, column } = columnRef(fact);
       return {
         sql: `ALTER TABLE ${rel(schema, table)} DROP COLUMN ${qid(column)}`,
         // Postgres rejects DROP COLUMN on a child while a parent still has the
         // column ("cannot drop inherited column"): the parent's drop goes first.
+        // A child table the plan drops or replaces takes its column with it,
+        // and ordering against that DROP TABLE can close a cycle through the
+        // table's dependents.
         ...(view
-          ? { releases: redeclaringChildColumns(view, fact).map((c) => c.id) }
+          ? {
+              releases: redeclaringChildColumns(view, fact)
+                .filter(
+                  (c) => !staysInPlace || (c.parent && staysInPlace(c.parent)),
+                )
+                .map((c) => c.id),
+            }
           : {}),
         dataLoss: "destructive",
       };

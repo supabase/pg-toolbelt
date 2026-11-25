@@ -241,6 +241,10 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     rulesForId(fact.id).implicitlyDestroys?.(fact, projectedDesired, source) ??
     [];
 
+  // for drop rules: a fact the plan neither drops nor replaces
+  const staysInPlace = (id: StableId): boolean =>
+    projectedDesired.get(id) !== undefined && !replaceIds.has(encodeId(id));
+
   const emitCreate = (fact: Fact, base: FactBase): void => {
     let specs = rulesForId(fact.id).create(fact, base, paramsFor(fact), source);
     // Overlay dest may hold a SUPERSET of this ADP. GRANT is additive — wipe first.
@@ -430,12 +434,16 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       // drop AFTER the parent's re-create. Its ordering before the parent drop
       // comes from the child-teardown rule (source parent → parentDestroyer).
       const isRoot = encodeId(rootFact.id) === key;
-      pushAction("drop", rulesForId(rootFact.id).drop(rootFact, source), {
-        consumes:
-          isRoot && rootFact.parent !== undefined ? [rootFact.parent] : [],
-        destroys,
-        wipes: implicitlyDestroyed(rootFact),
-      });
+      pushAction(
+        "drop",
+        rulesForId(rootFact.id).drop(rootFact, source, staysInPlace),
+        {
+          consumes:
+            isRoot && rootFact.parent !== undefined ? [rootFact.parent] : [],
+          destroys,
+          wipes: implicitlyDestroyed(rootFact),
+        },
+      );
     };
     // Attached child indexes fold into the parent-index replace via
     // dropRootRedirect. Skip this DROP (PG cascades it); still CREATE.
@@ -738,7 +746,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     if (replaceIds.has(key)) continue; // replace handles its own drop
     // pass the resolved SOURCE view so a drop rule can read the fact's context
     // (e.g. DROP EXTENSION derives data-loss from its members' edges).
-    const spec = rulesForId(fact.id).drop(fact, source);
+    const spec = rulesForId(fact.id).drop(fact, source, staysInPlace);
     const seen = new Set<string>([key]);
     const destroyList: StableId[] = [fact.id];
     // `destroysByRoot` is removed-only. A replaced attached child is not in
