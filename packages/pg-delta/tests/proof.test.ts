@@ -194,6 +194,62 @@ describe("proof: rewrite observation", () => {
   }, 60_000);
 });
 
+// Not corpus scenarios: a redeclared inherited column does not create from
+// empty yet (docs/roadmap/pg-delta-next-follow-ups.md, PR #607 triage).
+describe("plan: inherited column order", () => {
+  // the child's CHECK calls a function that reads the parent's column
+  const checked = `
+    CREATE TABLE app.p (id integer, x integer);
+    CREATE FUNCTION app.f(i integer) RETURNS boolean LANGUAGE sql
+      BEGIN ATOMIC SELECT coalesce((SELECT max(x) FROM app.p), 0) >= 0 AND i IS NOT NULL; END;
+    CREATE TABLE app.c (x integer, CHECK (app.f(id))) INHERITS (app.p);`;
+  const cases = {
+    "a parent and its redeclaring child both drop the column": {
+      source: `
+        CREATE TABLE app.z_parent (id integer, x integer);
+        CREATE TABLE app.a_child (x integer) INHERITS (app.z_parent);`,
+      desired: `
+        CREATE TABLE app.z_parent (id integer);
+        CREATE TABLE app.a_child () INHERITS (app.z_parent);`,
+    },
+    "the redeclaring child is dropped with the parent's column": {
+      source: checked,
+      desired: `CREATE TABLE app.p (id integer);`,
+    },
+    // detaching the child replaces its table
+    "the redeclaring child is detached while the parent drops the column": {
+      source: checked,
+      desired: `
+        CREATE TABLE app.p (id integer);
+        CREATE TABLE app.c (id integer, x integer);`,
+    },
+  };
+  for (const [name, { source: from, desired: to }] of Object.entries(cases)) {
+    test(`${name}: the plan converges`, async () => {
+      const cluster = await sharedCluster();
+      const source = await cluster.createDb("proof_inh_order_src");
+      const desired = await cluster.createDb("proof_inh_order_dst");
+      try {
+        await source.pool.query(`CREATE SCHEMA app; ${from}`);
+        await desired.pool.query(`CREATE SCHEMA app; ${to}`);
+        const [s, d] = [
+          await extract(source.pool),
+          await extract(desired.pool),
+        ];
+        const verdict = await provePlan(
+          plan(s.factBase, d.factBase),
+          source.pool,
+          d.factBase,
+        );
+        expect(verdict.applyError).toBeUndefined();
+        expect(verdict.ok).toBe(true);
+      } finally {
+        await Promise.all([source.drop(), desired.drop()]);
+      }
+    }, 60_000);
+  }
+});
+
 describe("plan: generated column kind change", () => {
   // Not a corpus scenario: export cannot round-trip a redeclared inherited
   // column yet (docs/roadmap/pg-delta-next-follow-ups.md, PR #607 triage).
