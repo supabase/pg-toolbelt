@@ -1,0 +1,1 @@
+CREATE TABLE t (id bigint NOT NULL, c1_r date NOT NULL) PARTITION BY HASH (id);

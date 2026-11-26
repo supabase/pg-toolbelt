@@ -148,4 +148,94 @@ export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
     "collation-ops--icu-create:forward",
     { maxMajor: 14, failure: "expected a scalar, got null" },
   ],
+  // https://github.com/supabase/pg-toolbelt/issues/627 - an explicit grant to the previous owner is never issued after the owner change (ALTER ... OWNER TO moves the old owner's ACL entries)
+  [
+    "ownership--grant-to-previous-owner:forward",
+    { failure: "add acl:(function:public.f()).corpus_prev_owner" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/628 - the applying role's default privilege still grants the reader SELECT on a table created for another owner
+  [
+    "default-privileges-edge-case--new-table-for-other-owner:forward",
+    { failure: "remove acl:(table:public.t).corpus_dp_reader" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/630 - a schema-level default privilege to its own role is planned as REVOKE ... FROM PUBLIC, a no-op
+  [
+    "default-privileges-edge-case--schema-grant-to-self:forward",
+    { failure: "add defaultPrivilege:corpus_dp_writer.app.f.PUBLIC" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/630 - a global default-privilege revoke from the role itself is planned as a no-op GRANT
+  [
+    "default-privileges-edge-case--global-revoke-from-self:forward",
+    { failure: 'add defaultPrivilege:corpus_dp_writer."".r.corpus_dp_writer' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/639 - renaming a table and its column together renames only the table (forward)
+  [
+    "rename--table-and-column:forward",
+    { failure: "add column:public.t_r.c_r" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/639 - renaming a table and its column together renames only the table (reverse)
+  [
+    "rename--table-and-column:reverse",
+    { failure: "remove column:public.t.c_r" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column named by a trigger's UPDATE OF (forward)
+  [
+    "rename--column-named-by-trigger-update-of:forward",
+    { failure: 'RENAME COLUMN "c0" TO "c0_r"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column named by a trigger's UPDATE OF (reverse)
+  [
+    "rename--column-named-by-trigger-update-of:reverse",
+    { failure: 'RENAME COLUMN "c0_r" TO "c0"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column read by a trigger's WHEN (forward)
+  [
+    "rename--column-read-by-trigger-when:forward",
+    { failure: 'RENAME COLUMN "id" TO "id_r"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column read by a trigger's WHEN (reverse)
+  [
+    "rename--column-read-by-trigger-when:reverse",
+    { failure: 'RENAME COLUMN "id_r" TO "id"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a composite type a column uses (forward)
+  [
+    "rename--composite-type-used-by-column:forward",
+    { failure: 'ALTER TYPE "public"."c0" RENAME TO "c0_r"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a composite type a column uses (reverse)
+  [
+    "rename--composite-type-used-by-column:reverse",
+    { failure: 'ALTER TYPE "public"."c0_r" RENAME TO "c0"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a rename plus an owner change of the containing schema (forward)
+  [
+    "rename--table-with-schema-owner-change:forward",
+    { failure: 'ALTER TABLE "app"."t0" RENAME TO "t0_r"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a rename plus an owner change of the containing schema (reverse)
+  [
+    "rename--table-with-schema-owner-change:reverse",
+    { failure: 'ALTER TABLE "app"."t0_r" RENAME TO "t0"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column rename plus a body change of a function its default calls (forward)
+  [
+    "rename--column-with-function-body-change:forward",
+    { failure: 'RENAME COLUMN "c" TO "c_r"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column rename plus a body change of a function its default calls (reverse)
+  [
+    "rename--column-with-function-body-change:reverse",
+    { failure: 'RENAME COLUMN "c_r" TO "c"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column renamed on a table the same plan re-creates (forward)
+  [
+    "rename--column-on-recreated-table:forward",
+    { failure: 'RENAME COLUMN "c1" TO "c1_r"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column renamed on a table the same plan re-creates (reverse)
+  [
+    "rename--column-on-recreated-table:reverse",
+    { failure: 'RENAME COLUMN "c1_r" TO "c1"' },
+  ],
 ]);
