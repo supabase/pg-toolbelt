@@ -154,6 +154,7 @@ export type { UnmodeledIdentities } from "./extract/unmodeled.ts";
 export {
   STRICT_COVERAGE_CODES,
   hasBlockingDiagnostics,
+  isBlockingDiagnostic,
 } from "./frontends/diagnostics.ts";
 export {
   dataLossActions,

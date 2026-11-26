@@ -20,7 +20,10 @@ import { planSegments, segmentActions } from "./apply/apply.ts";
 import { pruneStaleSqlFiles } from "./frontends/prune-sql-files.ts";
 import { renderApplyScript } from "./frontends/render-apply-script.ts";
 import { probeUnmodeledIdentitiesPinned } from "./frontends/schema-plan.ts";
-import { hasBlockingDiagnostics } from "./frontends/diagnostics.ts";
+import {
+  hasBlockingDiagnostics,
+  isBlockingDiagnostic,
+} from "./frontends/diagnostics.ts";
 import { dataLossActions } from "./frontends/data-loss-actions.ts";
 import {
   observeDatabaseIdentity,
@@ -175,6 +178,10 @@ describe("public API surface", () => {
     expect(typeof frontends.hasBlockingDiagnostics).toBe("function");
     expect(root.hasBlockingDiagnostics).toBe(hasBlockingDiagnostics);
     expect(frontends.hasBlockingDiagnostics).toBe(hasBlockingDiagnostics);
+    expect(typeof root.isBlockingDiagnostic).toBe("function");
+    expect(typeof frontends.isBlockingDiagnostic).toBe("function");
+    expect(root.isBlockingDiagnostic).toBe(isBlockingDiagnostic);
+    expect(frontends.isBlockingDiagnostic).toBe(isBlockingDiagnostic);
 
     const src = readFileSync(
       fileURLToPath(new URL("./index.ts", import.meta.url)),

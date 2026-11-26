@@ -2,7 +2,7 @@
  * Library-facing coverage gate for the shared `Diagnostic` shape
  * (`core/diagnostic.ts`).
  *
- * Error-severity diagnostics always block. Under `strictCoverage`, warnings
+ * Error-severity diagnostics always block. Under `strictCoverage`, diagnostics
  * whose codes are in {@link STRICT_COVERAGE_CODES} block too — each marks a
  * user object the engine cannot faithfully carry into an apply artifact.
  *
@@ -37,20 +37,28 @@ export const STRICT_COVERAGE_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Whether diagnostics should HALT a command before it produces something to
+ * Whether a diagnostic should HALT a command before it produces something to
  * apply:
  *   - an error-severity diagnostic always blocks;
- *   - in strict-coverage mode, a {@link STRICT_COVERAGE_CODES} warning blocks
+ *   - in strict-coverage mode, a {@link STRICT_COVERAGE_CODES} diagnostic blocks
  *     too — the engine refuses to act while user objects it cannot faithfully
  *     manage exist.
  */
+export function isBlockingDiagnostic(
+  diagnostic: Pick<Diagnostic, "code" | "severity">,
+  options: { strictCoverage?: boolean } = {},
+): boolean {
+  return (
+    diagnostic.severity === "error" ||
+    (options.strictCoverage === true &&
+      STRICT_COVERAGE_CODES.has(diagnostic.code))
+  );
+}
+
+/** Whether any diagnostic is {@link isBlockingDiagnostic blocking}. */
 export function hasBlockingDiagnostics(
   diagnostics: readonly Diagnostic[],
   options: { strictCoverage?: boolean } = {},
 ): boolean {
-  return diagnostics.some(
-    (d) =>
-      d.severity === "error" ||
-      (options.strictCoverage === true && STRICT_COVERAGE_CODES.has(d.code)),
-  );
+  return diagnostics.some((d) => isBlockingDiagnostic(d, options));
 }

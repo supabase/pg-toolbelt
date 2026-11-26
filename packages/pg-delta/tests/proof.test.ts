@@ -195,7 +195,7 @@ describe("proof: rewrite observation", () => {
 });
 
 // Not corpus scenarios: a redeclared inherited column does not create from
-// empty yet (docs/roadmap/pg-delta-next-follow-ups.md, PR #607 triage).
+// empty yet (docs/roadmap/pg-delta-next-follow-ups.md, "Redeclared inherited columns").
 describe("plan: inherited column order", () => {
   // the child's CHECK calls a function that reads the parent's column
   const checked = `
@@ -252,7 +252,7 @@ describe("plan: inherited column order", () => {
 
 describe("plan: generated column kind change", () => {
   // Not a corpus scenario: export cannot round-trip a redeclared inherited
-  // column yet (docs/roadmap/pg-delta-next-follow-ups.md, PR #607 triage).
+  // column yet (docs/roadmap/pg-delta-next-follow-ups.md, "Redeclared inherited columns").
   for (const [from, to] of [
     ["STORED", "VIRTUAL"],
     ["VIRTUAL", "STORED"],

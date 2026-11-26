@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Diagnostic } from "../core/diagnostic.ts";
-import { hasBlockingDiagnostics } from "./diagnostics.ts";
+import { hasBlockingDiagnostics, isBlockingDiagnostic } from "./diagnostics.ts";
 
 const unmodeled: Diagnostic = {
   code: "unmodeled_kind",
@@ -70,5 +70,48 @@ describe("hasBlockingDiagnostics", () => {
   test("info/warning diagnostics do not block in the default mode", () => {
     expect(hasBlockingDiagnostics([orphan, unmodeled, drift])).toBe(false);
     expect(hasBlockingDiagnostics([])).toBe(false);
+  });
+});
+
+describe("isBlockingDiagnostic", () => {
+  test("an error-severity diagnostic always blocks", () => {
+    expect(isBlockingDiagnostic(err)).toBe(true);
+    expect(isBlockingDiagnostic(err, { strictCoverage: false })).toBe(true);
+    expect(isBlockingDiagnostic(err, { strictCoverage: true })).toBe(true);
+  });
+
+  test("a STRICT_COVERAGE_CODES diagnostic blocks ONLY in strict-coverage mode", () => {
+    for (const d of [unmodeled, unresolvedLabel, drift, vaultPresence]) {
+      expect(isBlockingDiagnostic(d)).toBe(false);
+      expect(isBlockingDiagnostic(d, { strictCoverage: false })).toBe(false);
+      expect(isBlockingDiagnostic(d, { strictCoverage: true })).toBe(true);
+    }
+  });
+
+  test("strict coverage blocks on the code regardless of severity", () => {
+    const infoCoverage: Diagnostic = { ...unmodeled, severity: "info" };
+    expect(isBlockingDiagnostic(infoCoverage)).toBe(false);
+    expect(isBlockingDiagnostic(infoCoverage, { strictCoverage: true })).toBe(
+      true,
+    );
+  });
+
+  test("a non-coverage info/warning diagnostic never blocks", () => {
+    expect(isBlockingDiagnostic(orphan)).toBe(false);
+    expect(isBlockingDiagnostic(orphan, { strictCoverage: true })).toBe(false);
+    const otherWarning: Diagnostic = { ...orphan, severity: "warning" };
+    expect(isBlockingDiagnostic(otherWarning, { strictCoverage: true })).toBe(
+      false,
+    );
+  });
+
+  test("accepts a caller's own type with the same severity union", () => {
+    const foreign: {
+      code: string;
+      severity: "error" | "warning" | "info";
+      subject?: string;
+    } = { code: "unmodeled_kind", severity: "warning", subject: "public.t" };
+    expect(isBlockingDiagnostic(foreign)).toBe(false);
+    expect(isBlockingDiagnostic(foreign, { strictCoverage: true })).toBe(true);
   });
 });

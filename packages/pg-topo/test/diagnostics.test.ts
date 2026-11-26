@@ -301,4 +301,203 @@ describe("diagnostics", () => {
 
     expect(unresolved.length).toBe(0);
   });
+
+  test("overloads that differ by an array or output parameter do not collide", async () => {
+    for (const sql of [
+      [
+        "create function public.f(k text, id uuid) returns int language sql as $$ select 1 $$;",
+        "create function public.f(k text, ids uuid[]) returns int language sql as $$ select 1 $$;",
+      ],
+      [
+        "create function public.f(a int) returns int language sql as $$ select 1 $$;",
+        "create function public.f(a int[][]) returns int language sql as $$ select 1 $$;",
+      ],
+      [
+        "create aggregate public.f(int) (sfunc = int4pl, stype = int);",
+        "create aggregate public.f(int[][]) (sfunc = array_cat, stype = int[]);",
+      ],
+      [
+        "create function public.f(id uuid) returns int language sql as $$ select 1 $$;",
+        "create function public.f(variadic ids uuid[]) returns int language sql as $$ select 1 $$;",
+      ],
+      [
+        "create function public.f(k uuid, id uuid) returns int language sql as $$ select 1 $$;",
+        "create function public.f(k uuid) returns table (id uuid) language sql as $$ select null::uuid $$;",
+      ],
+      [
+        "create function public.f(a int, b int) returns int language sql as $$ select 1 $$;",
+        "create function public.f(a int, out b int[]) language sql as $$ select null::int[] $$;",
+      ],
+      [
+        "create procedure public.p(a int, b int) language sql as $$ select 1 $$;",
+        "create procedure public.p(a int, out b int[]) language sql as $$ select null::int[] $$;",
+      ],
+      [
+        "-- pg-topo:provides function:public.f(pg_catalog.uuid[])\ncreate function public.f(variadic ids uuid[]) returns int language sql as $$ select 1 $$;",
+      ],
+    ]) {
+      const result = await analyzeAndSort(sql);
+      expect({
+        sql,
+        duplicates: result.diagnostics.filter(
+          (diagnostic) => diagnostic.code === "DUPLICATE_PRODUCER",
+        ),
+      }).toEqual({ sql, duplicates: [] });
+    }
+  });
+
+  test("a plain and a variadic declaration of one array signature are the same routine", async () => {
+    const result = await analyzeAndSort([
+      "create function public.f(a uuid[]) returns int language sql as $$ select 1 $$;",
+      "create or replace function public.f(variadic a uuid[]) returns int language sql as $$ select 2 $$;",
+    ]);
+    expect(
+      result.diagnostics.filter(
+        (diagnostic) => diagnostic.code === "DUPLICATE_PRODUCER",
+      ),
+    ).toHaveLength(2);
+  });
+
+  test("a call orders after every routine Postgres could resolve it to", async () => {
+    const fn = (signature: string, body = "select 1") =>
+      `create function public.${signature} language sql as $$ ${body} $$;`;
+    const readsView = "select count(*)::int from public.v";
+    // Each case lists the consumer first, then the edges that must reach it.
+    for (const [sql, edges] of [
+      [
+        [
+          "create view public.v as select public.f('k', array[]::uuid[]) as x;",
+          fn("f(k text, ids uuid[]) returns int"),
+          fn("f(k text, id uuid) returns int"),
+        ],
+        ["1 -> 0"],
+      ],
+      [
+        [
+          "create view public.v as select public.f(null::int[]) as x;",
+          fn("f(a int[][]) returns int"),
+        ],
+        ["1 -> 0"],
+      ],
+      [
+        [
+          "create view public.v as select public.f(null::uuid, null::uuid) as x;",
+          fn("f(variadic ids uuid[]) returns int"),
+        ],
+        ["1 -> 0"],
+      ],
+      [
+        [
+          "create view public.v as select public.f(variadic array[]::uuid[]) as x;",
+          fn("f(variadic ids uuid[]) returns int"),
+        ],
+        ["1 -> 0"],
+      ],
+      [
+        [
+          "create view public.v as select public.f(variadic array[]::uuid[]) as x;",
+          fn("f(a uuid[]) returns int"),
+          fn("f(a uuid) returns int", readsView),
+        ],
+        ["1 -> 0", "0 -> 2"],
+      ],
+      [
+        [
+          "create view public.v as select public.f(1) as x;",
+          fn(
+            "f(a int, b int default 0, variadic c int[] default '{}') returns int",
+          ),
+        ],
+        ["1 -> 0"],
+      ],
+      [
+        [
+          "create view public.v as select public.f(variadic '{a}'::text[]) as x;",
+          fn("f(variadic b text[]) returns int"),
+          fn("f(a text) returns int", readsView),
+        ],
+        ["1 -> 0", "0 -> 2"],
+      ],
+      [
+        [
+          "create view public.v as select public.f(null::text[]) as x;",
+          fn("f(a text[], b int default 1) returns int"),
+          fn("f(variadic a text[]) returns int", readsView),
+        ],
+        ["1 -> 0", "0 -> 2"],
+      ],
+      [
+        [
+          "create view public.v as select public.f(null::text) as x;",
+          fn("f(a text, b text) returns int"),
+          fn("f(variadic a text[]) returns int"),
+        ],
+        ["1 -> 0", "2 -> 0"],
+      ],
+      [
+        [
+          "create view public.v as select public.f(1) as x;",
+          fn("f(out a int[], b int)"),
+        ],
+        ["1 -> 0"],
+      ],
+      [
+        [
+          "create view public.v as select public.f(null::int[]) as x;",
+          fn("f(out a int[], b int[])", "select b"),
+        ],
+        ["1 -> 0"],
+      ],
+      [
+        [
+          "create view public.v as select public.r('{1}'::int[], '{2}'::int[]) as x;",
+          "create type public.r as range (subtype = int4[]);",
+        ],
+        ["1 -> 0"],
+      ],
+      [
+        [
+          "comment on procedure public.p(int, int) is 'x';",
+          "create procedure public.p(a int, out b int) language sql as $$ select 1 $$;",
+        ],
+        ["1 -> 0"],
+      ],
+    ] as const) {
+      const result = await analyzeAndSort([...sql]);
+      expect({
+        sql,
+        diagnostics: result.diagnostics,
+        edges: result.graph.edges.map(
+          (edge) =>
+            `${edge.from.filePath.replace(/\D/g, "")} -> ${edge.to.filePath.replace(/\D/g, "")}`,
+        ),
+      }).toEqual({ sql, diagnostics: [], edges: [...edges] });
+    }
+  });
+
+  test("an external variadic provider matches like a declared one", async () => {
+    const result = await analyzeAndSort(
+      [
+        "-- pg-topo:requires function:public.g(uuid[])\ncreate view public.v as select public.h(1) as x;",
+      ],
+      {
+        externalProviders: [
+          {
+            kind: "function",
+            schema: "public",
+            name: "g",
+            signature: "(variadic pg_catalog.uuid[])",
+          },
+          {
+            kind: "function",
+            schema: "public",
+            name: "h",
+            signature:
+              "(pg_catalog.int4,pg_catalog.int4,variadic pg_catalog.int4[])",
+          },
+        ],
+      },
+    );
+    expect(result.diagnostics).toEqual([]);
+  });
 });

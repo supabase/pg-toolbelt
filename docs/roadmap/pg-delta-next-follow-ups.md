@@ -2243,24 +2243,12 @@ case still drops and recreates it, deferred.
   when its in-place def alter no longer needs the dropped object, and give the
   alter `releases` of its source-side deps so it runs before the drop.
 
-## PR #584 review triage (Codex) — assumed-schema seed gaps
+## PR #584 review triage — assumed-schema seed gaps
 
 #584 omits a seed candidate whose dependency was pruned from the managed view.
 Neighbouring shapes still replay a candidate the shadow cannot create. Each
 behaves the same on `main` before #584 unless noted.
 
-- **Member of an extension excluded after pass (1).** An assumed extension
-  installed into a MANAGED schema is excluded by the install-schema pass, but a
-  candidate depending on one of its member TABLES (pruned or reference-only)
-  stays seeded: the cascade walks `view.edges` and never treats an excluded
-  extension's members as excluded. Member functions/types are unaffected
-  (extract resolves those references to the extension id). A fix makes the
-  cascade walk the raw target edges and treat an edge into a member of an
-  excluded extension as excluded, skipping shells so an empty publication shell
-  is not dropped. #584 adds a narrow second trigger: a member added with
-  `ALTER EXTENSION … ADD` that depends on a pruned non-schema object gives the
-  extension a raw edge to it, so pass (1) excludes the extension. Pass (1)'s
-  member exemption should hold only while the extension stays in the seed.
 - **Assumed table or view with a managed satellite.** A managed in-view child
   (e.g. its ACL) makes the candidate a shell, so pass (1) never checks its own
   `depends` edges and a view reading a pruned or managed relation is still
@@ -2273,14 +2261,39 @@ behaves the same on `main` before #584 unless noted.
   install schema (e.g. an excluded `extensions`) is never created there, so the
   seed's `CREATE EXTENSION … SCHEMA extensions` fails at replay. A fix treats a
   pruned install schema as ambient only when the shadow template ships it.
-- **Publication shell with a kept membership on a managed column.** A pruned
+- **Publication shell with a kept membership on a managed column.** A MANAGED
   `publicationRel` makes its publication a shell, and a shell skips every
-  outgoing edge, including the column-list edges a kept membership folds onto
-  it. If `p` publishes `platform.t (id, later)` and a pruned `private.t`, with
-  `platform.t.later` managed, the seed emits `CREATE PUBLICATION p FOR TABLE
-  platform.t (id, later)` before `later` exists. Managed memberships already do
-  this on `main`. A fix skips only the edges from memberships the seed leaves
-  out.
+  outgoing edge, including the column-list and row-filter edges a kept
+  membership folds onto it. If `p` publishes `platform.t (id, later)` and a
+  managed `app.t`, with `platform.t.later` managed, the seed emits `CREATE
+  PUBLICATION p FOR TABLE platform.t (id, later)` before `later` exists. A fix
+  skips only the edges from memberships the seed leaves out. The same
+  happens through a pruned partition membership: #593 waives its root's
+  column edges, which a kept sibling partition's column list shares.
+- **Extension member provenance.** Extract folds member references onto the
+  extension id, so the seed cannot tell an `ALTER EXTENSION … ADD` member from
+  one the install script creates. #593 seeds an extension whose folded edges
+  reach pruned non-extension facts and omits every candidate that uses it.
+  A candidate using only stock members (a `public.hstore` column) is omitted,
+  as on `main`; an extension whose own install script needs a pruned plain
+  object is now seeded and fails `CREATE EXTENSION` (`main` omitted it), though
+  no assumed extension does this. A fix needs member provenance from extract.
+- **Extension `requires` has no edge.** Extract emits no edge for an
+  extension's `requires` list, so an assumed `A` that requires `B` reaches `B`
+  only through folded member edges. If `A`'s only edge into `B` is to one of
+  `B`'s tables, pass (1) accepts it while `B` is still a candidate. When the
+  install-schema pass then drops `B` (its schema is managed), the cascade does
+  not check an extension's member edges, so `A` stays seeded and `CREATE
+  EXTENSION A` fails without `B`. `main` fails the same way when `A` has no added member; #593 also seeds
+  `A` when it has an added member on a pruned type, which `main` omitted. A fix
+  emits a `requires` edge from extract.
+- **Assumed schema whose own schema fact is not excluded.** A filter matching
+  only `{ schema: [...] }` (the #578 repro's policy) excludes the objects in an
+  assumed schema but not the schema itself, so the schema stays managed while
+  its tables are reference-only. The seed then throws `FactBase: fact table:…
+  references missing parent schema:…` (same on `main`). Matching
+  `{ name: [...] }` too avoids it; a fix should report the policy mistake
+  instead of the raw error.
 
 ## PR #587 review triage — default-first and unrelated commits
 
@@ -2345,13 +2358,6 @@ are on main:
   override, renders it in `PARTITION OF (... WITH OPTIONS ...)`, and restores
   it after a parent replace (`SET EXPRESSION`, PG 17+). The #607 guard then
   goes away.
-- **A redeclared inherited column does not export or create from empty.**
-  The child renders as `CREATE TABLE ... () INHERITS (...)` plus its own
-  `ADD COLUMN`, which Postgres rejects ("column ... already exists"), for any
-  column and on every PG version. That is why #607 covers the `INHERITS`
-  shapes in `tests/proof.test.ts` and not in the corpus, whose export
-  round-trip gate would fail. A fix inlines the redeclared columns in the
-  child's `CREATE TABLE`.
 - **Replacing only the child's redeclared column fails.** A child-only
   expression change emits `DROP COLUMN` on the child while the parent keeps
   the column ("cannot drop inherited column"). `SET EXPRESSION` (PG 17+) is the
@@ -2365,3 +2371,38 @@ are on main:
 - **A table rename in the same plan drops the add-side order.** The create
   rule looks the desired parent table up on the source, so a renamed parent
   reads as new and the tie-break orders the two `ADD COLUMN`s.
+
+## Redeclared inherited columns
+
+An inheritance child can declare a column it also inherits (`attislocal` and
+`attinhcount > 0`). The corpus could not hold such a child before, so CI never
+saw these shapes. Each gap below is now a corpus scenario pinned with its
+expected error, in `tests/expected-red.ts` (engine) and `KNOWN_GAPS` of
+`tests/export-roundtrip-corpus.test.ts` (export, every layout). A fix that
+makes one pass, or makes it fail differently, fails the suite until the pin is
+updated.
+
+- **Creating the child** (`table-ops--inherits-redeclared-column`,
+  `-parent-default`, `-multi-parent`; reverse direction and export of side
+  `a`). The child renders as `CREATE TABLE c () INHERITS (p)` followed by
+  `ADD COLUMN` for its local columns, and Postgres rejects the ADD for an
+  inherited name. Suggested fix: write all of an INHERITS child's local
+  columns into its `CREATE TABLE`, with their defaults (two parents with
+  conflicting defaults only accept the child's default inline), plus
+  `DEFAULT NULL` when a parent has a default and the child has none (otherwise
+  Postgres copies the parent default and the proof reports drift). The child
+  create must also run after any same-plan change to the matching parent
+  columns.
+- ~~**Parent and kept child change the column together**~~ ✅ resolved in
+  #607 (`-add-with-parent`, `-drop-with-parent`; forward, no longer pinned).
+  The column rule now orders the child's ADD before the parent's (Postgres
+  merges the parent ADD into the child column), and the child's DROP after
+  the parent's. Each scenario names the tables so the name tie-break alone
+  would pick the wrong order.
+- **An existing child starts or stops redeclaring**
+  (`-on-existing-child`, both directions). Neither `ADD COLUMN` nor
+  `DROP COLUMN` on the child expresses it; the only DDL is recreating the
+  child (or `NO INHERIT` + `INHERIT`, which leaves the column local).
+- **Not covered by a scenario.** A redeclared generated column (PG 14 and 15
+  reject a child generation expression on an inherited generated column), and
+  a partition with its own generation expression.

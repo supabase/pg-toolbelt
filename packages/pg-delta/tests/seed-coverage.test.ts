@@ -102,6 +102,26 @@ describe("enforceSeedCoverage error typing", () => {
 });
 
 describe("runPinnedDirection (EXPECTED_RED wrapper)", () => {
+  test("a pin fails when the run fails for a reason other than the pinned one", async () => {
+    const run = runPinnedDirection(
+      "k:forward",
+      async () => {
+        throw new Error("apply failed at action 0: some other error");
+      },
+      "already exists",
+    );
+    expect(run).rejects.toThrow(
+      'pinned in EXPECTED_RED to fail with "already exists"',
+    );
+    await runPinnedDirection(
+      "k:forward",
+      async () => {
+        throw new Error('column "x" already exists');
+      },
+      "already exists",
+    );
+  });
+
   test("autoSeed state changes are re-thrown instead of satisfying a red pin", async () => {
     const verdict = {
       ...verdictWith([

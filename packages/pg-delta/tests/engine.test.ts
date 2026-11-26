@@ -407,7 +407,7 @@ async function runPinnedOrProve(
         // runPinnedDirection owns the pinned semantics (incl. the seed-coverage
         // rethrow), so the guard is bound by seed-coverage.test.ts. Applying it
         // per mode ensures both artifacts run and each stale pin is detected.
-        runPinnedDirection(modeKey, run)
+        runPinnedDirection(modeKey, run, pin?.failure)
     : undefined;
   await runDirection(scenario, direction, modeRunner);
 }
