@@ -19,6 +19,7 @@ import {
 import {
   addForeignConstraintDependencies,
   addSchemaDependencyIfNeeded,
+  arraySuffixFromTypeNameNode,
   constraintKeyColumns,
   extractNameParts,
   extractStringValue,
@@ -352,6 +353,21 @@ const extractAlterTableDependencies = (
   return { provides, requires };
 };
 
+// An array parameter is its own argument type (`uuid[]`, not `uuid`). A
+// variadic one is marked, so callers can pass it elements.
+const parameterSignaturePart = (
+  argType: ObjectRef,
+  functionParameter: Record<string, unknown> | undefined,
+): string => {
+  const name = argType.schema
+    ? `${argType.schema}.${argType.name}`
+    : argType.name;
+  const part = `${name}${arraySuffixFromTypeNameNode(functionParameter?.argType)}`;
+  return functionParameter?.mode === "FUNC_PARAM_VARIADIC"
+    ? `variadic ${part}`
+    : part;
+};
+
 const extractCreateFunctionDependencies = (
   statementNode: Record<string, unknown>,
   kind: "function" | "procedure",
@@ -372,12 +388,19 @@ const extractCreateFunctionDependencies = (
     const argType = typeFromTypeNameNode(functionParameter?.argType);
     if (argType) {
       requires.push(argType);
-      signatureParts.push(
-        argType.schema ? `${argType.schema}.${argType.name}` : argType.name,
-      );
-    } else {
-      signatureParts.push("unknown");
     }
+    // Callers name a function by its input arguments only. A procedure can
+    // also be named with its output ones, so it keeps them.
+    const mode = functionParameter?.mode;
+    if (
+      kind === "function" &&
+      (mode === "FUNC_PARAM_OUT" || mode === "FUNC_PARAM_TABLE")
+    ) {
+      continue;
+    }
+    signatureParts.push(
+      argType ? parameterSignaturePart(argType, functionParameter) : "unknown",
+    );
   }
 
   const functionRef = objectFromNameParts(kind, functionNameParts);
@@ -848,9 +871,10 @@ const extractCreateRangeDependencies = (
       const typeRef = typeFromTypeNameNode(typeName);
       if (typeRef) {
         requires.push(typeRef);
-        subtypeSignature = typeRef.schema
+        const subtypeName = typeRef.schema
           ? `${typeRef.schema}.${typeRef.name}`
           : typeRef.name;
+        subtypeSignature = `${subtypeName}${arraySuffixFromTypeNameNode(typeName)}`;
       }
       continue;
     }
@@ -919,9 +943,7 @@ const extractCreateAggregateDependencies = (
     const argType = typeFromTypeNameNode(functionParameter?.argType);
     if (argType) {
       requires.push(argType);
-      signatureParts.push(
-        argType.schema ? `${argType.schema}.${argType.name}` : argType.name,
-      );
+      signatureParts.push(parameterSignaturePart(argType, functionParameter));
     }
   }
 
