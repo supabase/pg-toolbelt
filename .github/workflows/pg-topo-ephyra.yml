@@ -1,8 +1,15 @@
 name: pg-topo Ephyra
 
 # Property-based tests for @supabase/pg-topo (ephyra/pg-topo). Known pg-topo bugs are masked in the
-# generator, so a failure here is a new bug. Nightly and on demand; not a required check.
+# generator, so a failure here is a new bug. Runs on PRs that change the harness, nightly, and on
+# demand; not a required check.
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "ephyra/**"
+      - ".github/workflows/pg-topo-ephyra.yml"
   schedule:
     - cron: "41 3 * * *"
   workflow_dispatch:
@@ -47,8 +54,9 @@ jobs:
     env:
       PGTOPO_PG: host=127.0.0.1 port=5432 user=postgres password=postgres dbname=postgres
       PGTOPO_STEPS: ${{ inputs.steps || '30' }}
-      PGTOPO_N: ${{ inputs.tests || '1000' }}
-      EPHYRA_TESTS: ${{ inputs.tests || '1000' }}
+      # PRs only change the harness, so a shorter run is enough to prove it still works
+      PGTOPO_N: ${{ inputs.tests || (github.event_name == 'pull_request' && '300' || '1000') }}
+      EPHYRA_TESTS: ${{ inputs.tests || (github.event_name == 'pull_request' && '300' || '1000') }}
       PGTOPO_UNMASK: ${{ inputs.unmask || '' }}
       EPHYRA_FAILURES: "5"
       CARGO_TERM_COLOR: always
