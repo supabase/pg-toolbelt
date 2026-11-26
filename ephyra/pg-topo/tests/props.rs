@@ -3,6 +3,20 @@ use ephyra::{check, check_generator, signature, Config};
 use pg_topo_ephyra::driver::{analyze, execute};
 use pg_topo_ephyra::schema::{gen_case, masked, shrink_case, Case};
 
+fn summary(r: &ephyra::Report) {
+    eprintln!("[{}] tests={} unique={} discarded={} in {:?}", r.name, r.tests, r.unique_tests, r.discarded, r.duration);
+}
+
+trait Tap {
+    fn tap(self) -> Self;
+}
+impl Tap for ephyra::Report {
+    fn tap(self) -> Self {
+        summary(&self);
+        self
+    }
+}
+
 fn max_steps() -> usize {
     std::env::var("PGTOPO_STEPS").ok().and_then(|s| s.parse().ok()).unwrap_or(25)
 }
@@ -32,6 +46,7 @@ fn generator_is_valid() {
             panic!("generator produced invalid schema at [{i}]: {msg}\n{}", c.stmts[i].sql);
         }
     })
+    .tap()
     .assert_passed();
 }
 
@@ -93,6 +108,7 @@ fn sorted_output_executes() {
         }
         ephyra::TestResult::Pass
     });
+    summary(&report);
     report.assert_passed();
 }
 
@@ -137,5 +153,6 @@ fn no_spurious_unresolved() {
         }
         ephyra::TestResult::Pass
     });
+    summary(&report);
     report.assert_passed();
 }
