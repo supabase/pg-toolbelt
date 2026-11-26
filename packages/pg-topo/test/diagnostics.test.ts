@@ -309,6 +309,10 @@ describe("diagnostics", () => {
         "create extension if not exists hstore with schema public;",
         "comment on extension hstore is 'kv';",
       ],
+      [
+        "-- pg-topo:requires table:t\ncreate table if not exists public.t (id int);",
+        "create view public.v as select id from public.t;",
+      ],
     ]) {
       const result = await analyzeAndSort([
         statement,
@@ -352,6 +356,27 @@ describe("diagnostics", () => {
       createTable,
       consumer,
     ]);
+  });
+
+  test("repeated copies add edges linear in copies and consumers", async () => {
+    for (const [copy, consumer] of [
+      ["create schema if not exists app;", "create table app.t (id int);"],
+      [
+        "create table if not exists public.t (id int);",
+        "-- pg-topo:requires table:t\ncreate view public.v as select 1;",
+      ],
+    ]) {
+      const result = await analyzeAndSort(
+        [0, 1, 2].map(
+          (index) => `${copy}\n${consumer.replace(/\b([tv]) /, `$1${index} `)}`,
+        ),
+      );
+      expect(result.diagnostics).toEqual([]);
+      expect(result.graph.edges).toHaveLength(5);
+      expect(result.ordered.map((node) => node.sql).slice(0, 3)).toEqual(
+        Array(3).fill(copy),
+      );
+    }
   });
 
   test("overloads that differ by an array or output parameter do not collide", async () => {

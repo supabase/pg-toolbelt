@@ -229,9 +229,12 @@ export const buildGraph = (
   }
 
   // The same `create … if not exists` repeated is one object, not a conflict:
-  // every copy stays a producer, so consumers order after all of them, and no
-  // duplicate is reported. Statements that differ keep the diagnostics.
+  // the copies are chained in input order and consumers order after the last
+  // one, so they run after every copy, and no duplicate is reported.
+  // Statements that differ keep the diagnostics.
   const repeatedKeys = new Set<string>();
+  const copies = new Set<number>();
+  const earlierCopies = new Set<number>();
   for (const [producerKey, producerIndices] of producersByKey.entries()) {
     const fingerprint = ifNotExistsStatements.get(producerIndices[0] ?? -1);
     if (
@@ -242,6 +245,21 @@ export const buildGraph = (
       )
     ) {
       repeatedKeys.add(producerKey);
+      for (const copyIndex of producerIndices) {
+        copies.add(copyIndex);
+      }
+      const objectRef = nodes[producerIndices[0] ?? -1]?.provides.find(
+        (providedRef) => objectRefKey(providedRef) === producerKey,
+      );
+      producerIndices.slice(1).forEach((copyIndex, previous) => {
+        // Consumers need an edge from the last copy only.
+        const previousIndex = producerIndices[previous] ?? copyIndex;
+        earlierCopies.add(previousIndex);
+        addEdge(graphState, previousIndex, copyIndex, {
+          reason: "requires",
+          objectRef,
+        });
+      });
     }
   }
 
@@ -316,7 +334,9 @@ export const buildGraph = (
           repeatedKeys.has(requiredKey)
         ) {
           const uniqueProducerIndices = [...new Set(producerIndices)].filter(
-            (producerIndex) => producerIndex !== consumerIndex,
+            (producerIndex) =>
+              producerIndex !== consumerIndex &&
+              !earlierCopies.has(producerIndex),
           );
           for (const producerIndex of uniqueProducerIndices) {
             addEdge(graphState, producerIndex, consumerIndex, {
@@ -350,10 +370,20 @@ export const buildGraph = (
         continue;
       }
 
-      const compatibleProducerIndices = producerIndicesForRequirement(
+      const compatibleIndices = producerIndicesForRequirement(
         requiredRef,
         nodes,
-      ).filter((index) => index !== consumerIndex);
+      );
+      // Likewise when a copy matches its own object only by compatibility.
+      if (
+        copies.has(consumerIndex) &&
+        compatibleIndices.includes(consumerIndex)
+      ) {
+        continue;
+      }
+      const compatibleProducerIndices = compatibleIndices.filter(
+        (index) => index !== consumerIndex && !earlierCopies.has(index),
+      );
       if (compatibleProducerIndices.length === 1) {
         const producerIndex = compatibleProducerIndices[0];
         if (typeof producerIndex !== "number") {
