@@ -56,6 +56,7 @@ PGTOPO_PG="host=127.0.0.1 port=55452 user=postgres password=pg dbname=postgres" 
 | `PGTOPO_N` | per property | case count for `props2` properties |
 | `PGTOPO_UNMASK` | none | comma-separated known bugs to generate again, or `all` |
 | `PGTOPO_DUMP_PORT`, `PGTOPO_DUMP_CONTAINER` | `55452`, `pgtopo-dump` | cluster and container for `dump_roundtrip` |
+| `PGTOPO_WORKER` | `pg-topo/worker.ts` in this checkout | worker path, for test binaries built in another checkout (CI) |
 | `PGTOPO_CORPUS` | unset | append every analyzed input to this JSON-lines file, for example to replay under `bun test --coverage` |
 
 Ephyra's own variables also apply: `EPHYRA_SEED`, `EPHYRA_TESTS`, `EPHYRA_FAILURES`, `EPHYRA_REPLAY`

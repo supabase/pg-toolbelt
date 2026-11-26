@@ -52,7 +52,8 @@ struct Worker {
 fn worker() -> &'static Mutex<Worker> {
     static W: OnceLock<Mutex<Worker>> = OnceLock::new();
     W.get_or_init(|| {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/worker.ts");
+        // CI runs prebuilt test binaries from another checkout, so the compile-time path can be overridden
+        let path = std::env::var("PGTOPO_WORKER").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/worker.ts").to_string());
         let mut child = Command::new("bun")
             .arg(path)
             .stdin(Stdio::piped())

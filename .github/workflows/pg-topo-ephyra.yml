@@ -35,10 +35,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build:
+    name: pg-topo build
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 20
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      # actions/cache is served from Blacksmith's colocated cache on Blacksmith runners
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ephyra/target
+          key: ephyra-cargo-${{ runner.os }}-${{ hashFiles('ephyra/Cargo.lock') }}-${{ hashFiles('ephyra/**/*.rs') }}
+          restore-keys: |
+            ephyra-cargo-${{ runner.os }}-${{ hashFiles('ephyra/Cargo.lock') }}-
+            ephyra-cargo-${{ runner.os }}-
+
+      - name: Build test binaries
+        working-directory: ephyra
+        run: |
+          mkdir -p ../ephyra-bin
+          cargo test -p pg-topo-ephyra --no-run --message-format=json \
+            | jq -r 'select(.reason == "compiler-artifact" and .profile.test == true and (.target.kind | index("test"))) | "\(.target.name) \(.executable)"' \
+            | while read -r name exe; do cp "$exe" "../ephyra-bin/$name"; done
+          ls -la ../ephyra-bin
+
+      - name: Upload test binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ephyra-pg-topo-bin
+          path: ephyra-bin/
+          retention-days: 3
+
   properties:
     # one property per job: each test shares a single Postgres connection and Bun worker, so
     # parallelism comes from jobs, each with its own Postgres service
     name: pg-topo ${{ matrix.test }}
+    needs: build
     strategy:
       fail-fast: false
       matrix:
@@ -53,7 +96,7 @@ jobs:
           - { file: props2, test: injected_cycle_is_contained }
           - { file: props2, test: multi_cycles_are_separated }
           - { file: props2, test: annotation_roundtrip }
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 45
     services:
       postgres:
@@ -69,38 +112,31 @@ jobs:
           --health-retries 20
     env:
       PGTOPO_PG: host=127.0.0.1 port=5432 user=postgres password=postgres dbname=postgres
+      PGTOPO_WORKER: ${{ github.workspace }}/ephyra/pg-topo/worker.ts
       PGTOPO_STEPS: ${{ inputs.steps || '30' }}
       # PRs only change the harness, so a shorter run is enough to prove it still works
       PGTOPO_N: ${{ inputs.tests || (github.event_name == 'pull_request' && '300' || '1000') }}
       EPHYRA_TESTS: ${{ inputs.tests || (github.event_name == 'pull_request' && '300' || '1000') }}
       PGTOPO_UNMASK: ${{ inputs.unmask || '' }}
       EPHYRA_FAILURES: "5"
-      CARGO_TERM_COLOR: always
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      # Bun runs the worker, which imports packages/pg-topo/src and its dependencies
       - name: Setup
         uses: ./.github/actions/setup
 
-      - name: Install Rust
-        run: rustup toolchain install stable --profile minimal && rustup default stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - name: Download test binaries
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ephyra/target
-          key: ephyra-cargo-${{ runner.os }}-${{ hashFiles('ephyra/Cargo.lock') }}
-
-      - name: Build
-        working-directory: ephyra
-        run: cargo test -p pg-topo-ephyra --no-run
+          name: ephyra-pg-topo-bin
+          path: ephyra-bin
 
       - name: Run ${{ matrix.test }}
         working-directory: ephyra
         # phase_inversion is exploratory (fails on edges hidden by the default phase order) and
         # dump_roundtrip needs its own disposable cluster; neither is in the matrix, see ephyra/README.md
-        run: cargo test -p pg-topo-ephyra --test ${{ matrix.file }} -- --nocapture --exact ${{ matrix.test }}
+        run: |
+          chmod +x ../ephyra-bin/*
+          ../ephyra-bin/${{ matrix.file }} --nocapture --exact ${{ matrix.test }}
