@@ -137,7 +137,9 @@ export function enforceSeedCoverage(
  * Run one EXPECTED_RED-pinned corpus direction and interpret the outcome:
  *  - the run throws `CorpusContractError` → RE-THROW it (a harness-contract
  *    violation is never a legitimate "red as pinned"; it must fail even here);
- *  - the run throws anything else → resolve quietly (red as pinned — fine);
+ *  - the run throws anything else → resolve quietly (red as pinned — fine),
+ *    unless the pin names an `expectedFailure` the error message lacks: a pin
+ *    that now fails for another reason hides whatever broke it;
  *  - the run passes → throw the "pinned but now PASSES" error so a stale pin is
  *    removed.
  * The harness's pinned path CALLS this, so the rethrow guard is exercised by
@@ -146,12 +148,20 @@ export function enforceSeedCoverage(
 export async function runPinnedDirection(
   key: string,
   run: () => Promise<void>,
+  expectedFailure?: string,
 ): Promise<void> {
   try {
     await run();
   } catch (error) {
     if (error instanceof CorpusContractError) throw error;
-    return; // red as pinned — fine
+    const message = error instanceof Error ? error.message : String(error);
+    if (expectedFailure === undefined || message.includes(expectedFailure)) {
+      return; // red as pinned — fine
+    }
+    throw new Error(
+      `${key} is pinned in EXPECTED_RED to fail with "${expectedFailure}" but failed with:\n${message}\nUpdate the pin (tests/expected-red.ts) if the new failure is expected.`,
+      { cause: error },
+    );
   }
   throw new Error(
     `${key} is pinned in EXPECTED_RED but now PASSES — remove the pin (tests/expected-red.ts)`,

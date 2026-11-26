@@ -2336,3 +2336,38 @@ whenever it could reorder what main applies. These gaps are deferred.
   Main gets this right only through the tie-break's table-name order. A fix
   counts a parent's new column against each inheriting table in
   `columnCreatesByTable`.
+
+## Redeclared inherited columns
+
+An inheritance child can declare a column it also inherits (`attislocal` and
+`attinhcount > 0`). The corpus could not hold such a child before, so CI never
+saw these shapes. Each gap below is now a corpus scenario pinned with its
+expected error, in `tests/expected-red.ts` (engine) and `KNOWN_GAPS` of
+`tests/export-roundtrip-corpus.test.ts` (export, every layout). A fix that
+makes one pass, or makes it fail differently, fails the suite until the pin is
+updated.
+
+- **Creating the child** (`table-ops--inherits-redeclared-column`,
+  `-parent-default`, `-multi-parent`; reverse direction and export of side
+  `a`). The child renders as `CREATE TABLE c () INHERITS (p)` followed by
+  `ADD COLUMN` for its local columns, and Postgres rejects the ADD for an
+  inherited name. Suggested fix: write all of an INHERITS child's local
+  columns into its `CREATE TABLE`, with their defaults (two parents with
+  conflicting defaults only accept the child's default inline), plus
+  `DEFAULT NULL` when a parent has a default and the child has none (otherwise
+  Postgres copies the parent default and the proof reports drift). The child
+  create must also run after any same-plan change to the matching parent
+  columns.
+- **Parent and kept child change the column together**
+  (`-add-with-parent`, `-drop-with-parent`; forward). No ordering edge links
+  the two column actions: the child's ADD must run before the parent's
+  (Postgres merges the parent ADD into the child column), and the child's
+  DROP after the parent's. Each scenario names the tables so the name
+  tie-break picks the wrong order. supabase/pg-toolbelt#607 fixes both.
+- **An existing child starts or stops redeclaring**
+  (`-on-existing-child`, both directions). Neither `ADD COLUMN` nor
+  `DROP COLUMN` on the child expresses it; the only DDL is recreating the
+  child (or `NO INHERIT` + `INHERIT`, which leaves the column local).
+- **Not covered by a scenario.** A redeclared generated column (PG 14 and 15
+  reject a child generation expression on an inherited generated column), and
+  a partition with its own generation expression.
