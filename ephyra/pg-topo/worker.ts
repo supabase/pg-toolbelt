@@ -7,7 +7,7 @@ import {
   validateSqlSyntax,
 } from "../../packages/pg-topo/src/index.ts";
 
-const tmpRoot = join(import.meta.dir, ".files");
+const tmpRoot = join(import.meta.dir, ".files", String(process.pid));
 let seq = 0;
 const key = (id: { filePath: string; statementIndex: number }) =>
   `${id.filePath}#${id.statementIndex}`;

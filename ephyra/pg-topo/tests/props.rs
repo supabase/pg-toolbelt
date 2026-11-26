@@ -70,9 +70,13 @@ fn sorted_output_executes() {
             panic!("PARSE_ERROR on valid SQL: {parse_errs:?}");
         }
         // P3: every statement exactly once
-        if r.ordered.len() != c.stmts.len() {
-            signature("ordered length mismatch");
-            panic!("ordered has {} statements, input has {}", r.ordered.len(), c.stmts.len());
+        let mut got: Vec<&str> = r.ordered.iter().map(|o| o.sql.trim().trim_end_matches(';').trim_end()).collect();
+        let mut want: Vec<&str> = c.stmts.iter().map(|s| s.sql.trim()).collect();
+        got.sort_unstable();
+        want.sort_unstable();
+        if got != want {
+            signature("ordered statements differ from input");
+            panic!("ordered has {} statements, input has {}; multisets differ\n got {got:?}\nwant {want:?}", got.len(), want.len());
         }
         // P4: determinism
         let r2 = analyze(&inputs);
@@ -132,6 +136,10 @@ fn no_spurious_unresolved() {
             ephyra::assume!(false);
         }
         let r = analyze(&c.inputs());
+        if !r.ok {
+            signature("analyzeAndSort threw");
+            panic!("analyzeAndSort threw: {}", r.error.unwrap_or_default());
+        }
         for d in r.diagnostics.iter().filter(|d| d.code == "UNRESOLVED_DEPENDENCY") {
             // message: No producer found for 'kind:schema:name:sig'.
             let key = d.message.split('\'').nth(1).unwrap_or("");
@@ -146,7 +154,9 @@ fn no_spurious_unresolved() {
             let ours = name.trim_end_matches(".x").chars().last().map(|ch| ch.is_ascii_digit()).unwrap_or(false);
             // a recursive view reports its own name (pg-topo bug N22)
             let self_ref = masked("recursive_view_self")
-                && c.stmts.iter().any(|s| s.sql.starts_with("CREATE RECURSIVE VIEW") && s.sql.to_lowercase().contains(&name.to_lowercase()));
+                && c.stmts.iter().any(|s| {
+                    s.sql.strip_prefix("CREATE RECURSIVE VIEW ").and_then(|t| t.split(" (").next()).is_some_and(|head| head.to_lowercase().contains(&name.to_lowercase()))
+                });
             if self_ref {
                 continue;
             }

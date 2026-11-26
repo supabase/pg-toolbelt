@@ -141,4 +141,6 @@ jobs:
         # dump_roundtrip needs its own disposable cluster; neither is in the matrix, see ephyra/README.md
         run: |
           chmod +x ../ephyra-bin/*
-          ../ephyra-bin/${{ matrix.file }} --nocapture --exact ${{ matrix.test }}
+          # --exact passes with zero tests, so a renamed property would go green unnoticed
+          ../ephyra-bin/${{ matrix.file }} --nocapture --exact ${{ matrix.test }} | tee run.log
+          grep -q '^test result: ok. 1 passed' run.log

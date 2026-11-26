@@ -294,7 +294,8 @@ fn injected_cycle_is_contained() {
             signature("cycle not reported");
             panic!("no CYCLE_DETECTED; diags {:?}", res.diagnostics);
         }
-        let in_group = res.cycles.iter().any(|g| g.iter().any(|s| s.contains(&a)) && g.iter().any(|s| s.contains(&b)));
+        let (ha, hb) = (format!("create table {a} ("), format!("create table {b} ("));
+        let in_group = res.cycles.iter().any(|g| g.iter().any(|s| s.contains(&ha)) && g.iter().any(|s| s.contains(&hb)));
         if !in_group {
             signature("cycle group misses injected pair");
             panic!("cycleGroups {:?}", res.cycles);
@@ -433,6 +434,11 @@ fn dump_roundtrip() {
         }
         let shuffled = analyze(&inputs);
         ensure_ok(&shuffled);
+        if shuffled.ordered.len() != stmts.len() {
+            drop_test_roles();
+            signature("dump shuffled drops statements");
+            panic!("shuffled ordered {} of {}", shuffled.ordered.len(), stmts.len());
+        }
         check_order("shuffled", &shuffled);
         drop_test_roles();
         ephyra::TestResult::Pass
@@ -629,7 +635,8 @@ fn corrupt_input_is_contained() {
         let orig = inputs[k].clone();
         let chars: Vec<char> = orig.chars().collect();
         let at = r.below(chars.len().max(1));
-        let bad: String = match r.below(4) {
+        let kind = r.below(4);
+        let bad: String = match kind {
             0 => chars[..at].iter().collect(),
             1 => format!("{}SELEC FROM ;{}", chars[..at].iter().collect::<String>(), chars[at..].iter().collect::<String>()),
             2 => format!("{orig}CREATE TABLE ;\n"),
@@ -638,6 +645,11 @@ fn corrupt_input_is_contained() {
         inputs[k] = bad.clone();
         let res = analyze(&inputs);
         ensure_ok(&res);
+        // kind 2 appends a statement that never parses (kind 1 may land inside a quoted name)
+        if kind == 2 && !res.diagnostics.iter().any(|d| d.code == "PARSE_ERROR") {
+            signature("syntax error not reported");
+            panic!("no PARSE_ERROR for {bad:?}\ndiags {:?}", res.diagnostics);
+        }
         let got: Vec<String> = res.ordered.iter().map(|o| core_sql(&o.sql)).collect();
         for (i, inp) in inputs.iter().enumerate() {
             if i == k {
@@ -697,7 +709,10 @@ fn external_providers_stand_in() {
         for (_, s) in c.stmts.iter().enumerate().filter(|(i, _)| ext[*i]) {
             if let Some(o) = base.ordered.iter().find(|o| core_sql(&o.sql) == s.sql.trim()) {
                 for p in &o.provides {
-                    names.push(format!("{}:{}:{}:", p.kind, p.schema.clone().unwrap_or_default(), p.name));
+                    // relation kinds are matched by name only, since a view provider may stand in for a
+                    // table requirement; an extension never provides its types (see no_spurious_unresolved)
+                    let k = if p.kind == "extension" { p.kind.as_str() } else { "" };
+                    names.push(format!("{k}:{}:{}:", p.schema.clone().unwrap_or_default(), p.name));
                     let mut v = serde_json::json!({ "kind": p.kind, "name": p.name });
                     if let Some(sc) = &p.schema {
                         v["schema"] = serde_json::json!(sc);

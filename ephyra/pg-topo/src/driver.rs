@@ -155,7 +155,7 @@ pub fn dump_schema(tag: &str, stmts: &[String]) -> Result<String, String> {
 pub fn drop_test_roles() {
     if let Ok(mut admin) = postgres::Client::connect(&admin_url("postgres"), postgres::NoTls) {
         // only roles the generator names (role_N, ROLE_N, "role N.x")
-        if let Ok(rows) = admin.query("select rolname from pg_roles where lower(rolname) ~ '^role_ ?[0-9]'", &[]) {
+        if let Ok(rows) = admin.query("select rolname from pg_roles where lower(rolname) ~ '^role_ ?[0-9]+(\\.x)?$'", &[]) {
             for r in rows {
                 let n: String = r.get(0);
                 let _ = admin.batch_execute(&format!("DROP ROLE IF EXISTS \"{}\"", n.replace('"', "\"\"")));
