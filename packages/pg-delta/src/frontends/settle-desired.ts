@@ -104,12 +104,7 @@ function planSubjects(thePlan: Plan): Set<string> {
   const ids = new Set<string>();
   for (const action of thePlan.actions) {
     for (const id of action.produces) ids.add(encodeId(id));
-    // an in-place attribute alter names its fact only as the first consumed id
-    const altered =
-      action.produces.length === 0 && action.destroys.length === 0
-        ? action.consumes[0]
-        : undefined;
-    if (altered !== undefined) ids.add(encodeId(altered));
+    if (action.verb !== "drop") ids.add(encodeId(action.subject));
   }
   return ids;
 }

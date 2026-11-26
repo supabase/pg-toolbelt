@@ -31,6 +31,7 @@ const samplePlan: Plan = stampPlanId({
     {
       sql: 'CREATE SCHEMA "app" AUTHORIZATION "test"',
       verb: "create",
+      subject: { kind: "schema", name: "app" },
       produces: [{ kind: "schema", name: "app" }],
       consumes: [{ kind: "role", name: "test" }],
       destroys: [],
@@ -791,6 +792,46 @@ describe("plan artifact v1", () => {
         new RegExp(`actions\\[0\\]\\.${field}`),
       );
     }
+  });
+
+  test("validates an action's subject and change, and hashes both", () => {
+    const withAction = (patch: Record<string, unknown>): string => {
+      const artifact = JSON.parse(serializePlan(samplePlan)) as Record<
+        string,
+        unknown
+      >;
+      Object.assign(
+        (artifact["actions"] as Array<Record<string, unknown>>)[0]!,
+        patch,
+      );
+      return JSON.stringify(artifact);
+    };
+    expect(() => parsePlan(withAction({ subject: undefined }))).toThrow(
+      /actions\[0\]\.subject/,
+    );
+    // an alter always says what it changes
+    expect(() => parsePlan(withAction({ verb: "alter" }))).toThrow(
+      /actions\[0\]\.change/,
+    );
+    // well-formed but edited after planning: the hash no longer matches
+    expect(() =>
+      parsePlan(withAction({ subject: { kind: "schema", name: "other" } })),
+    ).toThrow(/planId/);
+    const alter = stampPlanId({
+      ...samplePlan,
+      actions: [
+        {
+          ...samplePlan.actions[0]!,
+          verb: "alter",
+          change: { kind: "owner", to: "test" },
+        },
+      ],
+    });
+    const changed = JSON.parse(serializePlan(alter)) as {
+      actions: Array<Record<string, unknown>>;
+    };
+    changed.actions[0]!["change"] = { kind: "owner", to: "other" };
+    expect(() => parsePlan(JSON.stringify(changed))).toThrow(/planId/);
   });
 
   test("strictly validates stable IDs in action metadata", () => {

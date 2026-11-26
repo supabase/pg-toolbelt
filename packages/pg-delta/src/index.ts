@@ -45,6 +45,7 @@ export {
   ENGINE_VERSION,
   type Plan,
   type Action,
+  type ActionChange,
   type PlanOptions,
   type SafetyReport,
   type ProjectionAudit,

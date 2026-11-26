@@ -106,7 +106,9 @@ describe("proof target safety", () => {
       const thePlan = plan(state.factBase, state.factBase);
       thePlan.actions.push({
         sql: `DROP TABLE app.t; CREATE TABLE app.t (id integer)`,
+        subject: { kind: "table", schema: "app", name: "t" },
         verb: "alter",
+        change: { kind: "attribute", name: "unspecified" },
         produces: [{ kind: "table", schema: "app", name: "t" }],
         consumes: [],
         destroys: [{ kind: "table", schema: "app", name: "t" }],
@@ -144,6 +146,7 @@ describe("proof target safety", () => {
       const thePlan = plan(state.factBase, state.factBase);
       thePlan.actions.push({
         sql: `DROP TABLE app.empty`,
+        subject: { kind: "table", schema: "app", name: "empty" },
         verb: "drop",
         produces: [],
         consumes: [],
@@ -184,6 +187,7 @@ describe("proof target safety", () => {
       const thePlan = plan(state.factBase, state.factBase);
       thePlan.actions.push({
         sql: `DROP MATERIALIZED VIEW app.mv`,
+        subject: { kind: "materializedView", schema: "app", name: "mv" },
         verb: "drop",
         produces: [],
         consumes: [],

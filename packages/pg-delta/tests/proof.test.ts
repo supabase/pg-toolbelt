@@ -359,7 +359,9 @@ describe("proof: auto-seed data preservation", () => {
       const thePlan = plan(s.factBase, d.factBase);
       thePlan.actions.push({
         sql: `TRUNCATE app.t`,
+        subject: { kind: "table", schema: "app", name: "t" },
         verb: "alter",
+        change: { kind: "attribute", name: "unspecified" },
         produces: [],
         consumes: [{ kind: "table", schema: "app", name: "t" }],
         destroys: [],
@@ -389,7 +391,9 @@ describe("proof: auto-seed data preservation", () => {
         const thePlan2 = plan(s2.factBase, d.factBase);
         thePlan2.actions.push({
           sql: `TRUNCATE app.t`,
+          subject: { kind: "table", schema: "app", name: "t" },
           verb: "alter",
+          change: { kind: "attribute", name: "unspecified" },
           produces: [],
           consumes: [{ kind: "table", schema: "app", name: "t" }],
           destroys: [],
@@ -501,7 +505,9 @@ describe("proof: projection audit on early returns", () => {
       const thePlan = plan(factBase, factBase);
       thePlan.actions.push({
         sql: "SELECT * FROM app.definitely_missing",
+        subject: { kind: "schema", name: "app" },
         verb: "alter",
+        change: { kind: "attribute", name: "unspecified" },
         produces: [],
         consumes: [],
         destroys: [],

@@ -39,8 +39,8 @@ const vaultId: StableId = { kind: "extension", name: VAULT_EXTENSION };
 const CREATE_EXTENSION_RE =
   /\bcreate\s+extension\s+(?:if\s+not\s+exists\s+)?(?:"supabase_vault"|supabase_vault\b)/i;
 const VAULT_FN_RE = /\bvault\s*\.\s*(?:create_secret|update_secret)\s*\(/i;
-const CREATE_EXTENSION_SQL_RE = /CREATE EXTENSION "supabase_vault"/;
-const DROP_EXTENSION_SQL_RE = /DROP EXTENSION "supabase_vault"/;
+const isVaultExtension = (id: StableId): boolean =>
+  id.kind === "extension" && id.name === VAULT_EXTENSION;
 
 /**
  * True when `fb` has a kept (non-reference-only, non-member) fact with a
@@ -78,11 +78,11 @@ function vaultIsInUse(fb: FactBase): boolean {
 /** Plan-time `vault_presence` warnings. `actions` is the finalized list. */
 export function vaultPresenceDiagnostics(
   desired: FactBase,
-  actions: ReadonlyArray<{ verb: string; sql: string }>,
+  actions: ReadonlyArray<{ verb: string; subject: StableId }>,
 ): Diagnostic[] {
   const out: Diagnostic[] = [];
   const creating = actions.some(
-    (a) => a.verb === "create" && CREATE_EXTENSION_SQL_RE.test(a.sql),
+    (a) => a.verb === "create" && isVaultExtension(a.subject),
   );
   if (creating && vaultIsInUse(desired)) {
     out.push({
@@ -94,7 +94,7 @@ export function vaultPresenceDiagnostics(
     });
   }
   const dropping = actions.some(
-    (a) => a.verb === "drop" && DROP_EXTENSION_SQL_RE.test(a.sql),
+    (a) => a.verb === "drop" && isVaultExtension(a.subject),
   );
   if (dropping) {
     out.push({

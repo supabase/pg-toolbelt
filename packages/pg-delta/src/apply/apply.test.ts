@@ -98,6 +98,7 @@ function planWithAction(transactionality: Action["transactionality"]): Plan {
     actions: [
       {
         sql: "SELECT 42",
+        subject: { kind: "schema", name: "public" },
         verb: "create",
         produces: [],
         consumes: [],
@@ -564,6 +565,7 @@ describe("apply plan integrity", () => {
       actions: [
         {
           sql: "DROP TABLE app.t",
+          subject: { kind: "table", schema: "app", name: "t" },
           verb: "drop",
           produces: [],
           consumes: [],
@@ -665,6 +667,7 @@ describe("apply plan integrity", () => {
       actions: [
         {
           sql: "SELECT 1",
+          subject: { kind: "schema", name: "public" },
           verb: "create",
           produces: [],
           consumes: [],

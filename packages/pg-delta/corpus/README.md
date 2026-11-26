@@ -6,6 +6,9 @@ Optional `seed.sql` and `seed-b.sql` files seed the corresponding source state,
 and `meta.json` carries fixture scheduling or PostgreSQL-version metadata.
 `meta.json` may also set `"renames": "auto" | "prompt" | "off"` to choose
 rename handling for that scenario; omitted scenarios keep the `off` default.
+`"policy"` plans and proves the scenario under that policy (for example to
+leave grants unmanaged), and `"forwardOnly": true` proves `a` → `b` only, for a
+transition the scenario's applier can make but PostgreSQL will not let it undo.
 
 ## Action-shape budgets
 
