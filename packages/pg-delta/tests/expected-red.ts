@@ -15,9 +15,9 @@ export interface RedPin {
   minMajor?: number;
   /** Pin applies only when the server major is <= this (absent = all). */
   maxMajor?: number;
-  /** Text the failure must contain. A pinned direction that fails for any
+  /** Text (or pattern) the failure must contain. A pinned direction that fails for any
    *  other reason fails the suite, so a new bug cannot hide behind the pin. */
-  failure?: string;
+  failure?: string | RegExp;
 }
 
 export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
@@ -133,10 +133,13 @@ export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
     },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/636 - the function is dropped while a generated column still calls it.
-  // PG 15+ refuses the drop; PG 14 drops the column with the function, so the proof reports drift. Only the function name is common.
+  // PG 15+ refuses the drop; PG 14 drops the column with the function, so the proof reports drift.
   [
     "function-ops--replace-used-by-generated-column",
-    { failure: "public.f(integer)" },
+    {
+      failure:
+        /cannot drop function public\.f\(integer\) because other objects depend on it|proof failed\s+drift:\s+add column:public\.t\.c\b/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/640 - the new range is created before the old one releases its multirange name.
   [
@@ -181,62 +184,90 @@ export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column named by a trigger's UPDATE OF (forward)
   [
     "rename--column-named-by-trigger-update-of:forward",
-    { failure: 'RENAME COLUMN "c0" TO "c0_r"' },
+    {
+      failure: /dependency cycle among[\s\S]*RENAME COLUMN "c0" TO "c0_r"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column named by a trigger's UPDATE OF (reverse)
   [
     "rename--column-named-by-trigger-update-of:reverse",
-    { failure: 'RENAME COLUMN "c0_r" TO "c0"' },
+    {
+      failure: /dependency cycle among[\s\S]*RENAME COLUMN "c0_r" TO "c0"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column read by a trigger's WHEN (forward)
   [
     "rename--column-read-by-trigger-when:forward",
-    { failure: 'RENAME COLUMN "id" TO "id_r"' },
+    {
+      failure: /dependency cycle among[\s\S]*RENAME COLUMN "id" TO "id_r"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column read by a trigger's WHEN (reverse)
   [
     "rename--column-read-by-trigger-when:reverse",
-    { failure: 'RENAME COLUMN "id_r" TO "id"' },
+    {
+      failure: /dependency cycle among[\s\S]*RENAME COLUMN "id_r" TO "id"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a composite type a column uses (forward)
   [
     "rename--composite-type-used-by-column:forward",
-    { failure: 'ALTER TYPE "public"."c0" RENAME TO "c0_r"' },
+    {
+      failure:
+        /dependency cycle among[\s\S]*ALTER TYPE "public"\."c0" RENAME TO "c0_r"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a composite type a column uses (reverse)
   [
     "rename--composite-type-used-by-column:reverse",
-    { failure: 'ALTER TYPE "public"."c0_r" RENAME TO "c0"' },
+    {
+      failure:
+        /dependency cycle among[\s\S]*ALTER TYPE "public"\."c0_r" RENAME TO "c0"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a rename plus an owner change of the containing schema (forward)
   [
     "rename--table-with-schema-owner-change:forward",
-    { failure: 'ALTER TABLE "app"."t0" RENAME TO "t0_r"' },
+    {
+      failure:
+        /dependency cycle among[\s\S]*ALTER TABLE "app"\."t0" RENAME TO "t0_r"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a rename plus an owner change of the containing schema (reverse)
   [
     "rename--table-with-schema-owner-change:reverse",
-    { failure: 'ALTER TABLE "app"."t0_r" RENAME TO "t0"' },
+    {
+      failure:
+        /dependency cycle among[\s\S]*ALTER TABLE "app"\."t0_r" RENAME TO "t0"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column rename plus a body change of a function its default calls (forward)
   [
     "rename--column-with-function-body-change:forward",
-    { failure: 'RENAME COLUMN "c" TO "c_r"' },
+    {
+      failure: /dependency cycle among[\s\S]*RENAME COLUMN "c" TO "c_r"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column rename plus a body change of a function its default calls (reverse)
   [
     "rename--column-with-function-body-change:reverse",
-    { failure: 'RENAME COLUMN "c_r" TO "c"' },
+    {
+      failure: /dependency cycle among[\s\S]*RENAME COLUMN "c_r" TO "c"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column renamed on a table the same plan re-creates (forward)
   [
     "rename--column-on-recreated-table:forward",
-    { failure: 'RENAME COLUMN "c1" TO "c1_r"' },
+    {
+      failure: /dependency cycle among[\s\S]*RENAME COLUMN "c1" TO "c1_r"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/637 - rename detection throws a dependency cycle: a column renamed on a table the same plan re-creates (reverse)
   [
     "rename--column-on-recreated-table:reverse",
-    { failure: 'RENAME COLUMN "c1_r" TO "c1"' },
+    {
+      failure: /dependency cycle among[\s\S]*RENAME COLUMN "c1_r" TO "c1"/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/622 - ALTER COLUMN TYPE is also planned on the child's merged column.
   [
@@ -251,7 +282,10 @@ export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
   // https://github.com/supabase/pg-toolbelt/issues/624 - the column REVOKE is ordered both before the DROP and after ADD COLUMN.
   [
     "partitioned-table-operations--partitioned-to-plain-column-grant:forward",
-    { failure: "dependency cycle among" },
+    {
+      failure:
+        /dependency cycle among(?=[\s\S]*DROP TABLE "public"\."t")(?=[\s\S]*REVOKE ALL \("a"\) ON TABLE "public"\."t")(?=[\s\S]*ADD COLUMN "a")/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/625 - ADD/DROP TABLE p also covers its inheritance child, which is then planned again.
   [
@@ -285,7 +319,10 @@ export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
   // https://github.com/supabase/pg-toolbelt/issues/632 - p and c are both replaced around the FK between them, and the plan loops.
   [
     "table-ops--inherits-parent-to-partitioned-fk-to-child:forward",
-    { failure: "dependency cycle among" },
+    {
+      failure:
+        /dependency cycle among(?=[\s\S]*DROP TABLE "s"\."c")(?=[\s\S]*DROP TABLE "s"\."p")(?=[\s\S]*ADD CONSTRAINT "p_fk" FOREIGN KEY)/,
+    },
   ],
   // https://github.com/supabase/pg-toolbelt/issues/633 - the proof's count(*) on a parent includes its children's rows.
   [

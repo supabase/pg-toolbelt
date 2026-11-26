@@ -52,12 +52,20 @@ const REDECLARED =
 const REDECLARED_ADD = 'column "x" of relation "z_child" already exists';
 const ISSUE_622 = "https://github.com/supabase/pg-toolbelt/issues/622";
 const ISSUE_638 = "https://github.com/supabase/pg-toolbelt/issues/638";
+const ISSUE_641 = "https://github.com/supabase/pg-toolbelt/issues/641";
 const ISSUE_630 = "https://github.com/supabase/pg-toolbelt/issues/630";
 interface KnownGap {
   ref: string;
   failure?: string;
+  /** The gap applies only on PostgreSQL majors <= this; above it the case must pass. */
+  maxMajor?: number;
 }
 const KNOWN_GAPS = new Map<string, KnownGap>([
+  // PG 14 keeps an ICU collation's locale in collcollate, so the extractor reads null.
+  [
+    "collation-ops--icu-create/b",
+    { ref: ISSUE_641, maxMajor: 14, failure: "expected a scalar, got null" },
+  ],
   [
     "partitioned-table-operations--subpartition-index-own-options/a",
     { ref: FOLLOW_UPS },
@@ -258,7 +266,11 @@ describe("export: corpus round-trip fidelity (all layouts)", () => {
           } finally {
             await source.dropRolesExcept(baseRoles, { strict: true });
           }
-          const known = KNOWN_GAPS.get(key);
+          const pinned = KNOWN_GAPS.get(key);
+          const known =
+            pinned?.maxMajor !== undefined && major > pinned.maxMajor
+              ? undefined
+              : pinned;
           if (known !== undefined) {
             // A pinned gap must still fail exactly as recorded on every
             // layout; any other outcome is a fix or a new regression.

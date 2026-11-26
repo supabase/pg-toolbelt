@@ -148,18 +148,21 @@ export function enforceSeedCoverage(
 export async function runPinnedDirection(
   key: string,
   run: () => Promise<void>,
-  expectedFailure?: string,
+  expectedFailure?: string | RegExp,
 ): Promise<void> {
   try {
     await run();
   } catch (error) {
     if (error instanceof CorpusContractError) throw error;
     const message = error instanceof Error ? error.message : String(error);
-    if (expectedFailure === undefined || message.includes(expectedFailure)) {
-      return; // red as pinned — fine
-    }
+    const matches =
+      expectedFailure === undefined ||
+      (typeof expectedFailure === "string"
+        ? message.includes(expectedFailure)
+        : expectedFailure.test(message));
+    if (matches) return; // red as pinned — fine
     throw new Error(
-      `${key} is pinned in EXPECTED_RED to fail with "${expectedFailure}" but failed with:\n${message}\nUpdate the pin (tests/expected-red.ts) if the new failure is expected.`,
+      `${key} is pinned in EXPECTED_RED to fail with ${typeof expectedFailure === "string" ? `"${expectedFailure}"` : String(expectedFailure)} but failed with:\n${message}\nUpdate the pin (tests/expected-red.ts) if the new failure is expected.`,
       { cause: error },
     );
   }

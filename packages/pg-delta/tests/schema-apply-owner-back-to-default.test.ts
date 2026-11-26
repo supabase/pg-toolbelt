@@ -45,86 +45,93 @@ afterAll(async () => {
 });
 
 describe("schema apply: object owned by another role, desired with the default owner", () => {
-  // test.failing: the owner is never changed back and the REVOKEs re-plan forever.
-  test.failing(
-    "returns the schema and table to the default owner, then re-plans nothing",
-    async () => {
-      const cluster = await sharedCluster();
-      await cluster.adminPool
-        .query(`CREATE ROLE ephyra_writer_631 NOLOGIN`)
-        .catch(() => {});
-      const desired = await cluster.createDb("owner_back_desired");
-      const target = await cluster.createDb("owner_back_target");
-      dbs.push(desired, target);
-      await desired.pool.query(`
+  // Pins https://github.com/supabase/pg-toolbelt/issues/631: these assertions
+  // describe the bug and must flip to the correct expectation (default owner,
+  // nothing re-planned) with the fix.
+  test("keeps the schema and table with the other owner and re-plans the same REVOKE", async () => {
+    const cluster = await sharedCluster();
+    await cluster.adminPool
+      .query(`CREATE ROLE ephyra_writer_631 NOLOGIN`)
+      .catch(() => {});
+    const desired = await cluster.createDb("owner_back_desired");
+    const target = await cluster.createDb("owner_back_target");
+    dbs.push(desired, target);
+    await desired.pool.query(`
       CREATE SCHEMA app;
       CREATE TABLE t (id int);
     `);
-      await target.pool.query(`
+    await target.pool.query(`
       CREATE SCHEMA app;
       ALTER SCHEMA app OWNER TO ephyra_writer_631;
       CREATE TABLE t (id int);
       ALTER TABLE t OWNER TO ephyra_writer_631;
     `);
 
-      const dir = mkdtempSync(join(tmpdir(), "owner-back-"));
-      dirs.push(dir);
-      const exported = await runCli([
-        "schema",
-        "export",
-        "--source",
-        desired.uri,
-        "--out-dir",
-        dir,
-        "--layout",
-        "grouped",
-      ]);
-      expect(exported.exitCode).toBe(0);
+    const dir = mkdtempSync(join(tmpdir(), "owner-back-"));
+    dirs.push(dir);
+    const exported = await runCli([
+      "schema",
+      "export",
+      "--source",
+      desired.uri,
+      "--out-dir",
+      dir,
+      "--layout",
+      "grouped",
+    ]);
+    expect(exported.exitCode).toBe(0);
 
-      const applied = await runCli([
-        "schema",
-        "apply",
-        "--dir",
-        dir,
-        "--target",
-        target.uri,
-        "--force",
-      ]);
-      expect({ code: applied.exitCode, stderr: applied.stderr }).toMatchObject({
-        code: 0,
-      });
+    const applied = await runCli([
+      "schema",
+      "apply",
+      "--dir",
+      dir,
+      "--target",
+      target.uri,
+      "--force",
+    ]);
+    expect({ code: applied.exitCode, stderr: applied.stderr }).toMatchObject({
+      code: 0,
+    });
 
-      const owners = (
-        await target.pool.query<{ obj: string; owner: string }>(`
+    const owners = (
+      await target.pool.query<{ obj: string; owner: string }>(`
         SELECT 'schema' AS obj, pg_get_userbyid(nspowner) AS owner
           FROM pg_namespace WHERE nspname = 'app'
         UNION ALL
         SELECT 'table', pg_get_userbyid(relowner)
           FROM pg_class WHERE oid = 'public.t'::regclass
         ORDER BY 1`)
-      ).rows;
-      const datdba = (
-        await target.pool.query<{ o: string }>(
-          `SELECT pg_get_userbyid(datdba) AS o FROM pg_database WHERE datname = current_database()`,
-        )
-      ).rows[0]!.o;
-      expect(owners).toEqual([
-        { obj: "schema", owner: datdba },
-        { obj: "table", owner: datdba },
-      ]);
+    ).rows;
+    const datdba = (
+      await target.pool.query<{ o: string }>(
+        `SELECT pg_get_userbyid(datdba) AS o FROM pg_database WHERE datname = current_database()`,
+      )
+    ).rows[0]!.o;
+    expect(datdba).not.toBe("ephyra_writer_631");
+    expect(owners).toEqual([
+      { obj: "schema", owner: "ephyra_writer_631" },
+      { obj: "table", owner: "ephyra_writer_631" },
+    ]);
 
-      const rerun = await runCli([
-        "schema",
-        "apply",
-        "--dir",
-        dir,
-        "--target",
-        target.uri,
-        "--dry-run",
-      ]);
-      expect(rerun.stdout + rerun.stderr).not.toMatch(/REVOKE ALL ON/);
-      expect(rerun.stdout + rerun.stderr).toMatch(/no schema changes/i);
-    },
-    300_000,
-  );
+    const rerun = await runCli([
+      "schema",
+      "apply",
+      "--dir",
+      dir,
+      "--target",
+      target.uri,
+      "--dry-run",
+    ]);
+    expect(rerun.exitCode).toBe(0);
+    expect(rerun.stdout).toContain(
+      'REVOKE ALL ON SCHEMA "app" FROM "ephyra_writer_631";',
+    );
+    expect(rerun.stdout).toContain(
+      'REVOKE ALL ON TABLE "public"."t" FROM "ephyra_writer_631";',
+    );
+    expect(rerun.stdout + rerun.stderr).not.toMatch(
+      /Target is already up to date/,
+    );
+  }, 300_000);
 });
