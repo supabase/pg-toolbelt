@@ -2371,6 +2371,13 @@ are on main:
 - **A table rename in the same plan drops the add-side order.** The create
   rule looks the desired parent table up on the source, so a renamed parent
   reads as new and the tie-break orders the two `ADD COLUMN`s.
+- **A child default that depends on the parent's column fails at plan time.**
+  With `x serial` on the parent and `DEFAULT nextval('parent_x_seq')` on a
+  redeclaring child, dropping `x` from both needs the parent's `DROP COLUMN`
+  first (inheritance) and the child's first (its default depends on the
+  sequence the parent's column owns). #607's order turns main's apply failure
+  ("cannot drop inherited column") into a guardrail-4 cycle. A fix drops the
+  child's default as its own step, or refuses the shape by name.
 
 ## Redeclared inherited columns
 
