@@ -1,8 +1,8 @@
 # Ephyra property tests
 
 Property-based tests written with [Ephyra](https://github.com/datadog-labs/ephyra), a Rust
-property-testing library. Each crate in this Cargo workspace targets one package. Today there is
-`pg-topo`.
+property-testing library. Each crate in this Cargo workspace targets one package: `pg-topo` and
+`pg-delta`.
 
 ## pg-topo
 
@@ -78,3 +78,63 @@ construct back on:
 
 When a pg-topo fix lands, delete its mask and the check at its use site. The property then guards
 against regressions.
+
+## pg-delta
+
+`pg-delta/` drives pg-delta through a long-lived Bun worker (`pg-delta/worker/worker.ts`, which
+imports `packages/pg-delta/src` directly and provisions Postgres with `packages/pg-delta/tests/containers.ts`).
+Each property generates two schemas A and B, loads them, and asks pg-delta to get from A to B.
+
+Three generators produce the schemas:
+
+| Generator | File | Covers |
+|---|---|---|
+| `gen` | `src/gen.rs`, `src/model.rs`, `src/render.rs` | columns of many types (enum, domain, composite, arrays, jsonb, identity, generated), constraints, FKs, indexes, views, materialized views, policies, triggers, sequences, statistics |
+| `ext` | `src/ext.rs` | partitioning (list, range, hash, sub-partitions), inheritance, ownership, grants, default privileges, `supabase_realtime`; a `Supabase` flavor uses the API roles |
+| `obj` | `src/obj.rs` | function signatures (OUT, SETOF, TABLE, VARIADIC, overloads), procedures, aggregates, range types, ICU collations, extensions, event triggers, rules, exclusion constraints, expression indexes, publications, postgres_fdw objects |
+
+| Property | Test file | What it checks |
+|---|---|---|
+| migration converges | `props.rs`, `ext_props.rs`, `obj_props.rs` | the A→B plan applies on a clone of A, the clone extracts to B's fact base, and seeded rows survive (pg-delta's own `provePlan`); planning twice gives the same plan |
+| export round-trips | `props.rs` | `load(export(db))` has the same fact base, in every layout |
+| declarative sync converges | `declarative_props.rs`, `obj_declarative_props.rs` | `buildSchemaExport(B)` re-synced onto B plans nothing; synced onto A (`planSchemaFiles`) it applies and the next sync plans nothing |
+| OID independence | `stable_props.rs`, `obj_declarative_props.rs` | the same SQL loaded after unrelated objects came and went gives the same hashes and the same plan |
+| real rows survive | `rows_props.rs`, `supabase_rows_props.rs` | migration with one real row in every source table (the proof's own seed only does `DEFAULT VALUES`) |
+| renames converge | `rename_props.rs`, `declarative_rename_props.rs` | B with 1–3 of its objects renamed afterwards, planned with `renames: "auto"`; the declarative form also checks no rows go missing without a destructive action |
+| Supabase profile | `supabase_props.rs`, `obj_supabase_props.rs` | the same properties as `postgres` on a Supabase image with the base-init fixture replayed |
+
+### Running
+
+You need Rust (stable), Bun with `bun install` done at the repo root, and Docker. The worker starts
+its own containers through testcontainers.
+
+```bash
+cd ephyra
+EPHYRA_TESTS=200 cargo test -p pg-delta-ephyra --test ext_props -- --test-threads 1
+PGDELTA_TEST_IMAGE=postgres:14-alpine cargo test -p pg-delta-ephyra --test obj_props -- --test-threads 1
+EPHYRA_FLAVOR=supabase PGDELTA_SUPABASE_TEST_IMAGE=supabase/postgres:17.12.0.005 \
+  cargo test -p pg-delta-ephyra --test obj_supabase_props -- --test-threads 1
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PGDELTA_TEST_IMAGE` | `postgres:17-alpine` | stock Postgres image (14–18) |
+| `EPHYRA_FLAVOR` | unset | `supabase` boots a Supabase container and runs the Supabase-flavor properties; they skip otherwise |
+| `PGDELTA_SUPABASE_TEST_IMAGE` | the image pinned in `containers.ts` | Supabase image for `EPHYRA_FLAVOR=supabase` |
+| `PGDELTA_WORKER` | `pg-delta/worker/worker.ts` in this checkout | worker path |
+| `EPHYRA_SHRINK_TIMEOUT_MS` | Ephyra default | cap shrinking; each candidate is a full plan + proof, so uncapped shrinking can take most of an hour |
+
+`scripts/cli-repro.ts stock|supabase` reproduces two declarative findings with the `pgdelta` CLI
+(`schema export` + `schema apply`).
+
+### Known bugs are recognized, not masked
+
+Unlike the pg-topo crate, these generators still produce inputs that hit known bugs. Each property
+labels a failure that matches a known family (the `known_bug` functions in `src/*.rs` and the test
+files) and passes it, so a new failure is a new bug. Every family also has a failing regression test
+in `tests/*_regressions.rs` (supabase/pg-toolbelt#615–#639). When a pg-delta fix lands, that
+regression test starts passing: drop its `known_bug` arm so the property guards against regressions.
+
+Not bugs, and kept out of the generators: operators and casts (pg-delta does not model them on
+purpose, see `src/extract/unmodeled.ts`), and the intended refusals to replace an in-use domain,
+composite or range type.
