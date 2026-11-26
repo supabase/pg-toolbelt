@@ -51,7 +51,10 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // co-created with its column (sequence target, column parent, table owner).
   // 42 → 41: both passes share isOwnerGrant (one role-edge narrowing).
   // 41 → 40: both passes share materializedObjects (one acl exclusion).
-  "internal.ts": 40,
+  // 40 → 34: the owner fold, the cleanup-REVOKE merge and the constraint fold
+  // read the action's stamped subject and change instead of sniffing the kinds
+  // in its produces / consumes.
+  "internal.ts": 34,
   "locks.ts": 18,
   // 10 → 11: the extension-replace satellite replay guards on
   // `oldFact.id.kind === "extension"` so a plan with no extension replace
@@ -96,21 +99,28 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   "safety.ts": 30,
 };
 
-function listPlannerBodyModules(dir: string = PLAN_ROOT): string[] {
+function listProductionModules(
+  dir: string,
+  skipDir: (path: string) => boolean = () => false,
+): string[] {
   const modules: string[] = [];
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) {
-      if (relative(PLAN_ROOT, path).replaceAll("\\", "/") === "rules") {
-        continue;
-      }
-      modules.push(...listPlannerBodyModules(path));
+      if (!skipDir(path)) modules.push(...listProductionModules(path, skipDir));
       continue;
     }
     if (!isPlannerBodyModuleFilename(name)) continue;
     modules.push(path);
   }
   return modules.sort();
+}
+
+function listPlannerBodyModules(): string[] {
+  return listProductionModules(
+    PLAN_ROOT,
+    (path) => relative(PLAN_ROOT, path).replaceAll("\\", "/") === "rules",
+  );
 }
 
 function countFactKindLiterals(
@@ -212,5 +222,31 @@ describe("planner body FactKind literal-count proxy ratchet", () => {
 
   test("does not grow outside plan/rules", () => {
     expect(currentKindLiteralCounts()).toEqual(KIND_LITERAL_BASELINE);
+  });
+});
+
+/**
+ * An action's `produces` / `consumes` / `destroys` are ordering edges. Their
+ * first element used to double as "the object this statement is about", which
+ * was wrong whenever an edge carried a side-effect id (an identity column's
+ * backing sequence, the column a cleanup REVOKE waits for). That question is
+ * answered by the stamped `Action.subject`; this keeps the old guess out.
+ */
+describe("action subject is read, never guessed", () => {
+  const SRC_ROOT = join(PLAN_ROOT, "..");
+  const POSITIONAL_EDGE_READ =
+    /\b(?:produces|consumes|destroys)\s*(?:\?\.)?\[\s*\d+\s*\]/;
+
+  test("no production module indexes an action's ordering edges", () => {
+    const offenders = listProductionModules(SRC_ROOT).flatMap((path) =>
+      readFileSync(path, "utf8")
+        .split("\n")
+        .flatMap((line, index) =>
+          POSITIONAL_EDGE_READ.test(line) && !/^\s*(?:\/\/|\*|\/\*)/.test(line)
+            ? [`${relative(SRC_ROOT, path)}:${index + 1}`]
+            : [],
+        ),
+    );
+    expect(offenders).toEqual([]);
   });
 });

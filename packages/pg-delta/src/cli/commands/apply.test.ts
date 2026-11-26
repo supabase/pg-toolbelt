@@ -42,6 +42,7 @@ function destructivePlan(): string {
           {
             sql: "DROP TABLE app.t",
             verb: "drop",
+            subject: { kind: "table", schema: "app", name: "t" },
             produces: [],
             consumes: [],
             destroys: [{ kind: "table", schema: "app", name: "t" }],

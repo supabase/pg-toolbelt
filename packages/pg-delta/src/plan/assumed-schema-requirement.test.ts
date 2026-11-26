@@ -33,6 +33,12 @@ const authUsers: StableId = { kind: "table", schema: "auth", name: "users" };
 function consumerAction(consume: StableId): Action {
   return {
     sql: `CREATE TRIGGER t ON ${(consume as { schema: string }).schema}.users`,
+    subject: {
+      kind: "trigger",
+      schema: (consume as { schema: string }).schema,
+      table: "users",
+      name: "t",
+    },
     verb: "create",
     produces: [],
     consumes: [consume],
@@ -61,7 +67,6 @@ function run(
     new Map(),
     source,
     desired,
-    new Set(), // renameActionIndices
     new Set(), // assumedRoleNames
     assumedSchemas,
   );

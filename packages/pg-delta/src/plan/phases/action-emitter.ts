@@ -23,7 +23,7 @@ import {
 } from "../../policy/policy.ts";
 import { extensionMemberClosure } from "../../policy/view.ts";
 import { lockClassFor } from "../locks.ts";
-import type { Action } from "../plan.ts";
+import type { Action, ActionChange } from "../plan.ts";
 import { qid } from "../render.ts";
 import { childNameRenames, nameChange, subtreeIds } from "../renames.ts";
 import { cascadesToChildren, ruleFlag } from "../rule-flags.ts";
@@ -88,7 +88,6 @@ export interface ActionEmitterOutput {
   destroyerOf: Map<string, number>;
   foldHints: Array<FoldHint | undefined>;
   acceptsFolds: boolean[];
-  renameActionIndices: Set<number>;
   /** action index → encoded ids in its `destroys` that are side-effect wipes
    *  (rule-declared `implicitlyDestroys`), for the graph: reproduce edge only,
    *  no teardown edges. Transient, never persisted. */
@@ -96,6 +95,13 @@ export interface ActionEmitterOutput {
   /** action index → encoded `ActionSpec.after` ids. Transient, never persisted. */
   softAfter: Map<number, Set<string>>;
 }
+
+/** `ALTER DEFAULT PRIVILEGES … REVOKE ALL` for one default-privilege entry. */
+const wipeSpecsOf = (id: StableId) =>
+  defaultPrivilegeCreateActions({
+    id,
+    payload: { privileges: [], grantable: [] },
+  });
 
 /**
  * Emit the atomic action list from the change set + replacement expansion.
@@ -135,15 +141,18 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const implicitDestroys = new Map<number, Set<string>>();
   const softAfter = new Map<number, Set<string>>();
 
-  const pushAction = (
-    verb: Action["verb"],
+  // The only place an Action is built. An alter must say what it changes and
+  // a create or drop must not: the conditional type checks that per call site.
+  const pushAction = <V extends Action["verb"]>(
+    verb: V,
     spec: ActionSpec,
     opts: {
+      subject: StableId;
       produces?: StableId[];
       consumes?: StableId[];
       destroys?: StableId[];
       wipes?: StableId[];
-    },
+    } & (V extends "alter" ? { change: ActionChange } : { change?: undefined }),
   ): number => {
     const index = actions.length;
     const produces = [...(opts.produces ?? []), ...(spec.alsoProduces ?? [])];
@@ -159,22 +168,23 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     if (spec.after !== undefined && spec.after.length > 0) {
       softAfter.set(index, new Set(spec.after.map(encodeId)));
     }
-    const subjectKind = (produces[0] ?? destroys[0] ?? consumes[0])?.kind;
     actions.push({
       sql: spec.sql,
       verb,
+      subject: opts.subject,
+      ...(opts.change !== undefined ? { change: opts.change } : {}),
       produces,
       consumes,
       destroys,
       releases: spec.releases ?? [],
       transactionality: spec.transactionality ?? "transactional",
-      lockClass:
-        spec.lockClass ??
-        (subjectKind === undefined ? "none" : lockClassFor(subjectKind, verb)),
+      lockClass: spec.lockClass ?? lockClassFor(opts.subject.kind, verb),
       newSegmentBefore: false,
       dataLoss: spec.dataLoss ?? "none",
       rewriteRisk: spec.rewriteRisk ?? false,
-    });
+      // `opts` already ties `change` to the verb; TypeScript cannot narrow
+      // the generic `V` to one union member here
+    } as Action);
     foldHints[index] = spec.compaction;
     acceptsFolds[index] = spec.acceptsColumnFolds ?? false;
     for (const id of produces) {
@@ -248,17 +258,12 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       ((fact.payload["privileges"] as string[] | undefined) ?? []).length > 0 &&
       isOverlayDefaultPrivilege(overlayAdpWipes, fact.id)
     ) {
-      specs = [
-        ...defaultPrivilegeCreateActions({
-          id: fact.id,
-          payload: { privileges: [], grantable: [] },
-        }),
-        ...specs,
-      ];
+      specs = [...wipeSpecsOf(fact.id), ...specs];
     }
     const wiped = implicitlyDestroyed(fact);
     specs.forEach((spec, i) => {
       pushAction("create", spec, {
+        subject: fact.id,
         produces: i === 0 ? [fact.id] : [],
         consumes: [
           ...(i === 0 ? [] : [fact.id]),
@@ -270,12 +275,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   };
 
   // renames: one action renames the whole subtree — produces every new id,
-  // destroys every old id; dependents order against those sets. Tracked so
-  // buildActionGraph can treat them as identity-only: a rename does NOT
-  // establish or tear down the owner edge (PostgreSQL preserves the owner across
-  // RENAME), so owner edges on the renamed subtree must not drive graph ordering
-  // through the rename (review P1 #2: rename/rename cycle).
-  const renameActionIndices = new Set<number>();
+  // destroys every old id; dependents order against those sets.
   const renameRuleOf = (id: StableId) => {
     const rename = rulesForId(id).rename;
     if (rename === undefined) {
@@ -297,13 +297,13 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     desiredSubtree,
   }: AcceptedRename) => {
     renamed.add(renamedOn(from, to, from.parent));
-    renameActionIndices.add(
-      pushAction("alter", renameRuleOf(from.id)(from, to.id), {
-        produces: desiredSubtree,
-        destroys: sourceSubtree,
-        consumes: to.parent !== undefined ? [to.parent] : [],
-      }),
-    );
+    pushAction("alter", renameRuleOf(from.id)(from, to.id), {
+      subject: to.id,
+      change: { kind: "rename", from: from.id },
+      produces: desiredSubtree,
+      destroys: sourceSubtree,
+      consumes: to.parent !== undefined ? [to.parent] : [],
+    });
   };
   const throughParent = new Set(
     acceptedRenames.filter(
@@ -325,12 +325,14 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       rawSource,
     )) {
       renamed.add(renamedOn(child.from, child.to, from.id));
-      renameActionIndices.add(
-        pushAction(
-          "alter",
-          renameRuleOf(child.from.id)(child.from, child.to.id),
-          { produces: subtreeIds(desired, child.to.id) },
-        ),
+      pushAction(
+        "alter",
+        renameRuleOf(child.from.id)(child.from, child.to.id),
+        {
+          subject: child.to.id,
+          change: { kind: "rename", from: child.from.id },
+          produces: subtreeIds(desired, child.to.id),
+        },
       );
     }
   }
@@ -431,6 +433,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       // comes from the child-teardown rule (source parent → parentDestroyer).
       const isRoot = encodeId(rootFact.id) === key;
       pushAction("drop", rulesForId(rootFact.id).drop(rootFact, source), {
+        subject: rootFact.id,
         consumes:
           isRoot && rootFact.parent !== undefined ? [rootFact.parent] : [],
         destroys,
@@ -506,15 +509,18 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       grantee: tuple.grantee,
     };
     if (projectedDesired.has(id) || source.has(id)) continue;
-    if (producerOf.has(encodeId(id))) continue;
-    const fact: Fact = {
-      id,
-      payload: { privileges: [], grantable: [] },
-      ...(tuple.schema != null
-        ? { parent: { kind: "schema" as const, name: tuple.schema } }
-        : {}),
-    };
-    emitCreate(fact, projectedDesired);
+    // Neither state has this default privilege: the load destination grants
+    // it on its own. Revoking it creates nothing, so it is a cleanup alter,
+    // not a create.
+    const parent: StableId[] =
+      tuple.schema != null ? [{ kind: "schema", name: tuple.schema }] : [];
+    for (const spec of wipeSpecsOf(id)) {
+      pushAction("alter", spec, {
+        subject: id,
+        change: { kind: "defaultPrivileges" },
+        consumes: parent,
+      });
+    }
   }
 
   // creates — parents first, so a parent's delta-set inlining (e.g. a
@@ -623,6 +629,8 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
               : [{ kind: "role", name: grantee } as StableId],
         },
         {
+          subject: aclId,
+          change: { kind: "defaultPrivileges" },
           consumes: [after],
           // the wipe also revokes this grantee's desired column grants
           wipes: columnAclIdsFor(aclId, projectedDesired),
@@ -754,8 +762,8 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       destroyList.push(id);
     }
     pushAction("drop", spec, {
+      subject: fact.id,
       consumes: fact.parent !== undefined ? [fact.parent] : [],
-      // the root fact leads: it is the action's subject (tie-break, locks)
       destroys: destroyList,
       wipes: implicitlyDestroyed(fact),
     });
@@ -787,7 +795,11 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         source,
       );
       for (const spec of Array.isArray(specs) ? specs : [specs]) {
-        pushAction("alter", spec, { consumes: [fact.id] });
+        pushAction("alter", spec, {
+          subject: fact.id,
+          change: { kind: "attribute", name: s.attr },
+          consumes: [fact.id],
+        });
       }
     }
   }
@@ -879,7 +891,11 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           consumes: [newRoleId],
           ...(oldRoleId !== undefined ? { releases: [oldRoleId] } : {}),
         },
-        { consumes: [objId] },
+        {
+          subject: objId,
+          change: { kind: "owner", to: roleName },
+          consumes: [objId],
+        },
       );
       ownerEmitted.add(objKey);
     }
@@ -916,7 +932,11 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           sql: `${ownerAlterPrefix(fact)} OWNER TO ${qid(roleName)}`,
           consumes: [ownerEdge.to],
         },
-        { consumes: [fact.id] },
+        {
+          subject: fact.id,
+          change: { kind: "owner", to: roleName },
+          consumes: [fact.id],
+        },
       );
     }
   }
@@ -927,7 +947,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     destroyerOf,
     foldHints,
     acceptsFolds,
-    renameActionIndices,
     implicitDestroys,
     softAfter,
   };

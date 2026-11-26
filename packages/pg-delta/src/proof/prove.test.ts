@@ -64,6 +64,7 @@ describe("provePlan — destruction metadata preflight", () => {
       actions: [
         {
           sql: `ALTER TABLE app.t DROP COLUMN secret`,
+          subject: column,
           verb: "drop",
           produces: [],
           consumes: [],
@@ -119,6 +120,7 @@ describe("provePlan — destruction metadata preflight", () => {
       actions: [
         {
           sql: "DROP SCHEMA app CASCADE",
+          subject: { kind: "schema", name: "app" },
           verb: "drop",
           produces: [],
           consumes: [],

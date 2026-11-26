@@ -21,9 +21,10 @@ import { createHash } from "node:crypto";
 import { buildFactBase, type Fact, type FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { stronglyConnectedComponents } from "../plan/graph.ts";
+import { isAclId, placementOf } from "../plan/internal.ts";
 import { plan, type Action, type AssumedDefaultGrant } from "../plan/plan.ts";
 import type { IntentRuleIndex } from "../plan/rules.ts";
-import { isOverlayDefaultPrivilege } from "../policy/policy.ts";
+import { isOverlayWipeAction } from "../policy/policy.ts";
 import { extensionMemberReferenceOnly } from "../policy/view.ts";
 import { foldCaseCollidingPaths } from "./export-case-collisions.ts";
 import type { SqlFile } from "./load-sql-files.ts";
@@ -151,60 +152,68 @@ function ownedTableOfSequence(
 }
 
 /**
- * File-placement subject. OWNED BY is a sequence follow-up whose first
- * consume is the sequence (so it would otherwise land in sequences/), but
- * it must sit with the owning table so the file-atomic loader can apply
- * CREATE SEQUENCE before CREATE TABLE … nextval. Sequence OWNER TO follows
- * the table too: PostgreSQL requires matching owners at OWNED BY time.
+ * Which object's FILE a statement belongs in. NOT the same question as
+ * `action.subject` (what the statement changes): a sequence's satellites sit
+ * with the table that owns it, so the file-atomic loader can apply
+ * CREATE SEQUENCE before CREATE TABLE … nextval, and so the owners match at
+ * OWNED BY time. Everything else is filed where the plan places it.
  */
-function subjectOf(action: Action, fb: FactBase): StableId | undefined {
+function fileSubject(action: Action, fb: FactBase): StableId {
+  const { subject } = action;
   const column = action.consumes.find((id) => id.kind === "column");
-  const sequence =
-    action.produces.find((id) => id.kind === "sequence") ??
-    action.consumes.find((id) => id.kind === "sequence");
-  if (column !== undefined && sequence !== undefined) return column;
-  // a grant on an identity column's backing sequence is a satellite of the
-  // column: the sequence has no file of its own, so the REVOKE (produces the
-  // acl) and the GRANT (consumes it) both sit with the table
-  const acl =
-    action.produces.find((id) => id.kind === "acl") ??
-    action.consumes.find((id) => id.kind === "acl");
+  // OWNED BY (a follow-up of the sequence's create that names the column), or
+  // a grant on an identity column's backing sequence, which has no file of
+  // its own
   if (
     column !== undefined &&
-    acl !== undefined &&
-    acl.kind === "acl" &&
-    acl.target.kind === "sequence"
+    (subject.kind === "sequence" ||
+      (isAclId(subject) && subject.target.kind === "sequence"))
   ) {
     return column;
   }
-  if (
-    sequence !== undefined &&
-    /^\s*ALTER\s+SEQUENCE\b/i.test(action.sql) &&
-    /\bOWNER\s+TO\b/i.test(action.sql)
-  ) {
-    const table = ownedTableOfSequence(fb, sequence);
+  if (subject.kind === "sequence" && action.change?.kind === "owner") {
+    const table = ownedTableOfSequence(fb, subject);
     if (table !== undefined) return table;
   }
-  return action.produces[0] ?? action.consumes[0];
+  return placementOf(action);
+}
+
+/** The file an action goes to: the export-only wipe of a platform default
+ *  grant has its own file; everything else follows the layout's `pathOf`. */
+function actionPath(
+  action: Action,
+  fb: FactBase,
+  options: ExportOptions,
+  pathContext: PathContext,
+  pathOf: (subject: StableId) => string,
+): string {
+  const subject = fileSubject(action, fb);
+  if (
+    subject.kind === "defaultPrivilege" &&
+    isOverlayWipeAction(options.assumedDefaultGrants ?? [], action)
+  ) {
+    return adpWipePath(subject, pathContext);
+  }
+  return pathOf(subject);
 }
 
 /** After OWNED BY, ALTER SEQUENCE OWNER TO must follow ALTER TABLE OWNER TO
  *  (or the owners diverge and PostgreSQL rejects the owned sequence). */
-function placeOwnedSequenceOwner(statements: string[]): string[] {
-  const isSeqOwner = (s: string): boolean =>
-    /^\s*ALTER\s+SEQUENCE\b/i.test(s) && /\bOWNER\s+TO\b/i.test(s);
-  const seqOwner = statements.filter(isSeqOwner);
-  if (seqOwner.length === 0) return statements;
-  const rest = statements.filter((s) => !isSeqOwner(s));
-  const tableOwnerAt = rest.findLastIndex(
-    (s) => /^\s*ALTER\s+TABLE\b/i.test(s) && /\bOWNER\s+TO\b/i.test(s),
-  );
-  if (tableOwnerAt === -1) return statements;
-  return [
-    ...rest.slice(0, tableOwnerAt + 1),
-    ...seqOwner,
-    ...rest.slice(tableOwnerAt + 1),
-  ];
+function placeOwnedSequenceOwner(statements: Action[]): string[] {
+  const setsOwnerOf = (a: Action, kind: StableId["kind"]): boolean =>
+    a.change?.kind === "owner" && a.subject.kind === kind;
+  const seqOwner = statements.filter((a) => setsOwnerOf(a, "sequence"));
+  const rest = statements.filter((a) => !setsOwnerOf(a, "sequence"));
+  const tableOwnerAt = rest.findLastIndex((a) => setsOwnerOf(a, "table"));
+  const placed =
+    tableOwnerAt === -1
+      ? statements
+      : [
+          ...rest.slice(0, tableOwnerAt + 1),
+          ...seqOwner,
+          ...rest.slice(tableOwnerAt + 1),
+        ];
+  return placed.map((a) => a.sql);
 }
 
 /** Satellite facts (comment/acl) file with their target. */
@@ -789,24 +798,6 @@ function mergeDependencyCycles(
   return merges;
 }
 
-function isAdpWipeSql(sql: string): boolean {
-  return (
-    /^\s*ALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(sql) &&
-    /\bREVOKE\s+ALL\s+ON\b/i.test(sql)
-  );
-}
-
-function isOverlayAdpWipe(
-  id: Extract<StableId, { kind: "defaultPrivilege" }>,
-  sql: string,
-  overlay: readonly AssumedDefaultGrant[] | undefined,
-): boolean {
-  if (!isAdpWipeSql(sql) || overlay === undefined) {
-    return false;
-  }
-  return isOverlayDefaultPrivilege(overlay, id);
-}
-
 function adpWipePath(
   id: Extract<StableId, { kind: "defaultPrivilege" }>,
   ctx: PathContext,
@@ -1028,9 +1019,11 @@ export function exportSqlFiles(
       rendered.actions
         .filter(
           (a) =>
-            a.produces[0]?.kind === "index" && /\bCONCURRENTLY\b/i.test(a.sql),
+            a.verb === "create" &&
+            a.subject.kind === "index" &&
+            a.transactionality === "nonTransactional",
         )
-        .map((a) => encodeId(a.produces[0]!)),
+        .map((a) => encodeId(a.subject)),
     ),
   };
 
@@ -1039,18 +1032,11 @@ export function exportSqlFiles(
   }
 
   // Each action's file path, in plan order (shared by both layouts below).
-  const miscPath = `${clusterRoot(pathStyle)}/misc.sql`;
-  const actionPaths = rendered.actions.map((action) => {
-    const subject = subjectOf(action, fb);
-    if (subject === undefined) return miscPath;
-    if (
-      subject.kind === "defaultPrivilege" &&
-      isOverlayAdpWipe(subject, action.sql, options.assumedDefaultGrants)
-    ) {
-      return adpWipePath(subject, pathContext);
-    }
-    return pathFor(subject, pathContext);
-  });
+  const actionPaths = rendered.actions.map((action) =>
+    actionPath(action, fb, options, pathContext, (subject) =>
+      pathFor(subject, pathContext),
+    ),
+  );
 
   if (layout === "ordered") {
     // statement-true splitting: runs of CONSECUTIVE same-object actions
@@ -1059,14 +1045,14 @@ export function exportSqlFiles(
     // with its dependencies simply spans several numbered files. Case-twin
     // paths need no folding here: the sequence prefix already makes every
     // file name case-insensitively unique.
-    const runs: { path: string; statements: string[] }[] = [];
+    const runs: { path: string; statements: Action[] }[] = [];
     rendered.actions.forEach((action, position) => {
       const path = actionPaths[position]!;
       const last = runs[runs.length - 1];
       if (last !== undefined && last.path === path) {
-        last.statements.push(action.sql);
+        last.statements.push(action);
       } else {
-        runs.push({ path, statements: [action.sql] });
+        runs.push({ path, statements: [action] });
       }
     });
     return runs.map((run, index) => ({
@@ -1099,12 +1085,12 @@ export function exportSqlFiles(
     new Set(folds.values()),
     options.onWarning,
   );
-  const files = new Map<string, { firstAt: number; statements: string[] }>();
+  const files = new Map<string, { firstAt: number; statements: Action[] }>();
   rendered.actions.forEach((action, position) => {
     const folded = foldedPaths[position]!;
     const path = cycleMerges.get(folded) ?? folded;
     const entry = files.get(path) ?? { firstAt: position, statements: [] };
-    entry.statements.push(action.sql);
+    entry.statements.push(action);
     files.set(path, entry);
   });
 
@@ -1241,7 +1227,6 @@ function exportGrouped(
   interface GroupedFile {
     category: Category;
     items: {
-      sql: string;
       verbRank: number;
       scopeRank: number;
       at: number;
@@ -1252,18 +1237,9 @@ function exportGrouped(
   // Case-twin paths fold to one shared file, exactly like the by-object
   // layout (issue #365) — regrouping cannot re-split them because the fold is
   // computed on the final grouped paths.
-  const overlay = options.assumedDefaultGrants;
-  const actionPaths = actions.map((action) => {
-    const subject = subjectOf(action, fb);
-    if (subject === undefined) return `${clusterRoot(style)}/misc.sql`;
-    if (
-      subject.kind === "defaultPrivilege" &&
-      isOverlayAdpWipe(subject, action.sql, overlay)
-    ) {
-      return adpWipePath(subject, pathContext);
-    }
-    return groupedPath(subject);
-  });
+  const actionPaths = actions.map((action) =>
+    actionPath(action, fb, options, pathContext, groupedPath),
+  );
   const folds = foldCaseCollidingPaths(actionPaths, options.onWarning);
   const foldedPaths = actionPaths.map((p) => folds.get(p) ?? p);
   // a dependency cycle the fold created collapses into ONE file, exactly as
@@ -1280,25 +1256,21 @@ function exportGrouped(
   );
   const files = new Map<string, GroupedFile>();
   actions.forEach((action, at) => {
-    const subject = subjectOf(action, fb);
+    const subject = fileSubject(action, fb);
     const folded = foldedPaths[at]!;
     const path = cycleMerges.get(folded) ?? folded;
     const category = path.endsWith("adp_wipes.sql")
       ? "adp_wipes"
       : path.endsWith("default_privileges.sql")
         ? "default_privileges"
-        : subject === undefined
-          ? "misc"
-          : categoryFor(subject);
+        : categoryFor(subject);
     const entry = files.get(path) ?? { category, items: [] };
     entry.items.push({
-      sql: action.sql,
       verbRank: VERB_PRIORITY[action.verb] ?? 99,
-      scopeRank: subject === undefined ? 0 : scopeRank(subject),
+      scopeRank: scopeRank(subject),
       at,
       action,
-      objectKey:
-        subject === undefined ? "" : JSON.stringify(schemaAndName(subject)),
+      objectKey: JSON.stringify(schemaAndName(subject)),
     });
     files.set(path, entry);
   });
@@ -1339,7 +1311,7 @@ function exportGrouped(
         (a, b) =>
           a.verbRank - b.verbRank || a.scopeRank - b.scopeRank || a.at - b.at,
       )
-      .map((item) => item.sql);
+      .map((item) => item.action);
     return {
       name: path,
       sql:

@@ -14,7 +14,7 @@ import { topoSort } from "../graph.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import type { ApplierCapability } from "../../policy/capability.ts";
 import {
-  isOverlayDefaultPrivilege,
+  isOverlayWipeAction,
   type AssumedDefaultGrant,
 } from "../../policy/policy.ts";
 import type { FoldHint, RulesForId } from "../rules.ts";
@@ -54,7 +54,12 @@ function columnCreatesByTable(
 ): number[][] {
   const byTable = new Map<string, Array<{ position: number; index: number }>>();
   actions.forEach((action, index) => {
-    const slot = columnCreateSlot(action, action.produces[0], desired);
+    const slot = columnCreateSlot(
+      action,
+      // only the leading ADD COLUMN; a follow-up statement produces nothing
+      action.produces.length > 0 ? action.subject : undefined,
+      desired,
+    );
     if (slot === undefined) return;
     const columns = byTable.get(slot.tableKey) ?? [];
     columns.push({ position: slot.position, index });
@@ -166,7 +171,7 @@ function chainColumnCreatesByPosition(
   // Whether a later column may wait on this one (see the doc comment).
   const canLead = (index: number): boolean => {
     if (!evaluatorActions.has(index)) return true;
-    const id = (actions[index] as Action).produces[0] as StableId;
+    const id = (actions[index] as Action).subject;
     const fact = desired.get(id);
     if (fact?.payload["generatedExpr"] == null || fact.parent === undefined) {
       return false;
@@ -181,10 +186,7 @@ function chainColumnCreatesByPosition(
   const trails = (index: number): boolean =>
     evaluatorActions.has(index) &&
     canLead(index) &&
-    !readsOwnTableColumn(
-      desired,
-      (actions[index] as Action).produces[0] as StableId,
-    );
+    !readsOwnTableColumn(desired, (actions[index] as Action).subject);
 
   for (const columns of columnsByTable) {
     let before: number | undefined;
@@ -243,7 +245,6 @@ export interface FinalizeInput {
    *  order reads desired edges, teardown reads source edges. */
   source: FactBase;
   desired: FactBase;
-  renameActionIndices: ReadonlySet<number>;
   /** action index → encoded `destroys` ids that are side-effect wipes (see
    *  ActionEmitterOutput.implicitDestroys). */
   implicitDestroys: ReadonlyMap<number, ReadonlySet<string>>;
@@ -308,7 +309,6 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     destroyerOf,
     source,
     desired,
-    renameActionIndices,
     implicitDestroys,
     softAfter,
     foldHints,
@@ -336,9 +336,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   const overlayWipeActions = new Set<number>();
   if (overlayAdpWipes.length > 0) {
     actions.forEach((action, i) => {
-      if (action.verb !== "create") return;
-      const id = action.produces[0];
-      if (id !== undefined && isOverlayDefaultPrivilege(overlayAdpWipes, id)) {
+      if (isOverlayWipeAction(overlayAdpWipes, action)) {
         overlayWipeActions.add(i);
       }
     });
@@ -351,7 +349,6 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     destroyerOf,
     source,
     desired,
-    renameActionIndices,
     assumedRoleNames,
     assumedSchemaNames,
     assumedPresentIds,

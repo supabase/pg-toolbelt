@@ -792,6 +792,27 @@ export function isOverlayDefaultPrivilege(
   return overlay.some((tuple) => assumedDefaultGrantKey(tuple) === key);
 }
 
+/**
+ * True for the statement that wipes an assumed default grant: the standalone
+ * wipe of a grant the target does not want, or the leading statement of a
+ * wipe-then-grant create. The GRANT that follows has the same subject and is
+ * not a wipe.
+ */
+export function isOverlayWipeAction(
+  overlay: readonly AssumedDefaultGrant[],
+  action: {
+    verb: string;
+    subject: StableId;
+    change?: { kind: string } | undefined;
+    produces: readonly StableId[];
+  },
+): boolean {
+  const wipes =
+    action.change?.kind === "defaultPrivileges" ||
+    (action.verb === "create" && action.produces.length > 0);
+  return wipes && isOverlayDefaultPrivilege(overlay, action.subject);
+}
+
 export function uniqueAssumedDefaultGrants(
   grants: AssumedDefaultGrant[],
 ): AssumedDefaultGrant[] {

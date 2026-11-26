@@ -8,6 +8,7 @@ function action(
 ): Action {
   return {
     sql,
+    subject: { kind: "schema", name: "public" },
     verb: "create",
     produces: [],
     consumes: [],
