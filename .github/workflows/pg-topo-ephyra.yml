@@ -36,9 +36,25 @@ concurrency:
 
 jobs:
   properties:
-    name: pg-topo properties
+    # one property per job: each test shares a single Postgres connection and Bun worker, so
+    # parallelism comes from jobs, each with its own Postgres service
+    name: pg-topo ${{ matrix.test }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { file: props, test: generator_is_valid }
+          - { file: props, test: generator_check }
+          - { file: props, test: sorted_output_executes }
+          - { file: props, test: no_spurious_unresolved }
+          - { file: props2, test: graph_is_order_independent }
+          - { file: props2, test: noise_is_inert }
+          - { file: props2, test: files_mode_agrees }
+          - { file: props2, test: injected_cycle_is_contained }
+          - { file: props2, test: multi_cycles_are_separated }
+          - { file: props2, test: annotation_roundtrip }
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:17-alpine
@@ -83,12 +99,8 @@ jobs:
         working-directory: ephyra
         run: cargo test -p pg-topo-ephyra --no-run
 
-      - name: Ordering and diagnostics properties
+      - name: Run ${{ matrix.test }}
         working-directory: ephyra
-        run: cargo test -p pg-topo-ephyra --test props -- --nocapture --test-threads 1
-
-      - name: Metamorphic, file adapter, cycle and annotation properties
-        working-directory: ephyra
-        # phase_inversion is exploratory (fails on edges hidden by the default phase order);
-        # dump_roundtrip needs its own disposable cluster, see ephyra/README.md
-        run: cargo test -p pg-topo-ephyra --test props2 -- --nocapture --test-threads 1 --skip dump_roundtrip --skip phase_inversion
+        # phase_inversion is exploratory (fails on edges hidden by the default phase order) and
+        # dump_roundtrip needs its own disposable cluster; neither is in the matrix, see ephyra/README.md
+        run: cargo test -p pg-topo-ephyra --test ${{ matrix.file }} -- --nocapture --exact ${{ matrix.test }}
