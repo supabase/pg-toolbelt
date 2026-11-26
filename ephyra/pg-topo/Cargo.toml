@@ -1,0 +1,13 @@
+[package]
+name = "pg-topo-ephyra"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Ephyra property-based tests for @supabase/pg-topo"
+
+[dependencies]
+# crates.io only has 0.0.1; the harness uses the visitor shrinker API from main.
+ephyra = { git = "https://github.com/datadog-labs/ephyra", rev = "3983b2e339ac5f6b843bef62c7fa6a88eba75370" }
+postgres = "0.19"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,0 +1,86 @@
+name: pg-topo Ephyra
+
+# Property-based tests for @supabase/pg-topo (ephyra/pg-topo). Known pg-topo bugs are masked in the
+# generator, so a failure here is a new bug. Nightly and on demand; not a required check.
+on:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: Cases per property (EPHYRA_TESTS / PGTOPO_N)
+        type: string
+        default: "1000"
+      steps:
+        description: Generator steps per case (PGTOPO_STEPS)
+        type: string
+        default: "30"
+      unmask:
+        description: Known bugs to generate again (PGTOPO_UNMASK, comma-separated or "all")
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  properties:
+    name: pg-topo properties
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGTOPO_PG: host=127.0.0.1 port=5432 user=postgres password=postgres dbname=postgres
+      PGTOPO_STEPS: ${{ inputs.steps || '30' }}
+      PGTOPO_N: ${{ inputs.tests || '1000' }}
+      EPHYRA_TESTS: ${{ inputs.tests || '1000' }}
+      PGTOPO_UNMASK: ${{ inputs.unmask || '' }}
+      EPHYRA_FAILURES: "5"
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ephyra/target
+          key: ephyra-cargo-${{ runner.os }}-${{ hashFiles('ephyra/Cargo.lock') }}
+
+      - name: Build
+        working-directory: ephyra
+        run: cargo test -p pg-topo-ephyra --no-run
+
+      - name: Ordering and diagnostics properties
+        working-directory: ephyra
+        run: cargo test -p pg-topo-ephyra --test props -- --nocapture --test-threads 1
+
+      - name: Metamorphic, file adapter, cycle and annotation properties
+        working-directory: ephyra
+        # phase_inversion is exploratory (fails on edges hidden by the default phase order);
+        # dump_roundtrip needs its own disposable cluster, see ephyra/README.md
+        run: cargo test -p pg-topo-ephyra --test props2 -- --nocapture --test-threads 1 --skip dump_roundtrip --skip phase_inversion

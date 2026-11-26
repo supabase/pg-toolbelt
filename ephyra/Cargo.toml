@@ -1,0 +1,12 @@
+[workspace]
+members = ["pg-topo"]
+resolver = "2"
+
+# Property tests should trip on arithmetic and invariant bugs in the harness itself.
+[profile.dev]
+debug-assertions = true
+overflow-checks = true
+
+[profile.release]
+debug-assertions = true
+overflow-checks = true
