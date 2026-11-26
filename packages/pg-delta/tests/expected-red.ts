@@ -238,4 +238,69 @@ export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
     "rename--column-on-recreated-table:reverse",
     { failure: 'RENAME COLUMN "c1_r" TO "c1"' },
   ],
+  // https://github.com/supabase/pg-toolbelt/issues/622 - ALTER COLUMN TYPE is also planned on the child's merged column.
+  [
+    "table-ops--inherits-redeclared-column-retype",
+    { failure: 'cannot alter inherited column "x"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/623 - before PG 18 the parent's DROP NOT NULL recurses into the child's own NOT NULL.
+  [
+    "table-ops--inherits-parent-drop-not-null:forward",
+    { maxMajor: 17, failure: "set column:s.c.a.notNull: false -> true" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/624 - the column REVOKE is ordered both before the DROP and after ADD COLUMN.
+  [
+    "partitioned-table-operations--partitioned-to-plain-column-grant:forward",
+    { failure: "dependency cycle among" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/625 - ADD/DROP TABLE p also covers its inheritance child, which is then planned again.
+  [
+    "publication-operations--inheritance-children-membership:forward",
+    { failure: 'relation "c" is already member of publication "pub_inh"' },
+  ],
+  [
+    "publication-operations--inheritance-children-membership:reverse",
+    { failure: 'relation "c" is not part of the publication' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/625 - DROP TABLE p also removes c, which the plan never re-adds.
+  [
+    "publication-operations--inheritance-membership-moves-to-child:forward",
+    { failure: "add publicationRel:pub_inh.s.c" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/625 - ADD TABLE p fails because c is already a member.
+  [
+    "publication-operations--inheritance-membership-moves-to-child:reverse",
+    { failure: 'relation "c" is already member of publication "pub_inh"' },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/626 - an FK to the partitioned table gives each partition a constraint row, so a bare DROP TABLE of a partition is refused (DETACH first).
+  [
+    "partitioned-table-operations--drop-partition-referenced-by-fk:forward",
+    { failure: "cannot drop table s.t_a because other objects depend on it" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/626 - moving a hash partition is a DROP + CREATE, refused for the same reason.
+  [
+    "partitioned-table-operations--move-partition-sibling-fk",
+    { failure: "cannot drop table s.t_a because other objects depend on it" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/632 - p and c are both replaced around the FK between them, and the plan loops.
+  [
+    "table-ops--inherits-parent-to-partitioned-fk-to-child:forward",
+    { failure: "dependency cycle among" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/633 - the proof's count(*) on a parent includes its children's rows.
+  [
+    "table-ops--inherits-drop-child-keeps-parent-rows:forward",
+    { failure: '"s"."p": 2 -> 1 rows' },
+  ],
+  // #634 https://github.com/supabase/pg-toolbelt/issues/634 is pinned in corpus/table-ops--inherits-join-leave-parent/budget.json, not here: the proof passes because the table is empty.
+  // https://github.com/supabase/pg-toolbelt/issues/638 - the attached partition index is dropped on its own, which PostgreSQL refuses.
+  [
+    "partitioned-table-operations--partition-index-rename",
+    { failure: "because index s.t_ix requires it" },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/638 - a new partition keeps the generated index name; the rename never reaches it.
+  [
+    "partitioned-table-operations--new-partition-custom-index-name:forward",
+    { failure: "remove index:s.t_a_k_idx" },
+  ],
 ]);

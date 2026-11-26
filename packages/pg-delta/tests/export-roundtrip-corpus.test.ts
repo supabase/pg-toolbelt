@@ -50,6 +50,8 @@ const REDECLARED =
 // The exported child is CREATE TABLE ... INHERITS plus ADD COLUMN for the name
 // it also inherits, which the shadow load cannot apply.
 const REDECLARED_ADD = 'column "x" of relation "z_child" already exists';
+const ISSUE_622 = "https://github.com/supabase/pg-toolbelt/issues/622";
+const ISSUE_638 = "https://github.com/supabase/pg-toolbelt/issues/638";
 interface KnownGap {
   ref: string;
   failure?: string;
@@ -92,6 +94,39 @@ const KNOWN_GAPS = new Map<string, KnownGap>([
   [
     "table-ops--inherits-redeclared-column-on-existing-child/b",
     { ref: REDECLARED, failure: REDECLARED_ADD },
+  ],
+  // #622: both sides redeclare the inherited column, so the export is the same
+  // CREATE TABLE ... INHERITS plus ADD COLUMN.
+  [
+    "table-ops--inherits-redeclared-column-retype/a",
+    { ref: ISSUE_622, failure: REDECLARED_ADD },
+  ],
+  [
+    "table-ops--inherits-redeclared-column-retype/b",
+    { ref: ISSUE_622, failure: REDECLARED_ADD },
+  ],
+  [
+    "table-ops--inherits-parent-drop-not-null/a",
+    {
+      ref: ISSUE_622,
+      failure: 'column "a" of relation "c" already exists',
+    },
+  ],
+  [
+    "table-ops--inherits-parent-drop-not-null/b",
+    {
+      ref: ISSUE_622,
+      failure: 'column "a" of relation "c" already exists',
+    },
+  ],
+  // #638: the partition's index name is not exported, so a custom name is lost.
+  [
+    "partitioned-table-operations--partition-index-rename/b",
+    { ref: ISSUE_638 },
+  ],
+  [
+    "partitioned-table-operations--new-partition-custom-index-name/b",
+    { ref: ISSUE_638 },
   ],
 ]);
 

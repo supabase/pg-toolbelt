@@ -1,0 +1,1 @@
+INSERT INTO s.c VALUES (1, '2000-01-01');

@@ -1,0 +1,3 @@
+CREATE SCHEMA s;
+
+CREATE TABLE s.p (id bigint NOT NULL);
