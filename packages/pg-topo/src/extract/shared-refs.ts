@@ -159,6 +159,13 @@ export const typeFromTypeNameNode = (
   return objectFromNameParts("type", nameParts);
 };
 
+// `uuid[]` is a different argument type from `uuid`, and every array of a type
+// is the same one (`uuid[][]` is `uuid[]`).
+export const arraySuffixFromTypeNameNode = (typeNameNode: unknown): string => {
+  const arrayBounds = asRecord(typeNameNode)?.arrayBounds;
+  return Array.isArray(arrayBounds) && arrayBounds.length > 0 ? "[]" : "";
+};
+
 export const relationFromRangeVarNode = (
   rangeVarNode: unknown,
   kind: ObjectRef["kind"] = "table",
