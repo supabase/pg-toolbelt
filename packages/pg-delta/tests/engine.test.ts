@@ -410,11 +410,12 @@ async function runPinnedOrProve(
       : `${scenario.name}:reverse`;
   const pin = EXPECTED_RED.get(key) ?? EXPECTED_RED.get(scenario.name);
   let pinned = pin !== undefined;
-  if (pinned && pin?.minMajor !== undefined) {
-    // Version-gated pin: on older majors the server behavior that makes the
+  if (pinned && (pin?.minMajor !== undefined || pin?.maxMajor !== undefined)) {
+    // Version-gated pin: outside the range the server behavior that makes the
     // scenario red doesn't exist, so it runs normally and must pass.
-    const cluster = await sharedCluster();
-    if ((await cluster.pgMajor()) < pin.minMajor) pinned = false;
+    const major = await (await sharedCluster()).pgMajor();
+    if (pin?.minMajor !== undefined && major < pin.minMajor) pinned = false;
+    if (pin?.maxMajor !== undefined && major > pin.maxMajor) pinned = false;
   }
   const modeRunner = pinned
     ? (modeKey: string, run: () => Promise<void>) =>

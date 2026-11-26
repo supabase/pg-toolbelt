@@ -5,14 +5,16 @@
  * always a deliberate one-line diff.
  *
  * Keys are scenario directory names; a `:reverse` suffix pins only the
- * teardown direction. A pin with `minMajor` applies only on PostgreSQL
- * majors >= that version — on older majors the scenario runs normally and
+ * teardown direction. A pin with `minMajor` / `maxMajor` applies only on
+ * PostgreSQL majors in that range — outside it the scenario runs normally and
  * must PASS (version-dependent server behavior, e.g. PG16 dependent-privilege
  * tracking).
  */
 export interface RedPin {
   /** Pin applies only when the server major is >= this (absent = all). */
   minMajor?: number;
+  /** Pin applies only when the server major is <= this (absent = all). */
+  maxMajor?: number;
   /** Text the failure must contain. A pinned direction that fails for any
    *  other reason fails the suite, so a new bug cannot hide behind the pin. */
   failure?: string;
