@@ -115,7 +115,11 @@ fn sorted_output_executes() {
 #[test]
 fn generator_check() {
     let cfg = Config::default().tests(200);
-    check_generator(&cfg, cases(), |c: &Case| c.order.len() == c.stmts.len() && c.breaks.len() == c.stmts.len()).assert_passed();
+    check_generator(&cfg, cases(), |c: &Case| {
+        // deps form a DAG over earlier statements; shrinking walks them
+        c.order.len() == c.stmts.len() && c.breaks.len() == c.stmts.len() && c.stmts.iter().enumerate().all(|(i, s)| s.deps.iter().all(|&d| d < i))
+    })
+    .assert_passed();
 }
 
 /// Every UNRESOLVED_DEPENDENCY on a self-contained schema must name a built-in

@@ -25,6 +25,7 @@ pg-topo misordered a valid schema, not that the generator wrote bad SQL.
 | `noise_is_inert` | `tests/props2.rs` | comments, unicode and `pg-topo:` look-alikes change neither the graph nor the recovered statement text |
 | `files_mode_agrees` | `tests/props2.rs` | `analyzeAndSortFromFiles` on nested directories matches string input; `validateSqlSyntax` accepts every input |
 | `injected_cycle_is_contained`, `multi_cycles_are_separated` | `tests/props2.rs` | real FK cycles are reported as exact `cycleGroups` in condensation order, nothing is dropped, and the rest still executes |
+| `corrupt_input_is_contained` | `tests/props2.rs` | a syntax error in one input never throws, never loses or alters other inputs' statements, and never invents statement text |
 | `annotation_roundtrip` | `tests/props2.rs` | restating a real dependency as `-- pg-topo:requires` / `depends_on`, using pg-topo's own key, resolves and gives the edge |
 | `phase_inversion` | `tests/props2.rs` | random `-- pg-topo:phase` on every statement still executes. Exploratory: it currently fails on edges that the default phase order hides |
 | `dump_roundtrip` | `tests/props2.rs` | `pg_dump --schema-only` of a generated schema, shuffled and sorted, restores. Commits databases and roles, so it needs its own cluster |
@@ -57,7 +58,7 @@ PGTOPO_PG="host=127.0.0.1 port=55452 user=postgres password=pg dbname=postgres" 
 | `PGTOPO_UNMASK` | none | comma-separated known bugs to generate again, or `all` |
 | `PGTOPO_DUMP_PORT`, `PGTOPO_DUMP_CONTAINER` | `55452`, `pgtopo-dump` | cluster and container for `dump_roundtrip` |
 | `PGTOPO_WORKER` | `pg-topo/worker.ts` in this checkout | worker path, for test binaries built in another checkout (CI) |
-| `PGTOPO_CORPUS` | unset | append every analyzed input to this JSON-lines file, for example to replay under `bun test --coverage` |
+| `PGTOPO_CORPUS` | unset | append every worker request (`{mode, sql}`) to this JSON-lines file, for example to replay under `bun test --coverage` |
 
 Ephyra's own variables also apply: `EPHYRA_SEED`, `EPHYRA_TESTS`, `EPHYRA_FAILURES`, `EPHYRA_REPLAY`
 and `EPHYRA_REGRESSIONS`. Failing inputs are stored under `.ephyra/` and replayed first on the next
@@ -72,7 +73,7 @@ construct back on:
 `sqlbody`, `composite`, `ownedby`, `addcol`, `arraysig`, `plpgsql_decl`, `regclass_case`, `operator`,
 `like`, `partkey_expr`, `exclude_expr`, `default_arg`, `rowtype_cast`, `type_cast_hidden`,
 `schema_elts`, `index_alter`, `identity_alter`, `ctas_addcol`, `body_unqual`, `rename`, `search_path`,
-`unknown_stmt`, `dup_key`, `recursive_view_self`, `ann_sig`, `phase_known`.
+`unknown_stmt`, `do_block`, `subscription`, `dup_key`, `recursive_view_self`, `ann_sig`, `phase_known`.
 
 When a pg-topo fix lands, delete its mask and the check at its use site. The property then guards
 against regressions.

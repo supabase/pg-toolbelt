@@ -613,3 +613,52 @@ fn multi_cycles_are_separated() {
     .tap()
     .assert_passed();
 }
+
+/// A syntax error in one input never throws, never loses or alters the
+/// statements of the other inputs, and never invents statement text.
+#[test]
+fn corrupt_input_is_contained() {
+    let cfg = Config::default().tests(tests(1000)).name("corrupt_input_is_contained");
+    check(&cfg, seeded(), |Seeded(c, seed): Seeded| {
+        let mut inputs = variant(&c, seed, false);
+        if inputs.len() < 2 {
+            ephyra::assume!(false);
+        }
+        let mut r = Rng(seed ^ 0xBAD);
+        let k = r.below(inputs.len());
+        let orig = inputs[k].clone();
+        let chars: Vec<char> = orig.chars().collect();
+        let at = r.below(chars.len().max(1));
+        let bad: String = match r.below(4) {
+            0 => chars[..at].iter().collect(),
+            1 => format!("{}SELEC FROM ;{}", chars[..at].iter().collect::<String>(), chars[at..].iter().collect::<String>()),
+            2 => format!("{orig}CREATE TABLE ;\n"),
+            _ => orig.replacen("CREATE", "CRAETE", 1),
+        };
+        inputs[k] = bad.clone();
+        let res = analyze(&inputs);
+        ensure_ok(&res);
+        let got: Vec<String> = res.ordered.iter().map(|o| core_sql(&o.sql)).collect();
+        for (i, inp) in inputs.iter().enumerate() {
+            if i == k {
+                continue;
+            }
+            for stmt in inp.split(";\n").map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                if !got.iter().any(|g| g == stmt) {
+                    signature("statement of an intact input lost after a sibling's syntax error");
+                    panic!("lost {stmt:?} (input {i}); corrupted input {k}: {bad:?}\ndiags {:?}", res.diagnostics);
+                }
+            }
+        }
+        for g in &got {
+            let from_intact = inputs.iter().enumerate().any(|(i, inp)| i != k && inp.contains(g.as_str()));
+            if !from_intact && !bad.contains(g.as_str()) {
+                signature("invented statement text");
+                panic!("ordered contains {g:?}, found in no input");
+            }
+        }
+        ephyra::TestResult::Pass
+    })
+    .tap()
+    .assert_passed();
+}

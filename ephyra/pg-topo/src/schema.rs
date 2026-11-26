@@ -260,6 +260,8 @@ pub struct Gen<'a> {
     force_qual: bool,
     /// relation -> latest RENAME statement (Rel.stmt stays the creating statement)
     rel_alias: std::collections::HashMap<usize, usize>,
+    /// an UPDATE fails on a table published with a column list or filter outside its replica identity
+    has_update: bool,
 }
 
 type D = Vec<usize>;
@@ -293,12 +295,17 @@ impl<'a> Gen<'a> {
     pub fn new(g: &'a mut Source) -> Self {
         let mut m = Model::default();
         m.schemas.push(Schema { name: "public".into(), stmt: None });
-        Gen { g, m, stmts: Vec::new(), n: 0, force_qual: false, rel_alias: Default::default() }
+        Gen { g, m, stmts: Vec::new(), n: 0, force_qual: false, rel_alias: Default::default(), has_update: false }
     }
 
     fn push(&mut self, sql: String, mut deps: D) -> usize {
+        // a column of the statement being built records that statement's own index
+        let me = self.stmts.len();
+        deps.retain(|&d| d != me);
         deps.sort_unstable();
         deps.dedup();
+        // deps must point backwards: shrinking and reaches_rows walk them as a DAG
+        assert!(deps.iter().all(|&d| d < self.stmts.len()), "forward dependency {deps:?} for statement {}: {sql}", self.stmts.len());
         self.stmts.push(Stmt { sql, deps });
         self.stmts.len() - 1
     }
@@ -1909,6 +1916,9 @@ impl<'a> Gen<'a> {
     }
 
     fn gen_publication(&mut self) {
+        if self.has_update {
+            return;
+        }
         let cands: Vec<usize> = (0..self.m.rels.len()).filter(|&r| matches!(self.m.rels[r].kind, RelKind::Table | RelKind::Partitioned)).collect();
         let name = self.fresh("pub");
         let ni = self.ident(&name);
@@ -2028,6 +2038,7 @@ impl<'a> Gen<'a> {
                 (if masked("rename") { 0 } else { 3 }, 34),
                 (if masked("search_path") { 0 } else { 1 }, 35),
                 (if masked("unknown_stmt") { 0 } else { 2 }, 36),
+                (2, 37), // top-level SELECT / UPDATE, ALTER PUBLICATION, FDW, DO, subscription
             ]);
             match a {
                 0 => self.gen_schema(),
@@ -2066,7 +2077,8 @@ impl<'a> Gen<'a> {
                 33 => self.gen_schema_elts(),
                 34 => self.gen_rename(),
                 35 => self.gen_search_path(),
-                _ => self.gen_unknown_stmt(),
+                36 => self.gen_unknown_stmt(),
+                _ => self.gen_misc_stmt(),
             }
         }
         self.stmts
@@ -2671,6 +2683,93 @@ impl<'a> Gen<'a> {
                 let q = self.rel_ref(r, &mut d);
                 let pi = self.ident(&pn);
                 self.push(format!("ALTER POLICY {pi} ON {q} USING (true)"), d);
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------- statement classes the schema kinds above do not reach
+
+impl<'a> Gen<'a> {
+    fn gen_misc_stmt(&mut self) {
+        match self.g.index(6) {
+            // top-level SELECT calling a user function
+            0 => {
+                let Some(f) = self.pick_func(|f| matches!(f.kind, FKind::Identity | FKind::Pred) && f.args.len() == 1) else { return };
+                let ty = self.m.funcs[f].args[0].clone();
+                let mut d = D::new();
+                let a = self.lit(&ty, &mut d);
+                let call = self.call(f, vec![a], &mut d);
+                self.push(format!("SELECT {call}"), d);
+            }
+            // UPDATE that touches no row; the table needs a replica identity in case it is published
+            1 if self.m.publications.is_empty() => {
+                let cands: Vec<usize> = (0..self.m.rels.len())
+                    .filter(|&r| self.m.rels[r].kind == RelKind::Table && self.m.rels[r].pk.is_some())
+                    .collect();
+                if cands.is_empty() {
+                    return;
+                }
+                let r = cands[self.g.index(cands.len())];
+                let cols: Vec<usize> = (0..self.m.rels[r].cols.len()).filter(|&c| !self.m.rels[r].cols[c].generated && !self.m.rels[r].cols[c].ident).collect();
+                if cols.is_empty() {
+                    return;
+                }
+                let c = cols[self.g.index(cols.len())];
+                let mut d = D::new();
+                let q = self.rel_ref(r, &mut d);
+                let cr = self.col_ref(r, c, &mut d);
+                self.push(format!("UPDATE {q} SET {cr} = {cr} WHERE false"), d);
+                self.has_update = true;
+            }
+            // ALTER PUBLICATION ... SET TABLE
+            2 => {
+                if self.m.publications.is_empty() {
+                    return;
+                }
+                let cands: Vec<usize> = (0..self.m.rels.len()).filter(|&r| self.m.rels[r].kind == RelKind::Table).collect();
+                if cands.is_empty() {
+                    return;
+                }
+                let p = self.g.index(self.m.publications.len());
+                let r = cands[self.g.index(cands.len())];
+                let (pn, pst) = (self.m.publications[p].name.clone(), self.m.publications[p].stmt);
+                let mut d = vec![pst];
+                let q = self.rel_ref(r, &mut d);
+                let pi = self.ident(&pn);
+                self.push(format!("ALTER PUBLICATION {pi} SET TABLE {q}"), d);
+            }
+            // FDW and server (no handler: those need C functions)
+            3 => {
+                let w = self.fresh("fdw");
+                let wi = self.ident(&w);
+                let ws = self.push(format!("CREATE FOREIGN DATA WRAPPER {wi}"), vec![]);
+                let sv = self.fresh("srv");
+                let (wi2, si) = (self.ident(&w), self.ident(&sv));
+                self.push(format!("CREATE SERVER {si} FOREIGN DATA WRAPPER {wi2}"), vec![ws]);
+            }
+            // DO block reading a table: pg-topo bug N10 (DO is hoisted to bootstrap)
+            4 if !masked("do_block") => {
+                let cands: Vec<usize> = (0..self.m.rels.len()).filter(|&r| matches!(self.m.rels[r].kind, RelKind::Table | RelKind::View)).collect();
+                if cands.is_empty() {
+                    return;
+                }
+                let r = cands[self.g.index(cands.len())];
+                let mut d = D::new();
+                let fq = self.force_qual;
+                self.force_qual = true;
+                let q = self.rel_ref(r, &mut d);
+                self.force_qual = fq;
+                self.push(format!("DO $$ BEGIN PERFORM 1 FROM {q}; END $$"), d);
+            }
+            // subscription: pg-topo bug N25 (requires a local publication)
+            5 if !masked("subscription") => {
+                let sb = self.fresh("sub");
+                let si = self.ident(&sb);
+                self.n += 1;
+                let n = self.n;
+                self.push(format!("CREATE SUBSCRIPTION {si} CONNECTION 'dbname=nowhere' PUBLICATION remote_pub{n} WITH (connect = false)"), vec![]);
             }
             _ => {}
         }

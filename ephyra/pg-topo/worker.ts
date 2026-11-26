@@ -23,10 +23,10 @@ for await (const chunk of Bun.stdin.stream()) {
     let out: unknown;
     try {
       const req = JSON.parse(line) as { sql: string[]; mode?: string };
-      if (process.env.PGTOPO_CORPUS && req.mode !== "validate")
+      if (process.env.PGTOPO_CORPUS)
         appendFileSync(
           process.env.PGTOPO_CORPUS,
-          `${JSON.stringify(req.sql)}\n`,
+          `${JSON.stringify({ mode: req.mode ?? "strings", sql: req.sql })}\n`,
         );
       if (req.mode === "validate") {
         const errors: string[] = [];
