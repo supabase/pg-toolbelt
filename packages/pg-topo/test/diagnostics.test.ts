@@ -474,4 +474,30 @@ describe("diagnostics", () => {
       }).toEqual({ sql, diagnostics: [], edges: [...edges] });
     }
   });
+
+  test("an external variadic provider matches like a declared one", async () => {
+    const result = await analyzeAndSort(
+      [
+        "-- pg-topo:requires function:public.g(uuid[])\ncreate view public.v as select public.h(1) as x;",
+      ],
+      {
+        externalProviders: [
+          {
+            kind: "function",
+            schema: "public",
+            name: "g",
+            signature: "(variadic pg_catalog.uuid[])",
+          },
+          {
+            kind: "function",
+            schema: "public",
+            name: "h",
+            signature:
+              "(pg_catalog.int4,pg_catalog.int4,variadic pg_catalog.int4[])",
+          },
+        ],
+      },
+    );
+    expect(result.diagnostics).toEqual([]);
+  });
 });

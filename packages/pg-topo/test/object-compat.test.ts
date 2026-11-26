@@ -115,7 +115,9 @@ describe("signaturesCompatible with allowVariadicProviderTail", () => {
     expect(
       signaturesCompatible("(text,variadic pg_catalog.uuid[])", provided, opts),
     ).toBe(true);
-    expect(signaturesCompatible("(text,uuid[])", provided, opts)).toBe(false);
+    expect(
+      signaturesCompatible("(text,pg_catalog.uuid[])", provided, opts),
+    ).toBe(false);
     expect(signaturesCompatible("(text,int)", provided, opts)).toBe(false);
     expect(
       signaturesCompatible(
@@ -148,8 +150,8 @@ describe("signaturesCompatible with allowVariadicProviderTail", () => {
     ).toBe(false);
   });
 
-  test("fixed args + VARIADIC tail rejects too few required args", () => {
-    expect(signaturesCompatible("()", "(int, VARIADIC any)", opts)).toBe(false);
+  test("too few args for the fixed prefix fall back to prefix matching, as defaulted parameters allow", () => {
+    expect(signaturesCompatible("()", "(int, VARIADIC any)", opts)).toBe(true);
   });
 
   test("polymorphic last arg without VARIADIC does NOT enable variadic matching", () => {

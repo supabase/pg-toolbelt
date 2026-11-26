@@ -179,6 +179,46 @@ const isVariadicProviderArg = (value: string): boolean =>
 const stripVariadicPrefix = (value: string): string =>
   value.replace(/^\s*variadic\s+/i, "").trim();
 
+// Callers pass a variadic parameter its elements, or the array itself with
+// `variadic`.
+const variadicTailCompatible = (
+  requiredArgs: string[],
+  providedArgs: string[],
+): boolean => {
+  const fixedCount = providedArgs.length - 1;
+  if (requiredArgs.length < fixedCount) {
+    return false;
+  }
+  for (let index = 0; index < fixedCount; index += 1) {
+    const requiredArg = requiredArgs[index];
+    const providedArg = providedArgs[index];
+    if (typeof requiredArg !== "string" || typeof providedArg !== "string") {
+      return false;
+    }
+    if (!signatureArgCompatible(requiredArg, providedArg)) {
+      return false;
+    }
+  }
+  const variadicArg = providedArgs[providedArgs.length - 1];
+  if (typeof variadicArg !== "string") {
+    return false;
+  }
+  const variadicElement = stripVariadicPrefix(variadicArg).replace(/\[\]$/, "");
+  for (let index = fixedCount; index < requiredArgs.length; index += 1) {
+    const requiredArg = requiredArgs[index];
+    if (typeof requiredArg !== "string") {
+      return false;
+    }
+    const matches = isVariadicProviderArg(requiredArg)
+      ? signatureArgCompatible(requiredArg, variadicArg)
+      : signatureArgCompatible(requiredArg, variadicElement);
+    if (!matches) {
+      return false;
+    }
+  }
+  return true;
+};
+
 export const signaturesCompatible = (
   requiredSignature?: string,
   providedSignature?: string,
@@ -209,45 +249,9 @@ export const signaturesCompatible = (
   }
   if (
     options.allowVariadicProviderTail &&
-    providedArgs.length > 0 &&
-    isVariadicProviderArg(providedArgs[providedArgs.length - 1] ?? "")
+    isVariadicProviderArg(providedArgs.at(-1) ?? "") &&
+    variadicTailCompatible(requiredArgs, providedArgs)
   ) {
-    const fixedCount = providedArgs.length - 1;
-    if (requiredArgs.length < fixedCount) {
-      return false;
-    }
-    for (let index = 0; index < fixedCount; index += 1) {
-      const requiredArg = requiredArgs[index];
-      const providedArg = providedArgs[index];
-      if (typeof requiredArg !== "string" || typeof providedArg !== "string") {
-        return false;
-      }
-      if (!signatureArgCompatible(requiredArg, providedArg)) {
-        return false;
-      }
-    }
-    const variadicArg = providedArgs[providedArgs.length - 1];
-    if (typeof variadicArg !== "string") {
-      return false;
-    }
-    // Callers pass a variadic parameter its elements, or the array itself
-    // with `variadic`.
-    const variadicElement = stripVariadicPrefix(variadicArg).replace(
-      /\[\]$/,
-      "",
-    );
-    for (let index = fixedCount; index < requiredArgs.length; index += 1) {
-      const requiredArg = requiredArgs[index];
-      if (typeof requiredArg !== "string") {
-        return false;
-      }
-      const matches = isVariadicProviderArg(requiredArg)
-        ? signatureArgCompatible(requiredArg, variadicArg)
-        : signatureArgCompatible(requiredArg, variadicElement);
-      if (!matches) {
-        return false;
-      }
-    }
     return true;
   }
   // Allow fewer required args than provided: PostgreSQL functions with default
