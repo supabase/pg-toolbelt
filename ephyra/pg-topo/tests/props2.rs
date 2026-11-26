@@ -662,3 +662,73 @@ fn corrupt_input_is_contained() {
     .tap()
     .assert_passed();
 }
+
+/// Removing a dependency-closed set of statements and declaring what they
+/// provide as `externalProviders` leaves no UNRESOLVED for those objects, and
+/// the rest of the order runs once the removed statements exist.
+#[test]
+fn external_providers_stand_in() {
+    use pg_topo_ephyra::driver::analyze_with;
+    let cfg = Config::default().tests(tests(1000)).name("external_providers_stand_in");
+    check(&cfg, seeded(), |Seeded(c, seed): Seeded| {
+        if c.stmts.len() < 3 || !valid(&c) {
+            ephyra::assume!(false);
+        }
+        let base = analyze(&c.inputs());
+        ensure_ok(&base);
+        let mut r = Rng(seed ^ 0xE47);
+        let mut ext = vec![false; c.stmts.len()];
+        for _ in 0..1 + r.below(3) {
+            ext[r.below(c.stmts.len())] = true;
+        }
+        // close under dependencies (deps point backwards, so one pass from the end suffices)
+        for i in (0..c.stmts.len()).rev() {
+            if ext[i] {
+                for &d in &c.stmts[i].deps {
+                    ext[d] = true;
+                }
+            }
+        }
+        if ext.iter().all(|&e| e) {
+            ephyra::assume!(false);
+        }
+        let mut providers = Vec::new();
+        let mut names = Vec::new();
+        for (_, s) in c.stmts.iter().enumerate().filter(|(i, _)| ext[*i]) {
+            if let Some(o) = base.ordered.iter().find(|o| core_sql(&o.sql) == s.sql.trim()) {
+                for p in &o.provides {
+                    names.push(format!("{}:{}:{}:", p.kind, p.schema.clone().unwrap_or_default(), p.name));
+                    let mut v = serde_json::json!({ "kind": p.kind, "name": p.name });
+                    if let Some(sc) = &p.schema {
+                        v["schema"] = serde_json::json!(sc);
+                    }
+                    if let Some(sg) = &p.signature {
+                        v["signature"] = serde_json::json!(sg);
+                    }
+                    providers.push(v);
+                }
+            }
+        }
+        let rest: Vec<String> = c.stmts.iter().enumerate().filter(|(i, _)| !ext[*i]).map(|(_, s)| format!("{};\n", s.sql)).collect();
+        let mut rest = rest;
+        for k in (1..rest.len()).rev() {
+            rest.swap(k, r.below(k + 1));
+        }
+        let res = analyze_with(&rest, "strings", serde_json::json!({ "externalProviders": providers }));
+        ensure_ok(&res);
+        if let Some(d) = res.diagnostics.iter().find(|d| d.code == "UNRESOLVED_DEPENDENCY" && names.iter().any(|n| d.message.contains(n.as_str()))) {
+            signature("external provider not honored");
+            panic!("{}\nexternal: {names:?}", d.message);
+        }
+        let mut run: Vec<String> = c.stmts.iter().enumerate().filter(|(i, _)| ext[*i]).map(|(_, s)| s.sql.clone()).collect();
+        let first = run.len();
+        run.extend(res.ordered.iter().map(|o| o.sql.clone()));
+        if let Err((i, msg)) = execute(&run) {
+            signature(format!("order with external providers fails: {}", if i >= first { res.ordered[i - first].cls.as_str() } else { "external part" }));
+            panic!("fails at {i}: {msg}\n  {}", run[i]);
+        }
+        ephyra::TestResult::Pass
+    })
+    .tap()
+    .assert_passed();
+}

@@ -26,6 +26,7 @@ pg-topo misordered a valid schema, not that the generator wrote bad SQL.
 | `files_mode_agrees` | `tests/props2.rs` | `analyzeAndSortFromFiles` on nested directories matches string input; `validateSqlSyntax` accepts every input |
 | `injected_cycle_is_contained`, `multi_cycles_are_separated` | `tests/props2.rs` | real FK cycles are reported as exact `cycleGroups` in condensation order, nothing is dropped, and the rest still executes |
 | `corrupt_input_is_contained` | `tests/props2.rs` | a syntax error in one input never throws, never loses or alters other inputs' statements, and never invents statement text |
+| `external_providers_stand_in` | `tests/props2.rs` | removing a dependency-closed set of statements and declaring their objects as `externalProviders` leaves no UNRESOLVED for them, and the rest of the order runs once they exist |
 | `annotation_roundtrip` | `tests/props2.rs` | restating a real dependency as `-- pg-topo:requires` / `depends_on`, using pg-topo's own key, resolves and gives the edge |
 | `phase_inversion` | `tests/props2.rs` | random `-- pg-topo:phase` on every statement still executes. Exploratory: it currently fails on edges that the default phase order hides |
 | `dump_roundtrip` | `tests/props2.rs` | `pg_dump --schema-only` of a generated schema, shuffled and sorted, restores. Commits databases and roles, so it needs its own cluster |

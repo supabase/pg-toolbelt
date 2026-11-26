@@ -97,6 +97,7 @@ jobs:
           - { file: props2, test: multi_cycles_are_separated }
           - { file: props2, test: annotation_roundtrip }
           - { file: props2, test: corrupt_input_is_contained }
+          - { file: props2, test: external_providers_stand_in }
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 45
     services:

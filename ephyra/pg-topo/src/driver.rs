@@ -72,8 +72,13 @@ pub fn analyze(sql: &[String]) -> TopoResult {
 }
 
 pub fn analyze_mode(sql: &[String], mode: &str) -> TopoResult {
+    analyze_with(sql, mode, serde_json::Value::Null)
+}
+
+/// `options` is passed to analyzeAndSort as-is (e.g. `{"externalProviders": [...]}`).
+pub fn analyze_with(sql: &[String], mode: &str, options: serde_json::Value) -> TopoResult {
     let mut w = worker().lock().unwrap_or_else(|e| e.into_inner());
-    let req = serde_json::json!({ "sql": sql, "mode": mode });
+    let req = serde_json::json!({ "sql": sql, "mode": mode, "options": options });
     writeln!(w.stdin, "{req}").unwrap();
     w.stdin.flush().unwrap();
     let mut line = String::new();

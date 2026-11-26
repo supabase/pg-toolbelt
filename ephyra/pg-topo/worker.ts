@@ -22,11 +22,15 @@ for await (const chunk of Bun.stdin.stream()) {
     buf = buf.slice(nl + 1);
     let out: unknown;
     try {
-      const req = JSON.parse(line) as { sql: string[]; mode?: string };
+      const req = JSON.parse(line) as {
+        sql: string[];
+        mode?: string;
+        options?: Parameters<typeof analyzeAndSort>[1];
+      };
       if (process.env.PGTOPO_CORPUS)
         appendFileSync(
           process.env.PGTOPO_CORPUS,
-          `${JSON.stringify({ mode: req.mode ?? "strings", sql: req.sql })}\n`,
+          `${JSON.stringify({ mode: req.mode ?? "strings", sql: req.sql, options: req.options ?? undefined })}\n`,
         );
       if (req.mode === "validate") {
         const errors: string[] = [];
@@ -59,9 +63,9 @@ for await (const chunk of Bun.stdin.stream()) {
               s,
             ),
           );
-          r = await analyzeAndSortFromFiles([dir]);
+          r = await analyzeAndSortFromFiles([dir], req.options);
         } else {
-          r = await analyzeAndSort(req.sql);
+          r = await analyzeAndSort(req.sql, req.options);
         }
         const sqlOf = new Map(r.ordered.map((s) => [key(s.id), s.sql]));
         out = {
