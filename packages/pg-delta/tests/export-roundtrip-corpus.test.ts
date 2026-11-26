@@ -52,6 +52,7 @@ const REDECLARED =
 const REDECLARED_ADD = 'column "x" of relation "z_child" already exists';
 const ISSUE_622 = "https://github.com/supabase/pg-toolbelt/issues/622";
 const ISSUE_638 = "https://github.com/supabase/pg-toolbelt/issues/638";
+const ISSUE_630 = "https://github.com/supabase/pg-toolbelt/issues/630";
 interface KnownGap {
   ref: string;
   failure?: string;
@@ -128,6 +129,13 @@ const KNOWN_GAPS = new Map<string, KnownGap>([
     "partitioned-table-operations--new-partition-custom-index-name/b",
     { ref: ISSUE_638 },
   ],
+  // #630: a default privilege a role holds on its own objects does not survive
+  // export and reload.
+  [
+    "default-privileges-edge-case--global-revoke-from-self/b",
+    { ref: ISSUE_630 },
+  ],
+  ["default-privileges-edge-case--schema-grant-to-self/b", { ref: ISSUE_630 }],
 ]);
 
 interface Case {
