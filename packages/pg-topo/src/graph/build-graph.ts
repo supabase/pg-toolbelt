@@ -161,10 +161,13 @@ const producerIndicesForRequirement = (
       if (requiredRef.schema && providedRef.schema !== requiredRef.schema) {
         return false;
       }
-      if (!signaturesCompatible(requiredRef.signature, providedRef.signature)) {
-        return false;
-      }
-      return true;
+      // A call can pass a variadic parameter its elements, or leave out
+      // defaulted parameters (matched by prefix).
+      return (
+        signaturesCompatible(requiredRef.signature, providedRef.signature, {
+          allowVariadicProviderTail: true,
+        }) || signaturesCompatible(requiredRef.signature, providedRef.signature)
+      );
     });
 
     if (hasMatchingProvide) {
