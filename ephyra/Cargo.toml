@@ -1,5 +1,5 @@
 [workspace]
-members = ["pg-topo"]
+members = ["pg-delta", "pg-topo"]
 resolver = "2"
 
 # Property tests should trip on arithmetic and invariant bugs in the harness itself.
@@ -10,3 +10,7 @@ overflow-checks = true
 [profile.release]
 debug-assertions = true
 overflow-checks = true
+
+# pg-delta's generators build large models per case; unoptimized, shrinking is slow.
+[profile.dev.package.pg-delta-ephyra]
+opt-level = 1
