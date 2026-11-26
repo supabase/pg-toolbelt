@@ -202,6 +202,14 @@ export const buildGraph = (
     }
   }
 
+  // Postgres identifies a routine by its argument types, so a variadic
+  // declaration is the same routine as a plain one of its array type.
+  const identityKey = (ref: ObjectRef): string =>
+    objectRefKey({
+      ...ref,
+      signature: ref.signature?.replace(/([(,])variadic /g, "$1"),
+    });
+  const producersByIdentity = new Map<string, number[]>();
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
     if (!node) {
@@ -212,10 +220,16 @@ export const buildGraph = (
       const producerIndices = producersByKey.get(key) ?? [];
       producerIndices.push(index);
       producersByKey.set(key, producerIndices);
+      const identity = identityKey(providedRef);
+      const identityIndices = producersByIdentity.get(identity) ?? [];
+      if (!identityIndices.includes(index)) {
+        identityIndices.push(index);
+      }
+      producersByIdentity.set(identity, identityIndices);
     }
   }
 
-  for (const [producerKey, producerIndices] of producersByKey.entries()) {
+  for (const [producerKey, producerIndices] of producersByIdentity.entries()) {
     if (producerIndices.length < 2) {
       continue;
     }
@@ -225,7 +239,7 @@ export const buildGraph = (
         ? nodes[firstProducerIndex]
         : undefined;
     const sampleRef = firstProducer?.provides.find(
-      (providedRef: ObjectRef) => objectRefKey(providedRef) === producerKey,
+      (providedRef: ObjectRef) => identityKey(providedRef) === producerKey,
     );
     for (const duplicateIndex of producerIndices) {
       const duplicateNode = nodes[duplicateIndex];

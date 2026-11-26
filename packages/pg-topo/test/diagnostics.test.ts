@@ -332,6 +332,9 @@ describe("diagnostics", () => {
         "create procedure public.p(a int, b int) language sql as $$ select 1 $$;",
         "create procedure public.p(a int, out b int[]) language sql as $$ select null::int[] $$;",
       ],
+      [
+        "-- pg-topo:provides function:public.f(pg_catalog.uuid[])\ncreate function public.f(variadic ids uuid[]) returns int language sql as $$ select 1 $$;",
+      ],
     ]) {
       const result = await analyzeAndSort(sql);
       expect({
@@ -341,6 +344,18 @@ describe("diagnostics", () => {
         ),
       }).toEqual({ sql, duplicates: [] });
     }
+  });
+
+  test("a plain and a variadic declaration of one array signature are the same routine", async () => {
+    const result = await analyzeAndSort([
+      "create function public.f(a uuid[]) returns int language sql as $$ select 1 $$;",
+      "create or replace function public.f(variadic a uuid[]) returns int language sql as $$ select 2 $$;",
+    ]);
+    expect(
+      result.diagnostics.filter(
+        (diagnostic) => diagnostic.code === "DUPLICATE_PRODUCER",
+      ),
+    ).toHaveLength(2);
   });
 
   test("a call orders after every routine Postgres could resolve it to", async () => {
