@@ -45,6 +45,7 @@ export {
   ENGINE_VERSION,
   type Plan,
   type Action,
+  type ActionChange,
   type PlanOptions,
   type SafetyReport,
   type ProjectionAudit,
@@ -154,6 +155,7 @@ export type { UnmodeledIdentities } from "./extract/unmodeled.ts";
 export {
   STRICT_COVERAGE_CODES,
   hasBlockingDiagnostics,
+  isBlockingDiagnostic,
 } from "./frontends/diagnostics.ts";
 export {
   dataLossActions,

@@ -211,6 +211,7 @@ function stubPlan(actions: Action[]): Plan {
 function stubAction(name: string): Action {
   return {
     sql: `CREATE TABLE app.${name} (id int)`,
+    subject: table(name),
     verb: "create",
     produces: [table(name)],
     consumes: [],

@@ -32,7 +32,9 @@ function planWithFailingNonTxnAction(): Plan {
     actions: [
       {
         sql: "SELECT 1 / 0", // fails at runtime
+        subject: { kind: "schema", name: "public" },
         verb: "alter",
+        change: { kind: "attribute", name: "unspecified" },
         produces: [],
         consumes: [],
         destroys: [],

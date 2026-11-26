@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import type { StableId } from "../src/core/stable-id.ts";
-import type { Action } from "../src/plan/plan.ts";
+import type { Action, ActionChange } from "../src/plan/plan.ts";
 import {
   ActionShapeBudgetError,
   enforceActionShapeBudget,
@@ -18,6 +18,8 @@ const table = (name: string): StableId => ({
 function action(
   verb: Action["verb"],
   ids: {
+    subject: StableId;
+    change?: ActionChange;
     produces?: StableId[];
     consumes?: StableId[];
     destroys?: StableId[];
@@ -25,7 +27,9 @@ function action(
 ): Action {
   return {
     sql: `${verb} fixture`,
+    subject: ids.subject,
     verb,
+    ...(verb === "alter" ? { change: ids.change } : {}),
     produces: ids.produces ?? [],
     consumes: ids.consumes ?? [],
     destroys: ids.destroys ?? [],
@@ -35,7 +39,7 @@ function action(
     newSegmentBefore: false,
     dataLoss: "none",
     rewriteRisk: false,
-  };
+  } as Action;
 }
 
 describe("action-shape budget parsing", () => {
@@ -160,8 +164,8 @@ describe("action-shape budget enforcement", () => {
     expect(() =>
       enforceActionShapeBudget(
         [
-          action("drop", { destroys: [oldOverload] }),
-          action("create", { produces: [newOverload] }),
+          action("drop", { subject: oldOverload, destroys: [oldOverload] }),
+          action("create", { subject: newOverload, produces: [newOverload] }),
         ],
         budget,
         "routine-overloads",
@@ -180,8 +184,8 @@ describe("action-shape budget enforcement", () => {
     expect(() =>
       enforceActionShapeBudget(
         [
-          action("drop", { destroys: [users] }),
-          action("create", { produces: [users] }),
+          action("drop", { subject: users, destroys: [users] }),
+          action("create", { subject: users, produces: [users] }),
         ],
         budget,
         "table-change",
@@ -191,8 +195,8 @@ describe("action-shape budget enforcement", () => {
     expect(() =>
       enforceActionShapeBudget(
         [
-          action("drop", { destroys: [users] }),
-          action("create", { produces: [users] }),
+          action("drop", { subject: users, destroys: [users] }),
+          action("create", { subject: users, produces: [users] }),
         ],
         budget,
         "table-change",
@@ -225,8 +229,14 @@ describe("action-shape budget enforcement", () => {
     expect(() =>
       enforceActionShapeBudget(
         [
-          action("alter", { consumes: [column] }),
           action("alter", {
+            subject: column,
+            change: { kind: "attribute", name: "unspecified" },
+            consumes: [column],
+          }),
+          action("alter", {
+            subject: customers,
+            change: { kind: "rename", from: users },
             produces: [customers],
             consumes: [{ kind: "schema", name: "public" }],
             destroys: [users],
@@ -260,6 +270,8 @@ describe("action-shape budget enforcement", () => {
       enforceActionShapeBudget(
         [
           action("alter", {
+            subject: column,
+            change: { kind: "attribute", name: "identity" },
             produces: [sequence],
             consumes: [column],
           }),
@@ -292,6 +304,8 @@ describe("action-shape budget enforcement", () => {
       enforceActionShapeBudget(
         [
           action("alter", {
+            subject: column,
+            change: { kind: "attribute", name: "identity" },
             consumes: [column],
             destroys: [sequence],
           }),
@@ -330,7 +344,13 @@ describe("action-shape budget enforcement", () => {
     };
     expect(() =>
       enforceActionShapeBudget(
-        [action("alter", { consumes: [column] })],
+        [
+          action("alter", {
+            subject: column,
+            change: { kind: "attribute", name: "unspecified" },
+            consumes: [column],
+          }),
+        ],
         expectedRed,
         "column-storage",
         "forward",
@@ -358,8 +378,8 @@ describe("action-shape budget enforcement", () => {
     expect(() =>
       enforceActionShapeBudget(
         [
-          action("drop", { destroys: [users] }),
-          action("create", { produces: [users] }),
+          action("drop", { subject: users, destroys: [users] }),
+          action("create", { subject: users, produces: [users] }),
         ],
         expectedRed,
         "column-storage",

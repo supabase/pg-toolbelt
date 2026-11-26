@@ -132,6 +132,67 @@ describe("schema-scoped ADP export routing", () => {
     expect(appWipeAt).toBeLessThan(appTableAt);
   });
 
+  const ownedTableUnderOverlay = (
+    assumedDefaultGrants: Array<{
+      creatingRole: string;
+      schema: string;
+      objtype: string;
+      grantee: string;
+    }>,
+  ) => {
+    const table = { kind: "table" as const, schema: "app", name: "t" };
+    return exportSqlFiles(
+      buildFactBase(
+        [
+          { id: { kind: "role", name: "postgres" }, payload: {} },
+          { id: { kind: "role", name: "alice" }, payload: {} },
+          { id: { kind: "schema", name: "app" }, payload: {} },
+          {
+            id: table,
+            parent: { kind: "schema", name: "app" },
+            payload: { persistence: "p" },
+          },
+        ],
+        [
+          {
+            from: { kind: "schema", name: "app" },
+            to: { kind: "role", name: "postgres" },
+            kind: "owner",
+          },
+          { from: table, to: { kind: "role", name: "alice" }, kind: "owner" },
+        ],
+      ),
+      {
+        layout: "grouped",
+        assumedRoles: ["anon", "postgres"],
+        assumedDefaultGrants,
+      },
+    );
+  };
+  const anonOnAppTables = {
+    creatingRole: "postgres",
+    schema: "app",
+    objtype: "r",
+    grantee: "anon",
+  };
+
+  test("grouped: an assumed default grant is wiped once, ahead of the table's OWNER TO", () => {
+    // listed twice on purpose. Once the table belongs to someone else, a
+    // loader that is not a member of the new owner can no longer revoke the
+    // grant it received at create.
+    const sql = ownedTableUnderOverlay([anonOnAppTables, anonOnAppTables])
+      .map((file) => file.sql)
+      .join("\n");
+    const wipes = sql
+      .split("\n")
+      .filter((line) => line.startsWith("ALTER DEFAULT PRIVILEGES"));
+    expect(wipes).toHaveLength(1);
+    const revokeAt = sql.indexOf('REVOKE ALL ON TABLE "app"."t" FROM "anon"');
+    const ownerAt = sql.indexOf('ALTER TABLE "app"."t" OWNER TO "alice"');
+    expect(revokeAt).toBeGreaterThanOrEqual(0);
+    expect(revokeAt).toBeLessThan(ownerAt);
+  });
+
   test("positive GRANT ADP is not hoisted before a predating table", () => {
     const t1 = { kind: "table" as const, schema: "app", name: "t1" };
     const t2 = { kind: "table" as const, schema: "app", name: "t2" };

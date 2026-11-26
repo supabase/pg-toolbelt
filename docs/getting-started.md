@@ -361,8 +361,12 @@ const { factBase } = loadSnapshot("prod.snapshot");
 - **`FactBase`** — an immutable, content-addressed set of facts + dependency
   edges. Compared by hash.
 - **`Plan`** — `{ actions, deltas, filteredDeltas, safetyReport, source, target,
-  renameCandidates, … }`. `Action` carries `sql`, `verb`, `transactionality`,
-  `lockClass`, `dataLoss`, `rewriteRisk`, and produces/consumes/destroys edges.
+  renameCandidates, … }`. `Action` carries `sql`, `verb`, `subject` (the fact
+  the statement creates, changes or drops), `change` (on an `alter`: which
+  attribute, the new owner, a rename or a default-privilege cleanup),
+  `transactionality`, `lockClass`, `dataLoss`, `rewriteRisk`, and
+  produces/consumes/destroys edges. The edges order the plan; read `subject`,
+  not the first edge, to know what a statement is about.
 - **`ApplyReport`** — `{ status, appliedActions, actionStatuses, error? }`.
 - **`ProofVerdict`** — the compatibility shape. Its additive
   `projectionAudit?` and `projectionAuditStatus?` fields remain optional so

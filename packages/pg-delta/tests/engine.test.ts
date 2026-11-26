@@ -19,6 +19,7 @@ import { planSettled } from "../src/frontends/settle-desired.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import { enforceActionShapeBudgetForMode } from "./action-shape-budgets.ts";
 import { enforceKeptTableRebuilds } from "./kept-table-rebuilds.ts";
+import { enforceActionStamps } from "./action-stamps.ts";
 import { enforceSeedCoverage, runPinnedDirection } from "./seed-coverage.ts";
 import { loadCorpus, type Scenario } from "./corpus.ts";
 import { mustRunSerially } from "./corpus-scheduling.ts";
@@ -117,6 +118,7 @@ async function proveOn(
   seed: string | undefined,
   createroleApplier: boolean,
   settle: boolean,
+  policy: Scenario["meta"]["policy"],
 ): Promise<void> {
   if (createroleApplier) {
     await ensureCreateroleApplier(clusterA);
@@ -152,7 +154,12 @@ async function proveOn(
     // CREATEROLE login when `createroleApplier` is set) so capability-gated
     // compaction sees the same role as extract/prove.
     const capability = await probeApplierCapability(sourceWork);
-    const planOptions = { capability, compact, renames: renames ?? "off" };
+    const planOptions = {
+      capability,
+      compact,
+      renames: renames ?? "off",
+      ...(policy !== undefined ? { policy } : {}),
+    };
     let thePlan: Plan;
     if (settle) {
       const settled = await planSettled(
@@ -187,6 +194,12 @@ async function proveOn(
       desiredState.factBase,
       scenarioName,
       direction,
+    );
+    enforceActionStamps(
+      name,
+      thePlan,
+      sourceState.factBase,
+      desiredState.factBase,
     );
 
     // TEMPLATE clone requires zero extra connections on the source.
@@ -313,6 +326,7 @@ async function runDirection(
             seed,
             scenario.meta.createroleApplier === true,
             scenario.meta.settleDesired === true,
+            scenario.meta.policy,
           ),
         ),
       );
@@ -415,7 +429,7 @@ async function runPinnedOrProve(
         // runPinnedDirection owns the pinned semantics (incl. the seed-coverage
         // rethrow), so the guard is bound by seed-coverage.test.ts. Applying it
         // per mode ensures both artifacts run and each stale pin is detected.
-        runPinnedDirection(modeKey, run)
+        runPinnedDirection(modeKey, run, pin?.failure)
     : undefined;
   await runDirection(scenario, direction, modeRunner);
 }
@@ -469,7 +483,15 @@ interface Case {
 
 const ALL_CASES: Case[] = CORPUS.flatMap((scenario) => [
   { scenario, direction: "forward", label: `${scenario.name} (a->b)` },
-  { scenario, direction: "reverse", label: `${scenario.name} (b->a)` },
+  ...(scenario.meta.forwardOnly === true
+    ? []
+    : [
+        {
+          scenario,
+          direction: "reverse" as const,
+          label: `${scenario.name} (b->a)`,
+        },
+      ]),
 ]);
 
 // Roles, role memberships, and other cluster-level objects are GLOBAL on the

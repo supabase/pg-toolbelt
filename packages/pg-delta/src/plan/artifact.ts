@@ -206,12 +206,42 @@ function assertIdArray(
   value.forEach((id, index) => assertStableId(id, `${path}[${index}]`));
 }
 
+/** An alter must say what it changes; a create or drop must not. */
+function assertChange(value: unknown, verb: string, path: string): void {
+  if (verb !== "alter") {
+    if (value !== undefined) fail(path, "absent on a create or drop");
+    return;
+  }
+  if (!record(value)) fail(path, "an object on an alter");
+  switch (value["kind"]) {
+    case "attribute":
+      exactKeys(value, ["kind", "name"], [], path);
+      stringField(value, "name", path);
+      return;
+    case "owner":
+      exactKeys(value, ["kind", "to"], [], path);
+      stringField(value, "to", path);
+      return;
+    case "rename":
+      exactKeys(value, ["kind", "from"], [], path);
+      assertStableId(value["from"], `${path}.from`);
+      return;
+    case "defaultPrivileges":
+      exactKeys(value, ["kind"], [], path);
+      return;
+    default:
+      fail(`${path}.kind`, "attribute, owner, rename, or defaultPrivileges");
+  }
+}
+
 function assertAction(value: unknown, index: number): asserts value is Action {
   const path = `actions[${index}]`;
   if (!record(value)) fail(path, "an object");
   stringField(value, "sql", path);
   const verb = stringField(value, "verb", path);
   if (!ACTION_VERBS.has(verb)) fail(`${path}.verb`, "create, alter, or drop");
+  assertStableId(value["subject"], `${path}.subject`);
+  assertChange(value["change"], verb, `${path}.change`);
   for (const field of ["produces", "consumes", "destroys", "releases"]) {
     assertIdArray(value[field], `${path}.${field}`);
   }
@@ -274,6 +304,8 @@ export function computePlanId(plan: Omit<Plan, "planId">): string {
     actions: plan.actions.map((action) => ({
       sql: action.sql,
       verb: action.verb,
+      subject: action.subject,
+      change: action.change,
       produces: action.produces,
       consumes: action.consumes,
       destroys: action.destroys,

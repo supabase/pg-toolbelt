@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { RenameMode } from "../src/plan/renames.ts";
+import type { Policy } from "../src/policy/policy.ts";
 import { parseActionShapeBudget } from "./action-shape-budgets.ts";
 
 export interface ScenarioMeta {
@@ -20,6 +21,11 @@ export interface ScenarioMeta {
    *  deparse-settle scenarios exercise the declarative path. Every other
    *  scenario plans and proves the raw database-to-database diff. */
   settleDesired?: boolean;
+  /** Plan and prove under this policy, e.g. to leave grants unmanaged. */
+  policy?: Policy;
+  /** Prove a -> b only: for an applier PostgreSQL lets make the change but
+   *  not undo it (it gives up ownership it cannot take back). */
+  forwardOnly?: boolean;
 }
 
 export interface Scenario {

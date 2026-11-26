@@ -16,6 +16,7 @@ import {
 import type { ObjectRef } from "../model/types.ts";
 import { asRecord } from "../utils/ast.ts";
 import {
+  arraySuffixFromTypeNameNode,
   extractNameParts,
   extractStringValue,
   objectFromNameParts,
@@ -136,7 +137,7 @@ const inferFunctionCallArgumentSignaturePart = (
   if (typeCastNode) {
     const typeRef = typeFromTypeNameNode(typeCastNode.typeName);
     if (typeRef) {
-      return signaturePartFromTypeRef(typeRef);
+      return `${signaturePartFromTypeRef(typeRef)}${arraySuffixFromTypeNameNode(typeCastNode.typeName)}`;
     }
   }
 
@@ -154,9 +155,15 @@ const inferFunctionCallSignature = (
   const args = Array.isArray(functionCallNode.args)
     ? functionCallNode.args
     : [];
-  const signatureParts = args.map((argNode) =>
-    inferFunctionCallArgumentSignaturePart(argNode),
-  );
+  const signatureParts = args.map((argNode, index) => {
+    const part = inferFunctionCallArgumentSignaturePart(argNode);
+    if (functionCallNode.func_variadic !== true || index !== args.length - 1) {
+      return part;
+    }
+    // `f(variadic arr)` hands the array to a variadic parameter or a plain
+    // array parameter of that type; mark it so the matcher accepts both.
+    return part.endsWith("[]") ? `variadic ${part}` : "unknown";
+  });
   return `(${signatureParts.join(",")})`;
 };
 

@@ -13,6 +13,9 @@
 export interface RedPin {
   /** Pin applies only when the server major is >= this (absent = all). */
   minMajor?: number;
+  /** Text the failure must contain. A pinned direction that fails for any
+   *  other reason fails the suite, so a new bug cannot hide behind the pin. */
+  failure?: string;
 }
 
 export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
@@ -32,4 +35,40 @@ export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
   // shrink. Forward (ADD VALUE + SET DEFAULT through the domain) is the hole
   // this pin's sibling scenario covers.
   ["type-ops--enum-add-value-used-in-domain-default:reverse", {}],
+  // Inheritance children that redeclare a parent column (attislocal and
+  // attinhcount > 0). Detection only; the fixes are tracked in
+  // docs/roadmap/pg-delta-next-follow-ups.md#redeclared-inherited-columns.
+  // Creating the child: its local columns arrive as ADD COLUMN after
+  // CREATE TABLE ... INHERITS, which Postgres rejects for an inherited name.
+  [
+    "table-ops--inherits-redeclared-column:reverse",
+    { failure: 'column "x" of relation "z_child" already exists' },
+  ],
+  [
+    "table-ops--inherits-redeclared-column-parent-default:reverse",
+    { failure: 'column "x" of relation "z_child" already exists' },
+  ],
+  [
+    "table-ops--inherits-redeclared-column-multi-parent:reverse",
+    { failure: 'column "x" inherits conflicting default values' },
+  ],
+  // Parent and kept child change x together: no ordering edge between the
+  // parent's and the child's column actions.
+  [
+    "table-ops--inherits-redeclared-column-add-with-parent:forward",
+    { failure: 'column "x" of relation "z_child" already exists' },
+  ],
+  [
+    "table-ops--inherits-redeclared-column-drop-with-parent:forward",
+    { failure: 'cannot drop inherited column "x"' },
+  ],
+  // An existing child starts or stops redeclaring an inherited column.
+  [
+    "table-ops--inherits-redeclared-column-on-existing-child:forward",
+    { failure: 'column "x" of relation "z_child" already exists' },
+  ],
+  [
+    "table-ops--inherits-redeclared-column-on-existing-child:reverse",
+    { failure: 'cannot drop inherited column "x"' },
+  ],
 ]);
