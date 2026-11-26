@@ -22,6 +22,19 @@ describe("isKindCompatible", () => {
 });
 
 describe("signaturesCompatible", () => {
+  test("matches a type alias written as an array", () => {
+    expect(signaturesCompatible("(bigint[])", "(pg_catalog.int8[])")).toBe(
+      true,
+    );
+    expect(signaturesCompatible("(bigint[])", "(pg_catalog.int8)")).toBe(false);
+    expect(signaturesCompatible("(int[][])", "(pg_catalog.int4[])")).toBe(true);
+    expect(signaturesCompatible("(int[3])", "(pg_catalog.int4[])")).toBe(true);
+    expect(signaturesCompatible("(integer array)", "(pg_catalog.int4[])")).toBe(
+      true,
+    );
+    expect(signaturesCompatible('("Mood"[])', "(public.Mood[])")).toBe(true);
+  });
+
   test("matches when both signatures are undefined", () => {
     expect(signaturesCompatible(undefined, undefined)).toBe(true);
   });
@@ -95,6 +108,23 @@ describe("signaturesCompatible", () => {
 
 describe("signaturesCompatible with allowVariadicProviderTail", () => {
   const opts = { allowVariadicProviderTail: true };
+
+  test("a variadic array takes its elements or the array with VARIADIC", () => {
+    const provided = "(text, VARIADIC pg_catalog.uuid[])";
+    expect(signaturesCompatible("(text,uuid,uuid)", provided, opts)).toBe(true);
+    expect(
+      signaturesCompatible("(text,variadic pg_catalog.uuid[])", provided, opts),
+    ).toBe(true);
+    expect(signaturesCompatible("(text,uuid[])", provided, opts)).toBe(false);
+    expect(signaturesCompatible("(text,int)", provided, opts)).toBe(false);
+    expect(
+      signaturesCompatible(
+        "(variadic pg_catalog.text[])",
+        "(VARIADIC text)",
+        opts,
+      ),
+    ).toBe(true);
+  });
 
   test("VARIADIC any matches any number of trailing args", () => {
     expect(signaturesCompatible("(int,text)", "(VARIADIC any)", opts)).toBe(
