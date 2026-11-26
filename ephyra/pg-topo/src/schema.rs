@@ -1566,8 +1566,10 @@ impl<'a> Gen<'a> {
             when = format!("AFTER UPDATE OF {cr}");
         }
         let mut cond = String::new();
-        if self.g.bool_with(0.3) {
-            let c = self.g.index(self.m.rels[r].cols.len());
+        // a BEFORE trigger's WHEN cannot read NEW's generated columns
+        let cond_cols: Vec<usize> = (0..self.m.rels[r].cols.len()).filter(|&c| !when.starts_with("BEFORE") || !self.m.rels[r].cols[c].generated).collect();
+        if !cond_cols.is_empty() && self.g.bool_with(0.3) {
+            let c = cond_cols[self.g.index(cond_cols.len())];
             let t = self.m.rels[r].cols[c].ty.clone();
             self.ensure_func(true, &t);
             if let Some(f) = self.pick_func(|f| f.kind == FKind::Pred && f.args == [t.clone()]) {
@@ -1892,7 +1894,8 @@ impl<'a> Gen<'a> {
             .cols
             .iter()
             .filter(|c| !masked("addcol") || c.stmt == pstmt)
-            .map(|c| Col { stmt: st, generated: false, ident: false, ..c.clone() })
+            // the child inherits the generation expression, but not identity
+            .map(|c| Col { stmt: st, ident: false, ..c.clone() })
             .collect();
         cols.push(Col { name: cname, ty: t, stmt: st, generated: false, ident: false });
         // a later ADD COLUMN on the parent would change the child's row type
