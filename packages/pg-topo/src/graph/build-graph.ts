@@ -245,21 +245,22 @@ export const buildGraph = (
       )
     ) {
       repeatedKeys.add(producerKey);
-      for (const copyIndex of producerIndices) {
-        copies.add(copyIndex);
-      }
       const objectRef = nodes[producerIndices[0] ?? -1]?.provides.find(
         (providedRef) => objectRefKey(providedRef) === producerKey,
       );
-      producerIndices.slice(1).forEach((copyIndex, previous) => {
-        // Consumers need an edge from the last copy only.
-        const previousIndex = producerIndices[previous] ?? copyIndex;
-        earlierCopies.add(previousIndex);
-        addEdge(graphState, previousIndex, copyIndex, {
-          reason: "requires",
-          objectRef,
-        });
-      });
+      // Consumers need an edge from the last copy only.
+      let previousIndex: number | undefined;
+      for (const copyIndex of producerIndices) {
+        copies.add(copyIndex);
+        if (previousIndex !== undefined) {
+          earlierCopies.add(previousIndex);
+          addEdge(graphState, previousIndex, copyIndex, {
+            reason: "requires",
+            objectRef,
+          });
+        }
+        previousIndex = copyIndex;
+      }
     }
   }
 

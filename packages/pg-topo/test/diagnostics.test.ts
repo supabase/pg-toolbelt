@@ -345,6 +345,19 @@ describe("diagnostics", () => {
     }
   });
 
+  test("a copy with its own requires annotation stays apart, without a false cycle", async () => {
+    const result = await analyzeAndSort([
+      "create schema if not exists app;",
+      "-- pg-topo:requires table:app.t\ncreate schema if not exists app;",
+      "create table app.t (id int);",
+    ]);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "DUPLICATE_PRODUCER",
+      "DUPLICATE_PRODUCER",
+      "DUPLICATE_PRODUCER",
+    ]);
+  });
+
   test("a repeated self-referencing create is one object, ordered before its consumers", async () => {
     const createTable =
       "create table if not exists t (id int primary key, parent int references t (id));";
