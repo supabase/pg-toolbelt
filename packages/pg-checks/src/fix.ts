@@ -61,10 +61,12 @@ export function fixesFor(
     typeof metadata[key] === "string" ? ident(metadata[key]) : fallback;
   const object = `${part("schema", "<schema>")}.${part("name", "<name>")}`;
   const enableRls = `alter table ${object} enable row level security;`;
-  // service_role bypasses RLS; a deny-all policy states that intent and keeps
-  // rls_enabled_no_policy quiet.
-  const serviceRoleOnly = `create policy "service_role only" on ${object} for all using (false);`;
-  const ownerPolicy = `create policy "owner access" on ${object} for <command> to authenticated using (auth.uid() = <owner_column>);`;
+  // service_role bypasses RLS. Restrictive, so it also denies through any
+  // permissive policy already on the table; it keeps rls_enabled_no_policy quiet.
+  const serviceRoleOnly = `create policy "service_role only" on ${object} as restrictive for all using (false);`;
+  // `for all` with both clauses: a single-command placeholder would give
+  // invalid SQL for INSERT (no USING) or SELECT/DELETE (no WITH CHECK).
+  const ownerPolicy = `create policy "owner access" on ${object} for all to authenticated using (auth.uid() = <owner_column>) with check (auth.uid() = <owner_column>);`;
   switch (rule) {
     case "rls_disabled_in_public":
       return [

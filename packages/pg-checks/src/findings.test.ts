@@ -152,7 +152,7 @@ describe("parseFindings", () => {
             "label": "Restrict to service_role",
             "sql": 
       "alter table public."Profiles" enable row level security;
-      create policy "service_role only" on public."Profiles" for all using (false);"
+      create policy "service_role only" on public."Profiles" as restrictive for all using (false);"
       ,
             "why": "Only service_role can read or write public."Profiles"; anon and authenticated get no rows.",
           },
@@ -161,7 +161,7 @@ describe("parseFindings", () => {
             "label": "Allow access per user",
             "sql": 
       "alter table public."Profiles" enable row level security;
-      create policy "owner access" on public."Profiles" for <command> to authenticated using (auth.uid() = <owner_column>);"
+      create policy "owner access" on public."Profiles" for all to authenticated using (auth.uid() = <owner_column>) with check (auth.uid() = <owner_column>);"
       ,
             "why": "Enable RLS on public."Profiles" and add a policy for each role and command that needs access.",
           },
@@ -170,13 +170,13 @@ describe("parseFindings", () => {
           {
             "kind": "statement",
             "label": "State service_role only",
-            "sql": "create policy "service_role only" on app.customers for all using (false);",
+            "sql": "create policy "service_role only" on app.customers as restrictive for all using (false);",
             "why": "app.customers has RLS and no policy, so only service_role can use it. If that is intended, say so with a deny-all policy.",
           },
           {
             "kind": "template",
             "label": "Allow access per user",
-            "sql": "create policy "owner access" on app.customers for <command> to authenticated using (auth.uid() = <owner_column>);",
+            "sql": "create policy "owner access" on app.customers for all to authenticated using (auth.uid() = <owner_column>) with check (auth.uid() = <owner_column>);",
             "why": "Add a policy on app.customers for each role and command that needs access.",
           },
         ],
@@ -210,7 +210,7 @@ describe("parseFindings", () => {
             "label": "Enable RLS with policies",
             "sql": 
       "alter table public.users enable row level security;
-      create policy "owner access" on public.users for <command> to authenticated using (auth.uid() = <owner_column>);"
+      create policy "owner access" on public.users for all to authenticated using (auth.uid() = <owner_column>) with check (auth.uid() = <owner_column>);"
       ,
             "why": "public.users has sensitive columns and no RLS; enable it and add policies for the roles that need access.",
           },
