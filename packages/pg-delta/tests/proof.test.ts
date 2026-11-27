@@ -212,10 +212,7 @@ describe("plan: inherited column order", () => {
         CREATE TABLE app.z_parent (id integer);
         CREATE TABLE app.a_child () INHERITS (app.z_parent);`,
     },
-    "the redeclaring child is dropped with the parent's column": {
-      source: checked,
-      desired: `CREATE TABLE app.p (id integer);`,
-    },
+    // the child dropped outright: tests/inheritance-redeclared-drop.test.ts
     // detaching the child replaces its table
     "the redeclaring child is detached while the parent drops the column": {
       source: checked,
@@ -277,11 +274,18 @@ describe("plan: generated column kind change", () => {
           CREATE TABLE app.g_mid () INHERITS (app.g_root);
           CREATE TABLE app.a_grand (v integer GENERATED ALWAYS AS (n * 3) ${kind})
             INHERITS (app.g_mid);`;
+        const lone = (parent: string, kind: string) =>
+          `CREATE TABLE app.${parent} (n integer, v integer GENERATED ALWAYS AS (n * 2) ${kind});`;
+        // d_child's CHECK calls a function that reads d_parent.v
         await source.pool.query(`${ddl(from)}
-          CREATE TABLE app.b_parent (n integer, v integer GENERATED ALWAYS AS (n * 2) ${from});`);
-        // b_parent's child is new in this plan
+          ${lone("b_parent", from)}
+          ${pair("d_parent", "d_child", from)}
+          CREATE FUNCTION app.f(i integer) RETURNS boolean LANGUAGE sql
+            BEGIN ATOMIC SELECT coalesce((SELECT max(v) FROM app.d_parent), 0) >= 0 AND i IS NOT NULL; END;
+          ALTER TABLE app.d_child ADD CHECK (app.f(n));`);
+        // b_parent's child is new in this plan, d_parent's is dropped
         await desired.pool.query(
-          `${ddl(to)} ${pair("b_parent", "y_child", to)}`,
+          `${ddl(to)} ${pair("b_parent", "y_child", to)} ${lone("d_parent", to)}`,
         );
         const [s, d] = [
           await extract(source.pool),
@@ -313,10 +317,12 @@ describe("plan: generated column kind change", () => {
     // the desired side may come from an export, which drops the override
     "partition on the source only": (kind: string) =>
       partition(kind, kind === "STORED" ? own(kind) : ""),
-    "INHERITS child": (kind: string) => `
+    // under a middle table that keeps the parent's expression
+    "INHERITS grandchild": (kind: string) => `
       CREATE TABLE app.p (a integer, v integer GENERATED ALWAYS AS (a * 2) ${kind});
       CREATE TABLE app.p1 () INHERITS (app.p);
-      ALTER TABLE app.p1 ALTER COLUMN v SET EXPRESSION AS (a * 3);`,
+      CREATE TABLE app.p2 () INHERITS (app.p1);
+      ALTER TABLE app.p2 ALTER COLUMN v SET EXPRESSION AS (a * 3);`,
   };
   for (const [shape, ddl] of Object.entries(overrides)) {
     test(`STORED to VIRTUAL (PG 18) is refused when a ${shape} has its own expression`, async () => {
