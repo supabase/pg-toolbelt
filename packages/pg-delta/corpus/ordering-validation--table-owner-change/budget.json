@@ -1,0 +1,9 @@
+{
+  "a-to-b": {
+    "forbid": ["drop:table", "replacement:table"]
+  },
+  "b-to-a": {
+    "require": ["drop:role"],
+    "forbid": ["drop:table", "replacement:table"]
+  }
+}
