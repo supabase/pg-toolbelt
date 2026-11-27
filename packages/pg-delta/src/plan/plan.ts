@@ -788,6 +788,13 @@ export function plan(
     rulesForId,
   });
 
+  // `defaultOwner` is ignored at cluster scope, so only a database-scoped run
+  // (or the policy's own declaration) makes a pruned owner edge implicit
+  const implicitOwner =
+    (options?.scope !== undefined && options.scope !== "cluster"
+      ? options.defaultOwner
+      : undefined) ?? policyDefaultOwner;
+
   // ── phase 3: emit actions (./phases/action-emitter.ts) ────────────────
   // Rename actions, creates (parents first), default-privilege hygiene, drops,
   // replaces, in-place alters, and owner-edge ALTERs — with the emitter's own
@@ -805,6 +812,7 @@ export function plan(
     source,
     rawSource,
     desired,
+    rawDesired,
     projectedDesired,
     removed,
     added,
@@ -823,6 +831,7 @@ export function plan(
     ...(options?.defaultOwner !== undefined
       ? { defaultOwner: options.defaultOwner }
       : {}),
+    ...(implicitOwner !== undefined ? { implicitOwner } : {}),
   });
 
   // ── phase 4: order, segment-mark, compact, and report ─────────────────

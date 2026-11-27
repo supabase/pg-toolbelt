@@ -47,6 +47,9 @@ export interface ActionEmitterInput {
   /** the unfiltered source extract */
   rawSource: FactBase;
   desired: FactBase;
+  /** the unfiltered desired extract: tells a pruned owner edge to the default
+   *  owner apart from an owner that is simply out of view */
+  rawDesired: FactBase;
   projectedDesired: FactBase;
   /** canonical add/remove worklists + grouped set-deltas */
   removed: ReadonlyMap<string, Fact>;
@@ -80,6 +83,10 @@ export interface ActionEmitterInput {
    *  Projected-ADP hygiene matches `defaultPrivilege.role` against this when
    *  the object has no owner edge. */
   defaultOwner?: string;
+  /** the default owner whose owner edges were pruned from the desired view:
+   *  the run-level one at database scope, else the one the policy declares
+   *  (the Supabase profile: `postgres`). */
+  implicitOwner?: string;
 }
 
 export interface ActionEmitterOutput {
@@ -112,6 +119,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     source,
     rawSource,
     desired,
+    rawDesired,
     projectedDesired,
     removed,
     added,
@@ -128,6 +136,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     overlayAdpWipes,
     overlayHygieneGrantees,
     defaultOwner,
+    implicitOwner,
   } = input;
 
   const actions: Action[] = [];
@@ -853,8 +862,53 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // objKeys whose owner a link delta already (re-)established below, so the
     // replaced-fact pass does not emit a second ALTER … OWNER TO for them.
     const ownerEmitted = new Set<string>();
+    // Projection prunes the owner edge to the default owner, so an object that
+    // moves from a custom owner back to it has only an owner `unlink` delta.
+    // Treat that as a link to the default owner when the RAW desired owner
+    // really is that role (an out-of-view owner stays silent).
+    const ownerLinks: Array<{ from: StableId; to: StableId }> = [];
+    // the owner each of them sets, by object: a linked object's owner may only
+    // be left to its carrier when the carrier's change is here
+    const ownerLinked = new Map<string, string>();
+    // objKeys re-owned to the implicit default owner: that role is projected
+    // out of the view, so the action must not consume it (the graph would
+    // report a missing requirement)
+    const implicitOwnerKeys = new Set<string>();
     for (const delta of deltas) {
       if (delta.verb !== "link" || delta.edge.kind !== "owner") continue;
+      ownerLinks.push(delta.edge);
+      ownerLinked.set(encodeId(delta.edge.from), encodeId(delta.edge.to));
+    }
+    if (implicitOwner !== undefined) {
+      for (const delta of deltas) {
+        if (delta.verb !== "unlink" || delta.edge.kind !== "owner") continue;
+        const objId = delta.edge.from;
+        const objKey = encodeId(objId);
+        if (
+          ownerLinked.has(objKey) ||
+          replaceIds.has(objKey) ||
+          recreatedByReplace.has(objKey) ||
+          inlinedByReplace.has(objKey) ||
+          !source.has(objId) ||
+          !projectedDesired.has(objId)
+        )
+          continue;
+        const rawOwner = rawDesired
+          .outgoingEdges(objId)
+          .find((e) => e.kind === "owner");
+        // owner edges always target a role, so the name alone identifies it
+        if (
+          rawOwner === undefined ||
+          (rawOwner.to as { name?: string }).name !== implicitOwner
+        )
+          continue;
+        ownerLinks.push({ from: objId, to: rawOwner.to });
+        ownerLinked.set(objKey, encodeId(rawOwner.to));
+        implicitOwnerKeys.add(objKey);
+      }
+    }
+    for (const edge of ownerLinks) {
+      const delta = { edge };
       const objId = delta.edge.from;
       const objKey = encodeId(objId);
       // Created objects need this too: create no longer sets the owner (move 2),
@@ -867,6 +921,26 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       if (!fact) continue;
       const ownerAlterPrefix = ruleFlag(fact.id.kind, "ownerAlterPrefix");
       if (!ownerAlterPrefix) continue;
+      // its owner follows another object's owner change in this plan
+      const carrier = replaceIds.has(objKey)
+        ? undefined
+        : ruleFlag(fact.id.kind, "ownerCarrier")?.(
+            fact,
+            source.get(objId),
+            desired,
+          );
+      if (carrier !== undefined) {
+        if (ownerLinked.get(encodeId(carrier)) === encodeId(delta.edge.to))
+          continue;
+        // the carrier's change was filtered out (or sets another owner):
+        // nothing in this plan can move this object's owner, and dropping the
+        // statement would leave its ACL rewritten for an owner it never gets
+        throw new Error(
+          `cannot change the owner of ${objKey}: it is linked to ${encodeId(carrier)} and only changes owner with it, ` +
+            `but that relation's owner change is not part of this plan. ` +
+            `Include ${encodeId(carrier)} in the plan, or exclude ${objKey} as well`,
+        );
+      }
       const prefix = ownerAlterPrefix(fact);
       const newRoleId = delta.edge.to;
       if (newRoleId.kind !== "role") continue;
@@ -896,7 +970,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         "alter",
         {
           sql: `${prefix} OWNER TO ${qid(roleName)}`,
-          consumes: [newRoleId],
+          consumes: implicitOwnerKeys.has(objKey) ? [] : [newRoleId],
           ...(oldRoleId !== undefined ? { releases: [oldRoleId] } : {}),
         },
         {
