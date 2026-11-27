@@ -304,7 +304,7 @@ export async function readFindings(
       if (index === read.resultIndex) rows = result.rows;
     }
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
+    await client.query(read.onError).catch(() => {});
     throw error;
   }
   return parseFindings(rows, policy);

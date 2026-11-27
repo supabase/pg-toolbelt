@@ -8,6 +8,7 @@ import {
   type ResolvedPolicy,
   type Rule,
   closesCheckQuote,
+  parseObjectName,
   rulesAt,
 } from "./policy.ts";
 import { RULE_SQL } from "./vendor/splinter.ts";
@@ -97,11 +98,13 @@ function lintSelect(
   rules: readonly Rule[],
   exclude: ResolvedPolicy["exclude"],
 ): string {
-  // Split on the first dot (policy entries are `schema.name`), compared per
-  // column so a name containing dots cannot collide with another object.
+  // Compared per column so a name containing dots cannot collide with another
+  // object. Entries were validated by resolvePolicy.
   const split = exclude.map((e) => {
-    const dot = e.object.indexOf(".");
-    return { schema: e.object.slice(0, dot), name: e.object.slice(dot + 1) };
+    const parsed = parseObjectName(e.object);
+    if (parsed === null)
+      throw new Error(`invalid excluded object ${JSON.stringify(e.object)}`);
+    return parsed;
   });
   const excluded =
     exclude.length === 0
@@ -214,6 +217,12 @@ export interface AfterCommitRead {
   readonly resultIndex: number;
   /** The statements as one script. */
   readonly sql: string;
+  /**
+   * Run this when any statement fails (error or `statement_timeout` cancel):
+   * the failed `begin` block stays open and aborted, so a reused connection
+   * must `rollback` before anything else. Empty when there are no statements.
+   */
+  readonly onError: string;
 }
 
 /**
@@ -226,7 +235,8 @@ export function buildAfterCommitRead(
   options: Pick<CheckOptions, "exposedSchemas" | "timeoutMs">,
 ): AfterCommitRead {
   const rules = [...rulesAt(policy, "error"), ...rulesAt(policy, "warn")];
-  if (rules.length === 0) return { statements: [], resultIndex: -1, sql: "" };
+  if (rules.length === 0)
+    return { statements: [], resultIndex: -1, sql: "", onError: "" };
   const statements = [
     "begin",
     `set local statement_timeout = '${checkTimeout(options)}ms'`,
@@ -234,7 +244,12 @@ export function buildAfterCommitRead(
     lintSelect("l.*", rules, policy.exclude),
     "rollback",
   ];
-  return { statements, resultIndex: 3, sql: joinStatements(statements) };
+  return {
+    statements,
+    resultIndex: 3,
+    sql: joinStatements(statements),
+    onError: "rollback",
+  };
 }
 
 /** Column of the one row {@link buildInTransactionWarnRead} returns. */

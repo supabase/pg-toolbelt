@@ -120,8 +120,8 @@ describe("parseFindings", () => {
           {
             "kind": "statement",
             "label": "Revoke API access",
-            "sql": "revoke select on public.members from anon, authenticated;",
-            "why": "public.members exposes auth.users to the API; the API roles can no longer read it.",
+            "sql": "revoke select on public.members from public, anon, authenticated;",
+            "why": "public.members exposes auth.users to the API; anon, authenticated and PUBLIC can no longer read it. Grants through other roles they inherit from are not covered.",
           },
           {
             "kind": "guidance",
@@ -163,7 +163,7 @@ describe("parseFindings", () => {
       "alter table public."Profiles" enable row level security;
       create policy "owner access" on public."Profiles" for all to authenticated using (auth.uid() = <owner_column>) with check (auth.uid() = <owner_column>);"
       ,
-            "why": "Enable RLS on public."Profiles" and add a policy for each role and command that needs access.",
+            "why": "Enable RLS on public."Profiles" and add a policy for each role and command that needs access. Enabling RLS also activates any permissive policies already on it, so review those first.",
           },
         ],
         "rls_enabled_no_policy": [
@@ -201,7 +201,7 @@ describe("parseFindings", () => {
             "kind": "statement",
             "label": "Use the caller's permissions",
             "sql": "alter view public.v set (security_invoker = on);",
-            "why": "public.v then reads its tables with the caller's permissions and RLS, so callers without access to those tables lose rows.",
+            "why": "public.v then reads its tables with the caller's permissions and RLS, so callers without access to those tables lose rows or get "permission denied"; grant them access to the underlying tables first.",
           },
         ],
         "sensitive_columns_exposed": [

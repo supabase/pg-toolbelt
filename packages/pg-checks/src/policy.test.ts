@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { splitSplinter } from "../scripts/splinter-shape.ts";
-import { PolicyError, RULES, resolvePolicy } from "./policy.ts";
+import {
+  PolicyError,
+  RULES,
+  parseObjectName,
+  resolvePolicy,
+} from "./policy.ts";
 import { RULE_SQL } from "./vendor/splinter.ts";
 
 describe("resolvePolicy", () => {
@@ -73,6 +78,32 @@ describe("resolvePolicy", () => {
       'exclude: unknown rule "rls_disabled_in_publik"',
       "values under [db.migrations.checks.exclude] must be lists; severities go above it",
     ]);
+  });
+
+  test("accepts double-quoted parts and rejects malformed quoting", () => {
+    const ok = ['"api.v2".users', 'api."v2.users"', '"W""N"."a""b"'];
+    const bad = [
+      '"api.v2.users',
+      'api."v2',
+      '"a"b.c',
+      'a"b.c',
+      'a.b"c',
+      '"".x',
+      'a.""',
+      '"a"x.b',
+    ];
+    const policy = resolvePolicy({ exclude: { security_definer_view: ok } });
+    expect(policy.exclude.map((e) => e.object)).toEqual(ok);
+    expect(parseObjectName('"W""N"."a""b"')).toEqual({
+      schema: 'W"N',
+      name: 'a"b',
+    });
+    expect(parseObjectName("a.b.c")).toEqual({ schema: "a", name: "b.c" });
+    for (const entry of bad) {
+      expect(() =>
+        resolvePolicy({ exclude: { security_definer_view: [entry] } }),
+      ).toThrow(/expected "schema.name"/);
+    }
   });
 
   test("rejects a non-object policy and a non-table exclude", () => {

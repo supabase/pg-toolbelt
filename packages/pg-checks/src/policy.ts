@@ -25,7 +25,11 @@ const SEVERITIES: readonly Severity[] = ["error", "warn", "off"];
 
 export interface ResolvedPolicy {
   readonly severities: Readonly<Record<Rule, Severity>>;
-  /** `object` is `schema.name`, matched against splinter's `metadata`. */
+  /**
+   * `object` is `schema.name` as written in the policy (parts may be
+   * double-quoted, see {@link parseObjectName}), matched against splinter's
+   * `metadata`.
+   */
   readonly exclude: ReadonlyArray<{
     readonly rule: Rule;
     readonly object: string;
@@ -41,17 +45,55 @@ export class PolicyError extends Error {
   }
 }
 
-// Splinter metadata carries raw (unquoted) names: an entry is `schema.name`
-// with a dot and text on both sides, and no quoting.
-const isObjectName = (entry: string) => {
-  const dot = entry.indexOf(".");
-  return (
-    entry === entry.trim() &&
-    dot > 0 &&
-    dot < entry.length - 1 &&
-    !closesCheckQuote(entry)
-  );
-};
+/** A `"quoted"` identifier at the start of `text`: its raw name and the rest. */
+function readQuoted(text: string): { name: string; rest: string } | null {
+  let name = "";
+  for (let i = 1; i < text.length; i++) {
+    if (text[i] !== '"') {
+      name += text[i];
+    } else if (text[i + 1] === '"') {
+      name += '"';
+      i++;
+    } else {
+      return name === "" ? null : { name, rest: text.slice(i + 1) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Splits an exclusion entry into the raw `schema` and `name` splinter reports
+ * in `metadata`. Either part may be an SQL double-quoted identifier (`""`
+ * escapes a quote), so `"api.v2".users` and `api."v2.users"` are expressible.
+ * An unquoted part may not contain `"`; an unquoted schema ends at the first
+ * dot, and an unquoted name is the rest (it may contain dots).
+ */
+export function parseObjectName(
+  entry: string,
+): { schema: string; name: string } | null {
+  if (entry !== entry.trim() || closesCheckQuote(entry)) return null;
+  let schema: string;
+  let rest: string;
+  if (entry.startsWith('"')) {
+    const q = readQuoted(entry);
+    if (q === null || !q.rest.startsWith(".")) return null;
+    schema = q.name;
+    rest = q.rest.slice(1);
+  } else {
+    const dot = entry.indexOf(".");
+    if (dot <= 0) return null;
+    schema = entry.slice(0, dot);
+    rest = entry.slice(dot + 1);
+    if (schema.includes('"')) return null;
+  }
+  if (rest.startsWith('"')) {
+    const q = readQuoted(rest);
+    return q !== null && q.rest === "" ? { schema, name: q.name } : null;
+  }
+  return rest === "" || rest.includes('"') ? null : { schema, name: rest };
+}
+
+const isObjectName = (entry: string) => parseObjectName(entry) !== null;
 
 /** True when `value` would close a dollar-quoted body of the check SQL. */
 export const closesCheckQuote = (value: string) =>

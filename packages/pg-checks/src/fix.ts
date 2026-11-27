@@ -78,7 +78,7 @@ export function fixesFor(
         template(
           "Allow access per user",
           `${enableRls}\n${ownerPolicy}`,
-          `Enable RLS on ${object} and add a policy for each role and command that needs access.`,
+          `Enable RLS on ${object} and add a policy for each role and command that needs access. Enabling RLS also activates any permissive policies already on it, so review those first.`,
         ),
       ];
     case "rls_enabled_no_policy":
@@ -107,7 +107,7 @@ export function fixesFor(
         statement(
           "Use the caller's permissions",
           `alter view ${object} set (security_invoker = on);`,
-          `${object} then reads its tables with the caller's permissions and RLS, so callers without access to those tables lose rows.`,
+          `${object} then reads its tables with the caller's permissions and RLS, so callers without access to those tables lose rows or get "permission denied"; grant them access to the underlying tables first.`,
         ),
       ];
     case "rls_policy_always_true": {
@@ -149,8 +149,8 @@ export function fixesFor(
       return [
         statement(
           "Revoke API access",
-          `revoke select on ${object} from anon, authenticated;`,
-          `${object} exposes auth.users to the API; the API roles can no longer read it.`,
+          `revoke select on ${object} from public, anon, authenticated;`,
+          `${object} exposes auth.users to the API; anon, authenticated and PUBLIC can no longer read it. Grants through other roles they inherit from are not covered.`,
         ),
         guidance(
           "Use a profiles table",

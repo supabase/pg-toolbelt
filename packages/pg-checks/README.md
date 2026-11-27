@@ -32,6 +32,7 @@ try { /* run file + statements + history insert */ } catch (error) {
 }
 
 // After commit, outside any transaction: begin; set_config...; select; rollback.
+// If any statement fails (error or timeout), run `read.onError` ("rollback") before reusing the connection.
 const read = buildAfterCommitRead(policy, { exposedSchemas });
 const findings = parseFindings(rowsOf(read.statements[read.resultIndex]), policy);
 
@@ -45,7 +46,7 @@ const result = parseInTransactionWarnRead(responseRows, policy); // { findings }
   `policy_exists_rls_disabled`, `security_definer_view`, `rls_policy_always_true`,
   `sensitive_columns_exposed`, `auth_users_exposed`, `function_search_path_mutable`,
   `rls_references_user_metadata`; severity `error | warn | off`, absent = `warn`;
-  `exclude: { <rule>: ["schema.name"] }` (per rule, mirrors
+  `exclude: { <rule>: ["schema.name"] }` (parts may be SQL double-quoted, e.g. `"api.v2".users`; per rule, mirrors
   `[db.migrations.checks.exclude]`; duplicates removed). Unknown rules, severities and malformed
   exclusions are all reported in one `PolicyError`.
 - Every lint select unions only the selected rules' splinter SQL (D27): about

@@ -139,6 +139,23 @@ describe("exclusions", () => {
     expect(select).not.toContain("|| '.' ||");
   });
 
+  test("quoted parts are split as schema and name", () => {
+    const quoted = resolvePolicy({
+      rls_disabled_in_public: "error",
+      exclude: {
+        rls_disabled_in_public: [
+          '"api.v2".users',
+          'api."v2.users"',
+          '"W""N".x',
+        ],
+      },
+    });
+    const read = buildAfterCommitRead(quoted, {});
+    expect(read.statements[read.resultIndex]).toContain(
+      `array['api.v2', 'api', 'W"N']::pg_catalog.text[], array['users', 'v2.users', 'x']`,
+    );
+  });
+
   test("no exclusions adds no filter", () => {
     expect(buildCheckStatements(allWarn, {})).toEqual([]);
     const read = buildAfterCommitRead(allWarn, {});
@@ -149,6 +166,10 @@ describe("exclusions", () => {
 });
 
 describe("buildAfterCommitRead", () => {
+  test("names the statement to run when the read fails", () => {
+    expect(buildAfterCommitRead(blocking, {}).onError).toBe("rollback");
+  });
+
   test("reads warn and error rules in a transaction it rolls back", () => {
     const read = buildAfterCommitRead(blocking, { exposedSchemas: ["public"] });
     expect(read.statements[0]).toBe("begin");

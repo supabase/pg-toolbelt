@@ -76,10 +76,17 @@ jobs:
           VERSION: ${{ steps.vendor.outputs.version }}
         run: |
           branch="chore/sync-splinter-$VERSION"
-          # Never overwrite a branch maintainers may have pushed to, or reopen a closed PR.
-          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 \
-            || [ -n "$(gh pr list --head "$branch" --state all --json number --jq '.[].number')" ]; then
-            echo "Branch or PR for $branch already exists; leaving it alone."
+          title="chore(pg-checks): vendor splinter $VERSION"
+          body="Vendors [splinter $VERSION](https://github.com/supabase/splinter/releases/tag/$VERSION) into \`@supabase/pg-checks\`. Opened by the daily \`Sync splinter\` workflow after the vendoring checks and the package tests passed. Review the rule SQL diff in \`src/vendor/splinter.ts\` before merging: a changed checked rule changes what blocks."
+          # Never reopen a closed PR.
+          if [ -n "$(gh pr list --head "$branch" --state all --json number --jq '.[].number')" ]; then
+            echo "A PR for $branch already exists; leaving it alone."
+            exit 0
+          fi
+          # A branch without a PR means an earlier run pushed but failed to open
+          # it. Never overwrite the branch (maintainers may have pushed to it).
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            gh pr create --base main --head "$branch" --title "$title" --body "$body"
             exit 0
           fi
           cat > ".changeset/sync-splinter-$VERSION.md" <<EOF
@@ -95,6 +102,4 @@ jobs:
           git add packages/pg-checks/src/vendor ".changeset/sync-splinter-$VERSION.md"
           git commit -m "chore(pg-checks): vendor splinter $VERSION"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "$branch"
-          gh pr create --base main --head "$branch" \
-            --title "chore(pg-checks): vendor splinter $VERSION" \
-            --body "Vendors [splinter $VERSION](https://github.com/supabase/splinter/releases/tag/$VERSION) into \`@supabase/pg-checks\`. Opened by the daily \`Sync splinter\` workflow after the vendoring checks and the package tests passed. Review the rule SQL diff in \`src/vendor/splinter.ts\` before merging: a changed checked rule changes what blocks."
+          gh pr create --base main --head "$branch" --title "$title" --body "$body"
