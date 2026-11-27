@@ -21,6 +21,7 @@ import {
   addSchemaDependencyIfNeeded,
   arraySuffixFromTypeNameNode,
   constraintKeyColumns,
+  dependencyFromTypeNameNode,
   extractNameParts,
   extractStringValue,
   keyRefForTableColumns,
@@ -386,8 +387,11 @@ const extractCreateFunctionDependencies = (
       asRecord(parameterNode)?.FunctionParameter,
     );
     const argType = typeFromTypeNameNode(functionParameter?.argType);
-    if (argType) {
-      requires.push(argType);
+    const argDependency = dependencyFromTypeNameNode(
+      functionParameter?.argType,
+    );
+    if (argDependency) {
+      requires.push(argDependency);
     }
     // Callers name a function by its input arguments only. A procedure can
     // also be named with its output ones, so it keeps them.
@@ -418,9 +422,9 @@ const extractCreateFunctionDependencies = (
     }
   }
 
-  const returnType = typeFromTypeNameNode(statementNode.returnType);
-  if (returnType) {
-    requires.push(returnType);
+  const returnDependency = dependencyFromTypeNameNode(statementNode.returnType);
+  if (returnDependency) {
+    requires.push(returnDependency);
   }
 
   addRoutineBodyDependencies(statementNode, requires);

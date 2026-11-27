@@ -475,6 +475,52 @@ describe("diagnostics", () => {
     }
   });
 
+  test("a column %type in a function signature depends on its relation", async () => {
+    const inputIndex = (id: { filePath: string }) =>
+      id.filePath.replace(/\D/g, "");
+    const cases = [
+      {
+        sql: [
+          "create table public.roles (id uuid primary key);",
+          'create function public.role_name(r "public"."roles"."id"%type) returns text language sql as $$ select r::text $$;',
+        ],
+        edges: ["0 -> 1"],
+        order: "0,1",
+      },
+      {
+        sql: [
+          "create schema app;",
+          "create table app.roles (id uuid primary key);",
+          "create function app.role_ids() returns setof app.roles.id%type language sql as $$ select null::uuid $$;",
+        ],
+        edges: ["0 -> 1", "0 -> 2", "1 -> 2"],
+        order: "0,1,2",
+      },
+      {
+        sql: [
+          "create function public.f(r public.v.id%type) returns text language sql as $$ select r::text $$;",
+          "create view public.v as select id from public.t;",
+          "create table public.t (id uuid);",
+        ],
+        edges: ["2 -> 1", "1 -> 0"],
+        order: "2,1,0",
+      },
+    ];
+    const actual = [];
+    for (const { sql } of cases) {
+      const result = await analyzeAndSort(sql);
+      actual.push({
+        sql,
+        diagnostics: result.diagnostics,
+        edges: result.graph.edges.map(
+          (edge) => `${inputIndex(edge.from)} -> ${inputIndex(edge.to)}`,
+        ),
+        order: result.ordered.map((node) => inputIndex(node.id)).join(","),
+      });
+    }
+    expect(actual).toEqual(cases.map((c) => ({ ...c, diagnostics: [] })));
+  });
+
   test("an external variadic provider matches like a declared one", async () => {
     const result = await analyzeAndSort(
       [
