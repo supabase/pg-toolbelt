@@ -18,19 +18,41 @@ import { createTempFixtureHarness } from "./support/temp-fixture";
 const order = async (sql: string[]): Promise<string[]> =>
   (await analyzeAndSort(sql)).ordered.map((s) => s.sql);
 
-const before = (ordered: string[], a: string, b: string): boolean => {
-  const ia = ordered.findIndex((s) => s.includes(a));
-  const ib = ordered.findIndex((s) => s.includes(b));
-  return ia !== -1 && ib !== -1 && ia < ib;
+// A missing needle throws instead of returning false: under `test.failing` a
+// typo would otherwise look like a valid RED and keep failing after the fix.
+const indexOfNeedle = (ordered: string[], needle: string): number => {
+  const i = ordered.findIndex((s) => s.includes(needle));
+  if (i === -1) {
+    throw new Error(`needle not found in ordered output: ${needle}`);
+  }
+  return i;
 };
+
+const before = (ordered: string[], a: string, b: string): boolean =>
+  indexOfNeedle(ordered, a) < indexOfNeedle(ordered, b);
 
 const requiresOf = async (sql: string[], needle: string): Promise<string[]> => {
   const r = await analyzeAndSort(sql);
-  const node = r.ordered.find((s) => s.sql.includes(needle));
+  const ordered = r.ordered.map((s) => s.sql);
+  const node = r.ordered[indexOfNeedle(ordered, needle)];
   return (node?.requires ?? []).map(
     (x) => `${x.kind}:${x.schema ?? ""}.${x.name}`,
   );
 };
+
+// True when the graph has an edge from input `producer` to input `consumer`.
+// Edges exist only between compatible kinds, so this pins the right object
+// without fixing which kind name the fix chooses (e.g. type vs domain).
+const hasEdge = async (
+  sql: string[],
+  producer: number,
+  consumer: number,
+): Promise<boolean> =>
+  (await analyzeAndSort(sql)).graph.edges.some(
+    (e) =>
+      e.from.filePath === `<input:${producer}>` &&
+      e.to.filePath === `<input:${consumer}>`,
+  );
 
 const codes = async (sql: string[], code?: string): Promise<string[]> =>
   (await analyzeAndSort(sql)).diagnostics
@@ -250,32 +272,32 @@ describe("#653 / CLI-3270 edges only the default phase order covers", () => {
     expect(r).toContain("table:public.t");
   });
 
-  test.failing("COMMENT ON TYPE requires the type", async () => {
-    const r = await requiresOf(
-      ["comment on type public.e is 'x'", "create type public.e as enum ('a')"],
-      "comment",
-    );
-    expect(r.some((x) => x.endsWith("public.e"))).toBe(true);
+  test.failing("COMMENT ON TYPE depends on CREATE TYPE", async () => {
+    const sql = [
+      "comment on type public.e is 'x'",
+      "create type public.e as enum ('a')",
+    ];
+    expect(await hasEdge(sql, 1, 0)).toBe(true);
   });
 
-  test.failing("COMMENT ON DOMAIN requires the domain", async () => {
-    const r = await requiresOf(
-      ["comment on domain public.d is 'x'", "create domain public.d as int"],
-      "comment",
-    );
-    expect(r.some((x) => x.endsWith("public.d"))).toBe(true);
+  test.failing("COMMENT ON DOMAIN depends on CREATE DOMAIN", async () => {
+    const sql = [
+      "comment on domain public.d is 'x'",
+      "create domain public.d as int",
+    ];
+    expect(await hasEdge(sql, 1, 0)).toBe(true);
   });
 
-  test.failing("CAST(x AS type) in a view requires the type", async () => {
-    const r = await requiresOf(
-      [
+  test.failing(
+    "CAST(x AS domain) in a view depends on CREATE DOMAIN",
+    async () => {
+      const sql = [
         "create view public.v as select cast(1 as public.dd) as x",
         "create domain public.dd as int",
-      ],
-      "view",
-    );
-    expect(r.some((x) => x.endsWith("public.dd"))).toBe(true);
-  });
+      ];
+      expect(await hasEdge(sql, 1, 0)).toBe(true);
+    },
+  );
 
   test.failing(
     "CREATE INDEX expression and WHERE calls require the functions",
@@ -319,16 +341,13 @@ describe("#653 / CLI-3270 edges only the default phase order covers", () => {
     expect(r.some((x) => x.startsWith("function:public.p"))).toBe(true);
   });
 
-  test.failing("COMMENT ON CONSTRAINT requires something", async () => {
-    const r = await requiresOf(
-      [
-        "comment on constraint c1 on public.t is 'x'",
-        "alter table public.t add constraint c1 check (a > 0)",
-        "create table public.t (a int)",
-      ],
-      "comment",
-    );
-    expect(r.length).toBeGreaterThan(0);
+  test.failing("COMMENT ON CONSTRAINT depends on the table", async () => {
+    const sql = [
+      "comment on constraint c1 on public.t is 'x'",
+      "alter table public.t add constraint c1 check (a > 0)",
+      "create table public.t (a int)",
+    ];
+    expect(await hasEdge(sql, 2, 0)).toBe(true);
   });
 
   test.failing("rule action requires the table it writes", async () => {
@@ -563,33 +582,46 @@ describe("#665 / CLI-3282 empty input and unreadable files", () => {
     expect(await codes(["", "create table public.t (a int)"])).toEqual([]);
   });
 
-  test.failing("unreadable file is a diagnostic, not a throw", async () => {
-    const dir = await fixtures.createSqlFixture({
-      "a.sql": "create table public.t (a int);",
-      "b.sql": "create table public.u (a int);",
-    });
-    const unreadable = path.join(dir, "b.sql");
-    await chmod(unreadable, 0o000);
-    try {
-      const r = await analyzeAndSortFromFiles([dir]);
-      expect(r.diagnostics.map((d) => d.code)).toEqual(["DISCOVERY_ERROR"]);
-    } finally {
-      await chmod(unreadable, 0o644);
-    }
-  });
+  // chmod 0 does not stop root (common in CI containers) or Windows from
+  // reading the file, so the repro only holds elsewhere.
+  const canMakeUnreadable =
+    process.platform !== "win32" && process.getuid?.() !== 0;
+  (canMakeUnreadable ? test.failing : test.skip)(
+    "unreadable file is a diagnostic, not a throw",
+    async () => {
+      const dir = await fixtures.createSqlFixture({
+        "a.sql": "create table public.t (a int);",
+        "b.sql": "create table public.u (a int);",
+      });
+      const unreadable = path.join(dir, "b.sql");
+      await chmod(unreadable, 0o000);
+      try {
+        const r = await analyzeAndSortFromFiles([dir]);
+        expect(r.diagnostics.map((d) => d.code)).toEqual(["DISCOVERY_ERROR"]);
+      } finally {
+        await chmod(unreadable, 0o644);
+      }
+    },
+  );
 });
 
 describe("#666 / CLI-3283 PG18 syntax and per-input parse failures", () => {
-  const sql = [
-    "create table public.a (x int);\ncreate table public.t (a int, b int generated always as (a * 2) virtual);\ncreate table public.z (y int);",
-  ];
-
-  test.failing("virtual generated column parses", async () => {
-    expect(await codes(sql, "PARSE_ERROR")).toEqual([]);
+  test.failing("virtual generated column parses and is sorted", async () => {
+    const virtual =
+      "create table public.t (a int, b int generated always as (a * 2) virtual)";
+    const r = await analyzeAndSort([virtual]);
+    expect(r.diagnostics.map((d) => d.code)).toEqual([]);
+    expect(r.ordered.map((s) => s.sql)).toEqual([virtual]);
   });
 
   test.failing("one bad statement does not drop its whole input", async () => {
-    expect((await analyzeAndSort(sql)).ordered.length).toBe(3);
+    const r = await analyzeAndSort([
+      "create table public.a (x int);\ncreate tabel oops;\ncreate table public.z (y int);",
+    ]);
+    expect(r.ordered.map((s) => s.sql)).toEqual([
+      "create table public.a (x int);",
+      "create table public.z (y int);",
+    ]);
   });
 });
 
