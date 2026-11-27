@@ -159,6 +159,18 @@ export const typeFromTypeNameNode = (
   return objectFromNameParts("type", nameParts);
 };
 
+// `rel.col%type` names a column, not a type: depend on its relation.
+export const dependencyFromTypeNameNode = (
+  typeNameNode: unknown,
+): ObjectRef | null => {
+  const typeNameRecord = asRecord(typeNameNode);
+  if (typeNameRecord?.pct_type === true) {
+    const relationParts = extractNameParts(typeNameRecord.names).slice(0, -1);
+    return objectFromNameParts("table", relationParts);
+  }
+  return typeFromTypeNameNode(typeNameNode);
+};
+
 // `uuid[]` is a different argument type from `uuid`, and every array of a type
 // is the same one (`uuid[][]` is `uuid[]`).
 export const arraySuffixFromTypeNameNode = (typeNameNode: unknown): string => {
