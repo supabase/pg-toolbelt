@@ -309,10 +309,6 @@ describe("diagnostics", () => {
         "create extension if not exists hstore with schema public;",
         "comment on extension hstore is 'kv';",
       ],
-      [
-        "-- pg-topo:requires table:t\ncreate table if not exists public.t (id int);",
-        "create view public.v as select id from public.t;",
-      ],
     ]) {
       const result = await analyzeAndSort([
         statement,
@@ -342,6 +338,56 @@ describe("diagnostics", () => {
           (diagnostic) => diagnostic.code === "DUPLICATE_PRODUCER",
         ),
       ).toHaveLength(2);
+    }
+  });
+
+  test("a copy that matches itself by compatibility behaves like a single statement", async () => {
+    const copy =
+      "-- pg-topo:requires table:t\ncreate table if not exists app.t (id int);";
+    const other = "create table public.t (id int);";
+    const result = await analyzeAndSort([
+      "create schema app;",
+      copy,
+      copy,
+      other,
+    ]);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.ordered.map((node) => node.sql).slice(1)).toEqual([
+      other,
+      copy,
+      copy,
+    ]);
+    const selfOnly = await analyzeAndSort([
+      "-- pg-topo:requires table:t\ncreate table if not exists public.t (id int);",
+      "-- pg-topo:requires table:t\ncreate table if not exists public.t (id int);",
+    ]);
+    expect(selfOnly.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "UNRESOLVED_DEPENDENCY",
+      "UNRESOLVED_DEPENDENCY",
+    ]);
+  });
+
+  test("copies providing a routine are one object, and a conflicting declaration is still reported", async () => {
+    const copy = (signature: string) =>
+      `-- pg-topo:provides function:public.f(${signature})\ncreate extension if not exists hstore;`;
+    const declaration =
+      "create function public.f(variadic a text[]) returns text language sql as $$ select 'x' $$;";
+    for (const [statements, duplicates] of [
+      [
+        [
+          copy("variadic pg_catalog.text[]"),
+          copy("variadic pg_catalog.text[]"),
+        ],
+        0,
+      ],
+      [[copy("pg_catalog.text[]"), copy("pg_catalog.text[]"), declaration], 3],
+    ] as const) {
+      const result = await analyzeAndSort([...statements]);
+      expect(
+        result.diagnostics.filter(
+          (diagnostic) => diagnostic.code === "DUPLICATE_PRODUCER",
+        ),
+      ).toHaveLength(duplicates);
     }
   });
 
