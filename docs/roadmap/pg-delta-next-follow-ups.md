@@ -2376,8 +2376,21 @@ are on main:
   redeclaring child, dropping `x` from both needs the parent's `DROP COLUMN`
   first (inheritance) and the child's first (its default depends on the
   sequence the parent's column owns). #607's order turns main's apply failure
-  ("cannot drop inherited column") into a guardrail-4 cycle. A fix drops the
-  child's default as its own step, or refuses the shape by name.
+  ("cannot drop inherited column") into a guardrail-4 cycle. Adding `x` to
+  both, with a child default that calls a function reading the parent's `x`,
+  cycles the same way (main: "column already exists" at apply). A fix handles
+  the child's default as its own step, or refuses the shape by name.
+- **A dropped child whose column type carries the dependency still fails.**
+  With `x s.d` on both tables and `ALTER DOMAIN s.d SET DEFAULT s.f()` where
+  `s.f` reads the child, dropping the child and the parent's `x` emits a
+  standalone `DROP COLUMN` on the child before the parent's ("cannot drop
+  inherited column"), on main too.
+- **A column rename with a kind change bypasses the override guard.** With
+  `renames: "auto"` (or a confirmed prompt) the pair is no rename candidate,
+  so it plans as `DROP COLUMN v` + `ADD COLUMN w`, and a partition's own
+  expression resets to the parent's while the proof passes. A rename with an
+  expression change does the same on main; extracting the override (first
+  item) covers both.
 
 ## Redeclared inherited columns
 
