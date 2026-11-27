@@ -85,13 +85,14 @@ export function expandReplacements(
       // extension version rejects SET SCHEMA even when the desired version is
       // relocatable), while the desired-side read stays as the conservative
       // end-state check. Replace always converges, so OR-ing can only widen
-      // the replace set — never emit an illegal alter.
+      // the replace set — never emit an illegal alter. Both run, with no
+      // short-circuit: a rule may refuse (throw) on either side's state.
       const sourceFact = source.get(s.id);
-      if (
-        attrRule.replaceWhen?.(s.from, s.to, fact) ||
-        (sourceFact !== undefined &&
-          attrRule.replaceWhen?.(s.from, s.to, sourceFact))
-      ) {
+      const onDesired = attrRule.replaceWhen?.(s.from, s.to, fact) === true;
+      const onSource =
+        sourceFact !== undefined &&
+        attrRule.replaceWhen?.(s.from, s.to, sourceFact) === true;
+      if (onDesired || onSource) {
         replaceIds.add(key);
         continue;
       }

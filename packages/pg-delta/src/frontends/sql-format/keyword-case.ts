@@ -207,6 +207,7 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "VALUES",
   "VERSION",
   "VIEW",
+  "VIRTUAL",
   "VOLATILE",
   "WHEN",
   "WHERE",

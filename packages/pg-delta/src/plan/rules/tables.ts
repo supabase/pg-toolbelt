@@ -273,7 +273,7 @@ export const tableRules: Record<string, KindRules> = {
         sql: `ALTER TABLE ${rel(schema, table)} RENAME COLUMN ${qid(column)} TO ${qid((to as { name: string }).name)}`,
       };
     },
-    create: (fact, view) => {
+    create: (fact, view, _params, sourceView) => {
       const { schema, table, column } = columnRef(fact);
       // delta-set inlining (§3.4): a column arriving WITH a default must
       // carry it inline — ADD COLUMN … NOT NULL fails on populated tables
@@ -295,11 +295,19 @@ export const tableRules: Record<string, KindRules> = {
       // rewriteRisk — over-declaring is safe (the proof only fails on
       // UNDER-declared rewrites).
       const rewrites =
-        fact.payload["generatedExpr"] != null ||
+        (fact.payload["generatedExpr"] != null &&
+          fact.payload["generatedVirtual"] !== true) ||
         fact.payload["identity"] != null ||
         defaultChild !== undefined;
       const spec: ActionSpec = {
         sql: `ALTER TABLE ${rel(schema, table)} ADD COLUMN ${clause}`,
+        // ADD COLUMN recurses into existing children and merges with a column
+        // a child already redeclares, so that child's own ADD COLUMN goes
+        // first ("column ... already exists" otherwise). A parent this plan
+        // creates folds its columns into CREATE TABLE and needs no such order.
+        ...(sourceView && fact.parent && sourceView.get(fact.parent)
+          ? { consumes: redeclaringChildColumns(view, fact).map((c) => c.id) }
+          : {}),
         alsoProduces,
         ...(rewrites ? { rewriteRisk: true } : {}),
       };
@@ -311,10 +319,24 @@ export const tableRules: Record<string, KindRules> = {
       }
       return [spec];
     },
-    drop: (fact) => {
+    drop: (fact, view, staysInPlace) => {
       const { schema, table, column } = columnRef(fact);
       return {
         sql: `ALTER TABLE ${rel(schema, table)} DROP COLUMN ${qid(column)}`,
+        // Postgres rejects DROP COLUMN on a child while a parent still has the
+        // column ("cannot drop inherited column"): the parent's drop goes first.
+        // A child table the plan drops or replaces takes its column with it,
+        // and ordering against that DROP TABLE can close a cycle through the
+        // table's dependents.
+        ...(view
+          ? {
+              releases: redeclaringChildColumns(view, fact)
+                .filter(
+                  (c) => !staysInPlace || (c.parent && staysInPlace(c.parent)),
+                )
+                .map((c) => c.id),
+            }
+          : {}),
         dataLoss: "destructive",
       };
     },
@@ -340,6 +362,8 @@ export const tableRules: Record<string, KindRules> = {
           // a column replace, so whenever `type.alter` runs at all the source
           // and desired generated-ness are necessarily the same.
           const sourceGenerated = sourceColumn.payload["generatedExpr"] != null;
+          const sourceVirtual =
+            sourceColumn.payload["generatedVirtual"] === true;
           // Foreign tables have no local storage, so PostgreSQL rejects the
           // USING cast clause ("<rel> is not a table", 42809) — it would force a
           // rewrite. The plain TYPE change is metadata-only and carries no
@@ -369,15 +393,16 @@ export const tableRules: Record<string, KindRules> = {
               : "";
           // A generated column also rejects the USING clause ("cannot specify
           // USING when altering type of generated column") — PostgreSQL
-          // recomputes the value from the generation expression. That still
-          // rewrites the table, so rewriteRisk stays (unlike the foreign case).
+          // recomputes the value from the generation expression. For a STORED
+          // column that still rewrites the table, so rewriteRisk stays. A
+          // VIRTUAL one (PG 18) stores no value and is not rewritten.
           const usingCast =
             isForeign || sourceGenerated
               ? ""
               : ` USING ${qid(column)}${hop}::${str(to)}`;
           const typeSpec: ActionSpec = {
             sql: `${target} TYPE ${str(to)}${usingCast}`,
-            ...(isForeign ? {} : { rewriteRisk: true }),
+            ...(isForeign || sourceVirtual ? {} : { rewriteRisk: true }),
           };
           if (consumes.length > 0) typeSpec.consumes = consumes;
           if (releases.length > 0) typeSpec.releases = releases;
@@ -527,6 +552,27 @@ export const tableRules: Record<string, KindRules> = {
       },
       collation: "replace",
       generatedExpr: "replace",
+      generatedVirtual: {
+        // PG 18 has no ALTER between STORED and VIRTUAL, so the column is
+        // always replaced and `alter` never renders. The replacement re-adds
+        // the column on every child with the parent's expression, and a
+        // child's own expression on a column it does not declare is not a
+        // fact that could restore it.
+        replaceWhen: (_from, _to, fact) => {
+          if (p(fact, "_generatedOverride") === true) {
+            const { schema, table, column } = columnRef(fact);
+            throw new Error(
+              `plan: column ${rel(schema, table)}.${qid(column)} cannot change its generation kind: ` +
+                `a child table overrides its generation expression, and replacing the column would reset it. ` +
+                `Change the kind manually, then re-run.`,
+            );
+          }
+          return true;
+        },
+        alter: () => {
+          throw new Error("unreachable: generatedVirtual is always replaced");
+        },
+      },
     },
   },
 
@@ -703,6 +749,47 @@ function identityOptionAlterSpecs(
   return [{ sql: `${target} ${clauses.join(" ")}` }];
 }
 
+/** The same-named columns that the table's inheritance descendants
+ *  redeclare. A child's column is a fact only when it is local, so each one
+ *  is a definition Postgres merged with this inherited column. A child
+ *  without one only inherits the column, so the walk continues below it. */
+function redeclaringChildColumns(view: FactView, fact: Fact): Fact[] {
+  if (fact.parent === undefined) return [];
+  const name = columnRef(fact).column;
+  const columns: Fact[] = [];
+  const seen = new Set<string>();
+  const walk = (parent: StableId): void => {
+    const parentKey = encodeId(parent);
+    if (seen.has(parentKey)) return;
+    seen.add(parentKey);
+    for (const edge of view.incomingEdges(parent)) {
+      const child = view.get(edge.from);
+      if (child?.id.kind !== "table") continue;
+      const parents = [
+        p(child, "parentTable"),
+        ...((p(child, "inheritsAlso") as PayloadValue[] | undefined) ?? []),
+      ] as Array<{ schema: string; name: string } | null>;
+      if (
+        !parents.some(
+          (t) => t !== null && encodeId({ kind: "table", ...t }) === parentKey,
+        )
+      ) {
+        continue;
+      }
+      const column = view.get({
+        kind: "column",
+        schema: child.id.schema,
+        table: child.id.name,
+        name,
+      });
+      if (column !== undefined) columns.push(column);
+      else walk(child.id);
+    }
+  };
+  walk(fact.parent);
+  return columns;
+}
+
 function columnRef(fact: Fact): {
   table: string;
   schema: string;
@@ -720,7 +807,9 @@ function columnClause(fact: Fact): string {
   if (collation != null) sql += ` COLLATE ${str(collation)}`;
   const generated = p(fact, "generatedExpr");
   if (generated != null)
-    sql += ` GENERATED ALWAYS AS (${str(generated)}) STORED`;
+    sql += ` GENERATED ALWAYS AS (${str(generated)}) ${
+      p(fact, "generatedVirtual") === true ? "VIRTUAL" : "STORED"
+    }`;
   const identity = p(fact, "identity");
   const generation = identityGeneration(identity);
   if (generation === "a" || generation === "d") {

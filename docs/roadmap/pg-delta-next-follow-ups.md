@@ -414,7 +414,8 @@ role membership SET/INHERIT options (`3530186654`), database-scoped role GUCs
 matview populated state `WITH [NO] DATA` (`3530186683`), user-defined base types
 (`3530186693`), user-rule dependency resolution to rule facts (`3530186701`), custom
 identity sequence names (`3530186709`), foreign-column FDW options `attfdwoptions`
-(`3530186714`), PG18 virtual generated columns (`3530186719`), publication
+(`3530186714`), ~~PG18 virtual generated columns (`3530186719`)~~ ✅ resolved
+(`relations.ts:292`, `tables.ts:802`), publication
 `publish_generated_columns` (`3530186730`), role connection limits `rolconnlimit`
 (`3530186736`), multiple-inheritance parents (`3536715681`), foreign-table partition
 attachments (`3536715689`), non-relocatable extension `SET SCHEMA` (`3536715698`),
@@ -2337,6 +2338,60 @@ whenever it could reorder what main applies. These gaps are deferred.
   counts a parent's new column against each inheriting table in
   `columnCreatesByTable`.
 
+## PR #607 review triage — generated columns in inheritance trees
+
+#607 orders a replaced column's parent `DROP COLUMN` before a redeclaring
+`INHERITS` child's, and the child's `ADD COLUMN` before the parent's. It also
+refuses a `STORED`/`VIRTUAL` change when a partition or `INHERITS` child
+overrides the generation expression on a column it does not declare
+(`_generatedOverride`), on either side: an export drops the override, so the
+desired side alone cannot tell a removed override from a lost one. That also
+refuses a plan that drops the override, its child, or the generation
+(`VIRTUAL` to plain) on purpose. Left as they
+are on main:
+
+- **A partition's own generation expression is not extracted** (nor an
+  `INHERITS` child's `SET EXPRESSION` on an inherited column). Its column is
+  not local, so it is no fact. A from-empty create and a parent expression
+  change (`generatedExpr: "replace"`) both leave the partition with the
+  parent's expression, and the next plan reports 0 actions. A fix extracts the
+  override, renders it in `PARTITION OF (... WITH OPTIONS ...)`, and restores
+  it after a parent replace (`SET EXPRESSION`, PG 17+). The #607 guard then
+  goes away.
+- **Replacing only the child's redeclared column fails.** A child-only
+  expression change emits `DROP COLUMN` on the child while the parent keeps
+  the column ("cannot drop inherited column"). `SET EXPRESSION` (PG 17+) is the
+  in-place form.
+- **Child-only state on an inherited column is lost when the parent's column
+  is replaced.** `ALTER TABLE ONLY child ALTER COLUMN v SET NOT NULL` on a
+  column the child does not declare is no fact, so replacing the parent's
+  column drops it and the next plan reports 0 actions. Any parent
+  column replace does this (an expression change on main too). The override
+  guard compares generation expressions only.
+- **A table rename in the same plan drops the add-side order.** The create
+  rule looks the desired parent table up on the source, so a renamed parent
+  reads as new and the tie-break orders the two `ADD COLUMN`s.
+- **A child default that depends on the parent's column fails at plan time.**
+  With `x serial` on the parent and `DEFAULT nextval('parent_x_seq')` on a
+  redeclaring child, dropping `x` from both needs the parent's `DROP COLUMN`
+  first (inheritance) and the child's first (its default depends on the
+  sequence the parent's column owns). #607's order turns main's apply failure
+  ("cannot drop inherited column") into a guardrail-4 cycle. Adding `x` to
+  both, with a child default that calls a function reading the parent's `x`,
+  cycles the same way (main: "column already exists" at apply). A fix handles
+  the child's default as its own step, or refuses the shape by name.
+- **A dropped child whose column type carries the dependency still fails.**
+  With `x s.d` on both tables and `ALTER DOMAIN s.d SET DEFAULT s.f()` where
+  `s.f` reads the child, dropping the child and the parent's `x` emits a
+  standalone `DROP COLUMN` on the child before the parent's ("cannot drop
+  inherited column"), on main too.
+- **A column rename with a kind change bypasses the override guard.** With
+  `renames: "auto"` (or a confirmed prompt) the pair is no rename candidate,
+  so it plans as `DROP COLUMN v` + `ADD COLUMN w`, and a partition's own
+  expression resets to the parent's while the proof passes. A rename with an
+  expression change does the same on main; extracting the override (first
+  item) covers both.
+
 ## Redeclared inherited columns
 
 An inheritance child can declare a column it also inherits (`attislocal` and
@@ -2358,12 +2413,12 @@ updated.
   Postgres copies the parent default and the proof reports drift). The child
   create must also run after any same-plan change to the matching parent
   columns.
-- **Parent and kept child change the column together**
-  (`-add-with-parent`, `-drop-with-parent`; forward). No ordering edge links
-  the two column actions: the child's ADD must run before the parent's
-  (Postgres merges the parent ADD into the child column), and the child's
-  DROP after the parent's. Each scenario names the tables so the name
-  tie-break picks the wrong order. supabase/pg-toolbelt#607 fixes both.
+- ~~**Parent and kept child change the column together**~~ ✅ resolved in
+  #607 (`-add-with-parent`, `-drop-with-parent`; forward, no longer pinned).
+  The column rule now orders the child's ADD before the parent's (Postgres
+  merges the parent ADD into the child column), and the child's DROP after
+  the parent's. Each scenario names the tables so the name tie-break alone
+  would pick the wrong order.
 - **An existing child starts or stops redeclaring**
   (`-on-existing-child`, both directions). Neither `ADD COLUMN` nor
   `DROP COLUMN` on the child expresses it; the only DDL is recreating the

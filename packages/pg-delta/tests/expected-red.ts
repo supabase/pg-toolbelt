@@ -52,16 +52,6 @@ export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
     "table-ops--inherits-redeclared-column-multi-parent:reverse",
     { failure: 'column "x" inherits conflicting default values' },
   ],
-  // Parent and kept child change x together: no ordering edge between the
-  // parent's and the child's column actions.
-  [
-    "table-ops--inherits-redeclared-column-add-with-parent:forward",
-    { failure: 'column "x" of relation "z_child" already exists' },
-  ],
-  [
-    "table-ops--inherits-redeclared-column-drop-with-parent:forward",
-    { failure: 'cannot drop inherited column "x"' },
-  ],
   // An existing child starts or stops redeclaring an inherited column.
   [
     "table-ops--inherits-redeclared-column-on-existing-child:forward",

@@ -168,8 +168,14 @@ export interface KindRules {
   /** `view` is the resolved SOURCE (target) view the dropped fact lives in, so a
    *  rule can derive drop metadata from the view — e.g. DROP EXTENSION reading
    *  its reference-only members' `memberOfExtension` edges to flag data-loss.
+   *  `staysInPlace` tells whether the plan keeps a fact as it is, neither
+   *  dropping nor replacing it.
    *  Optional so existing single-arg drop rules stay type-compatible. */
-  drop(fact: Fact, view?: FactView): ActionSpec;
+  drop(
+    fact: Fact,
+    view?: FactView,
+    staysInPlace?: (id: StableId) => boolean,
+  ): ActionSpec;
   /** Facts this kind's create AND drop statements wipe as a side effect
    *  although they are not its descendants — an object-level acl's `REVOKE
    *  ALL ON <rel> FROM <role>` also revokes that role's column acls on the
