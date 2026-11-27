@@ -54,11 +54,14 @@ const ISSUE_622 = "https://github.com/supabase/pg-toolbelt/issues/622";
 const ISSUE_638 = "https://github.com/supabase/pg-toolbelt/issues/638";
 const ISSUE_641 = "https://github.com/supabase/pg-toolbelt/issues/641";
 const ISSUE_630 = "https://github.com/supabase/pg-toolbelt/issues/630";
+const ISSUE_677 = "https://github.com/supabase/pg-toolbelt/issues/677";
 interface KnownGap {
   ref: string;
   failure?: string;
   /** The gap applies only on PostgreSQL majors <= this; above it the case must pass. */
   maxMajor?: number;
+  /** The layouts that fail (default: all); the others must pass. */
+  layouts?: readonly (typeof LAYOUTS)[number][];
 }
 const KNOWN_GAPS = new Map<string, KnownGap>([
   // PG 14 keeps an ICU collation's locale in collcollate, so the extractor reads null.
@@ -144,6 +147,17 @@ const KNOWN_GAPS = new Map<string, KnownGap>([
     { ref: ISSUE_630 },
   ],
   ["default-privileges-edge-case--schema-grant-to-self/b", { ref: ISSUE_630 }],
+  // #677: t2's domain column is exported as a trailing ADD COLUMN, which the
+  // load runs after t1 uses t2's row type. Grouped keeps t2 whole and passes.
+  [
+    "table-ops--rowtype-column-blocks-add-domain-column/b",
+    {
+      ref: ISSUE_677,
+      failure:
+        'cannot alter table "t2" because column "t1.r" uses its row type',
+      layouts: ["by-object", "ordered"],
+    },
+  ],
 ]);
 
 interface Case {
@@ -278,12 +292,13 @@ describe("export: corpus round-trip fidelity (all layouts)", () => {
               unexpectedPass.push(`${key} (${known.ref})`);
               continue;
             }
+            const failing = known.layouts ?? LAYOUTS;
             const asPinned =
               known.failure === undefined
                 ? failures.join("\n") ===
-                  LAYOUTS.map((l) => `${l}: ${HASH_MISMATCH}`).join("\n")
-                : failures.length === LAYOUTS.length &&
-                  LAYOUTS.every(
+                  failing.map((l) => `${l}: ${HASH_MISMATCH}`).join("\n")
+                : failures.length === failing.length &&
+                  failing.every(
                     (l, i) =>
                       failures[i]?.startsWith(`${l}: `) === true &&
                       failures[i]?.includes(known.failure as string) === true,

@@ -340,4 +340,30 @@ export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
     "partitioned-table-operations--new-partition-custom-index-name:forward",
     { failure: "remove index:s.t_a_k_idx" },
   ],
+  // https://github.com/supabase/pg-toolbelt/issues/677 - t1 is created with a column of t2's row type before the ALTER that rewrites t2.
+  [
+    "table-ops--rowtype-column-blocks-add-domain-column:forward",
+    {
+      failure:
+        'cannot alter table "t2" because column "t1.r" uses its row type',
+    },
+  ],
+  [
+    "table-ops--rowtype-column-blocks-retype:forward",
+    {
+      failure:
+        'cannot alter table "t2" because column "t1.r" uses its row type',
+    },
+  ],
+  // https://github.com/supabase/pg-toolbelt/issues/678 - the enum rebuild creates the type without its privileges.
+  [
+    "type-ops--enum-remove-label-keeps-grant:forward",
+    { failure: "add acl:(type:public.mood).corpus_enum_user" },
+  ],
+  [
+    "type-ops--enum-remove-label-keeps-public-revoke:forward",
+    {
+      failure: 'set acl:(type:public.mood).PUBLIC.privileges: ["USAGE"] -> []',
+    },
+  ],
 ]);
