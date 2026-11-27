@@ -1,0 +1,2 @@
+CREATE TYPE mood AS ENUM ('sad', 'happy');
+REVOKE USAGE ON TYPE mood FROM PUBLIC;

@@ -1,0 +1,18 @@
+{
+  "a-to-b": {
+    "forbid": ["replacement:table"],
+    "expectedFailure": {
+      "assertion": "forbid:replacement:table",
+      "issue": "https://github.com/supabase/pg-toolbelt/issues/634",
+      "reason": "leaving an inheritance parent drops and re-creates the table instead of NO INHERIT"
+    }
+  },
+  "b-to-a": {
+    "forbid": ["replacement:table"],
+    "expectedFailure": {
+      "assertion": "forbid:replacement:table",
+      "issue": "https://github.com/supabase/pg-toolbelt/issues/634",
+      "reason": "joining an inheritance parent drops and re-creates the table instead of INHERIT"
+    }
+  }
+}

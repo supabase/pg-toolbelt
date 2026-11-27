@@ -122,6 +122,26 @@ describe("runPinnedDirection (EXPECTED_RED wrapper)", () => {
     );
   });
 
+  test("a RegExp pin must match the whole failure shape", async () => {
+    const pin = /dependency cycle among[\s\S]*RENAME COLUMN "c"/;
+    expect(
+      runPinnedDirection(
+        "k:forward",
+        async () => {
+          throw new Error('apply failed: RENAME COLUMN "c" TO "d"');
+        },
+        pin,
+      ),
+    ).rejects.toThrow("pinned in EXPECTED_RED to fail with /dependency cycle");
+    await runPinnedDirection(
+      "k:forward",
+      async () => {
+        throw new Error('dependency cycle among:\n RENAME COLUMN "c" TO "d"');
+      },
+      pin,
+    );
+  });
+
   test("autoSeed state changes are re-thrown instead of satisfying a red pin", async () => {
     const verdict = {
       ...verdictWith([

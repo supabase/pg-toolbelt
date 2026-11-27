@@ -50,11 +50,25 @@ const REDECLARED =
 // The exported child is CREATE TABLE ... INHERITS plus ADD COLUMN for the name
 // it also inherits, which the shadow load cannot apply.
 const REDECLARED_ADD = 'column "x" of relation "z_child" already exists';
+const ISSUE_622 = "https://github.com/supabase/pg-toolbelt/issues/622";
+const ISSUE_638 = "https://github.com/supabase/pg-toolbelt/issues/638";
+const ISSUE_641 = "https://github.com/supabase/pg-toolbelt/issues/641";
+const ISSUE_630 = "https://github.com/supabase/pg-toolbelt/issues/630";
+const ISSUE_677 = "https://github.com/supabase/pg-toolbelt/issues/677";
 interface KnownGap {
   ref: string;
   failure?: string;
+  /** The gap applies only on PostgreSQL majors <= this; above it the case must pass. */
+  maxMajor?: number;
+  /** The layouts that fail (default: all); the others must pass. */
+  layouts?: readonly (typeof LAYOUTS)[number][];
 }
 const KNOWN_GAPS = new Map<string, KnownGap>([
+  // PG 14 keeps an ICU collation's locale in collcollate, so the extractor reads null.
+  [
+    "collation-ops--icu-create/b",
+    { ref: ISSUE_641, maxMajor: 14, failure: "expected a scalar, got null" },
+  ],
   [
     "partitioned-table-operations--subpartition-index-own-options/a",
     { ref: FOLLOW_UPS },
@@ -92,6 +106,57 @@ const KNOWN_GAPS = new Map<string, KnownGap>([
   [
     "table-ops--inherits-redeclared-column-on-existing-child/b",
     { ref: REDECLARED, failure: REDECLARED_ADD },
+  ],
+  // #622: both sides redeclare the inherited column, so the export is the same
+  // CREATE TABLE ... INHERITS plus ADD COLUMN.
+  [
+    "table-ops--inherits-redeclared-column-retype/a",
+    { ref: ISSUE_622, failure: REDECLARED_ADD },
+  ],
+  [
+    "table-ops--inherits-redeclared-column-retype/b",
+    { ref: ISSUE_622, failure: REDECLARED_ADD },
+  ],
+  [
+    "table-ops--inherits-parent-drop-not-null/a",
+    {
+      ref: ISSUE_622,
+      failure: 'column "a" of relation "c" already exists',
+    },
+  ],
+  [
+    "table-ops--inherits-parent-drop-not-null/b",
+    {
+      ref: ISSUE_622,
+      failure: 'column "a" of relation "c" already exists',
+    },
+  ],
+  // #638: the partition's index name is not exported, so a custom name is lost.
+  [
+    "partitioned-table-operations--partition-index-rename/b",
+    { ref: ISSUE_638 },
+  ],
+  [
+    "partitioned-table-operations--new-partition-custom-index-name/b",
+    { ref: ISSUE_638 },
+  ],
+  // #630: a default privilege a role holds on its own objects does not survive
+  // export and reload.
+  [
+    "default-privileges-edge-case--global-revoke-from-self/b",
+    { ref: ISSUE_630 },
+  ],
+  ["default-privileges-edge-case--schema-grant-to-self/b", { ref: ISSUE_630 }],
+  // #677: t2's domain column is exported as a trailing ADD COLUMN, which the
+  // load runs after t1 uses t2's row type. Grouped keeps t2 whole and passes.
+  [
+    "table-ops--rowtype-column-blocks-add-domain-column/b",
+    {
+      ref: ISSUE_677,
+      failure:
+        'cannot alter table "t2" because column "t1.r" uses its row type',
+      layouts: ["by-object", "ordered"],
+    },
   ],
 ]);
 
@@ -215,7 +280,11 @@ describe("export: corpus round-trip fidelity (all layouts)", () => {
           } finally {
             await source.dropRolesExcept(baseRoles, { strict: true });
           }
-          const known = KNOWN_GAPS.get(key);
+          const pinned = KNOWN_GAPS.get(key);
+          const known =
+            pinned?.maxMajor !== undefined && major > pinned.maxMajor
+              ? undefined
+              : pinned;
           if (known !== undefined) {
             // A pinned gap must still fail exactly as recorded on every
             // layout; any other outcome is a fix or a new regression.
@@ -223,12 +292,13 @@ describe("export: corpus round-trip fidelity (all layouts)", () => {
               unexpectedPass.push(`${key} (${known.ref})`);
               continue;
             }
+            const failing = known.layouts ?? LAYOUTS;
             const asPinned =
               known.failure === undefined
                 ? failures.join("\n") ===
-                  LAYOUTS.map((l) => `${l}: ${HASH_MISMATCH}`).join("\n")
-                : failures.length === LAYOUTS.length &&
-                  LAYOUTS.every(
+                  failing.map((l) => `${l}: ${HASH_MISMATCH}`).join("\n")
+                : failures.length === failing.length &&
+                  failing.every(
                     (l, i) =>
                       failures[i]?.startsWith(`${l}: `) === true &&
                       failures[i]?.includes(known.failure as string) === true,

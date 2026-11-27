@@ -1,0 +1,1 @@
+INSERT INTO t (id, c1) VALUES (1, '2026-01-01');

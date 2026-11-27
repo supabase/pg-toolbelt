@@ -1,0 +1,2 @@
+CREATE TABLE t2 (id uuid PRIMARY KEY);
+CREATE TABLE t3 (t2_id uuid REFERENCES t2 (id));

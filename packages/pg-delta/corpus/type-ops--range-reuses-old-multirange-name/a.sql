@@ -1,0 +1,2 @@
+CREATE TYPE r1 AS RANGE (SUBTYPE = integer);
+CREATE TABLE t (c r1);

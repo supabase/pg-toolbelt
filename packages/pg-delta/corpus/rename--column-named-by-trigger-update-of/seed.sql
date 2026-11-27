@@ -1,0 +1,1 @@
+INSERT INTO t (id, c0) VALUES (1, 10);
