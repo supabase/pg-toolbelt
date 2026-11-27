@@ -329,7 +329,12 @@ export const EXPECTED_RED: ReadonlyMap<string, RedPin> = new Map<
     "table-ops--inherits-drop-child-keeps-parent-rows:forward",
     { failure: '"s"."p": 2 -> 1 rows' },
   ],
-  // #634 https://github.com/supabase/pg-toolbelt/issues/634 is pinned in corpus/table-ops--inherits-join-leave-parent/budget.json, not here: the proof passes because the table is empty.
+  // https://github.com/supabase/pg-toolbelt/issues/634 - leaving the parent drops and re-creates the child, losing its row. The
+  // reverse direction's replacement is pinned in corpus/table-ops--inherits-join-leave-parent/budget.json.
+  [
+    "table-ops--inherits-join-leave-parent:forward",
+    { failure: '"s"."p": 2 -> 1 rows' },
+  ],
   // https://github.com/supabase/pg-toolbelt/issues/638 - the attached partition index is dropped on its own, which PostgreSQL refuses.
   [
     "partitioned-table-operations--partition-index-rename",
