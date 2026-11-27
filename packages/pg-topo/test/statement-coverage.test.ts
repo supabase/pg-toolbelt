@@ -680,4 +680,17 @@ describe("statement coverage", () => {
     expect(diag?.details?.producerProvides).toBeDefined();
     expect(diag?.details?.consumerRequires).toBeDefined();
   });
+
+  test("validates a consumer of repeated if not exists creates against Postgres", async () => {
+    const createTable = "create table if not exists t (id int);";
+    const result = await analyzeAndSort([
+      "create table c () inherits (t);",
+      createTable,
+      `-- another file\n${createTable}`,
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(validation.diagnostics).toEqual([]);
+  }, 120000);
 });

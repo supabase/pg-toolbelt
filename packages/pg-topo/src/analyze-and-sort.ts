@@ -16,6 +16,7 @@ import type {
   GraphReport,
   StatementNode,
 } from "./model/types.ts";
+import { asRecord } from "./utils/ast.ts";
 
 const dedupeDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
   const map = new Map<string, Diagnostic>();
@@ -140,7 +141,23 @@ export const analyzeAndSort = async (
   }
 
   const statementNodes: StatementNode[] = [];
+  // statement index -> position-free AST and annotations of a `create … if not exists`
+  const ifNotExistsStatements = new Map<number, string>();
   for (const parsedStatement of parsedStatements) {
+    const root = asRecord(parsedStatement.ast);
+    if (asRecord(root && Object.values(root)[0])?.if_not_exists === true) {
+      ifNotExistsStatements.set(
+        statementNodes.length,
+        JSON.stringify(
+          {
+            ast: parsedStatement.ast,
+            annotations: parsedStatement.annotations,
+          },
+          (key, value) => (key === "location" ? undefined : value),
+        ),
+      );
+    }
+
     const statementClass = classifyStatement(parsedStatement.ast);
     if (statementClass === "UNKNOWN") {
       diagnostics.push({
@@ -172,7 +189,11 @@ export const analyzeAndSort = async (
     });
   }
 
-  const graphState = buildGraph(statementNodes, options?.externalProviders);
+  const graphState = buildGraph(
+    statementNodes,
+    options?.externalProviders,
+    ifNotExistsStatements,
+  );
   diagnostics.push(...graphState.diagnostics);
 
   const topoResult = topoSort(statementNodes, graphState.edges);

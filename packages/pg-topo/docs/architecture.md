@@ -158,7 +158,8 @@ flowchart TD
 
   exact -->|exactly 1| edgeExact[Add edge reason: requires]
   exact -->|>1 and kind=constraint| edgeConstraint[Fan-out edges reason: requires_constraint_key]
-  exact -->|>1 and non-constraint| dupExact[DUPLICATE_PRODUCER ambiguous exact producer]
+  exact -->|>1, all the same create if not exists| edgeRepeated[Copies chained, edge from the last copy reason: requires]
+  exact -->|>1 and non-constraint otherwise| dupExact[DUPLICATE_PRODUCER ambiguous exact producer]
   exact -->|0| compat{Compatible producers by kind+signature}
 
   compat -->|exactly 1| edgeCompat[Add edge reason: requires_compatible]

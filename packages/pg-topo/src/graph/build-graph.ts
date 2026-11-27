@@ -178,6 +178,7 @@ const producerIndicesForRequirement = (
 export const buildGraph = (
   nodes: StatementNode[],
   externalProviders?: ObjectRef[],
+  ifNotExistsStatements: ReadonlyMap<number, string> = new Map(),
 ): GraphState => {
   const diagnostics: Diagnostic[] = [];
   const producersByKey = new Map<string, number[]>();
@@ -227,8 +228,47 @@ export const buildGraph = (
     }
   }
 
+  // The same `create … if not exists` repeated is one object, not a conflict:
+  // the copies are chained in input order and consumers order after the last
+  // one, so they run after every copy, and no duplicate is reported.
+  // Statements that differ keep the diagnostics.
+  const areCopies = (producerIndices: number[]): boolean => {
+    const fingerprint = ifNotExistsStatements.get(producerIndices[0] ?? -1);
+    return (
+      producerIndices.length > 1 &&
+      fingerprint !== undefined &&
+      producerIndices.every(
+        (index) => ifNotExistsStatements.get(index) === fingerprint,
+      )
+    );
+  };
+  const repeatedKeys = new Set<string>();
+  const copies = new Set<number>();
+  const earlierCopies = new Set<number>();
+  for (const [producerKey, producerIndices] of producersByKey.entries()) {
+    if (areCopies(producerIndices)) {
+      repeatedKeys.add(producerKey);
+      const objectRef = nodes[producerIndices[0] ?? -1]?.provides.find(
+        (providedRef) => objectRefKey(providedRef) === producerKey,
+      );
+      // Consumers need an edge from the last copy only.
+      let previousIndex: number | undefined;
+      for (const copyIndex of producerIndices) {
+        copies.add(copyIndex);
+        if (previousIndex !== undefined) {
+          earlierCopies.add(previousIndex);
+          addEdge(graphState, previousIndex, copyIndex, {
+            reason: "requires",
+            objectRef,
+          });
+        }
+        previousIndex = copyIndex;
+      }
+    }
+  }
+
   for (const [producerKey, producerIndices] of producersByIdentity.entries()) {
-    if (producerIndices.length < 2) {
+    if (producerIndices.length < 2 || areCopies(producerIndices)) {
       continue;
     }
     const firstProducerIndex = producerIndices[0];
@@ -285,13 +325,29 @@ export const buildGraph = (
       }
 
       if (producerIndices.length > 1) {
-        if (requiredRef.kind === "constraint") {
+        // A copy that needs its own object (a self-referencing table) needs
+        // nothing from its sibling copies.
+        if (
+          repeatedKeys.has(requiredKey) &&
+          producerIndices.includes(consumerIndex)
+        ) {
+          continue;
+        }
+        if (
+          requiredRef.kind === "constraint" ||
+          repeatedKeys.has(requiredKey)
+        ) {
           const uniqueProducerIndices = [...new Set(producerIndices)].filter(
-            (producerIndex) => producerIndex !== consumerIndex,
+            (producerIndex) =>
+              producerIndex !== consumerIndex &&
+              !earlierCopies.has(producerIndex),
           );
           for (const producerIndex of uniqueProducerIndices) {
             addEdge(graphState, producerIndex, consumerIndex, {
-              reason: "requires_constraint_key",
+              reason:
+                requiredRef.kind === "constraint"
+                  ? "requires_constraint_key"
+                  : "requires",
               objectRef: requiredRef,
             });
           }
@@ -318,10 +374,22 @@ export const buildGraph = (
         continue;
       }
 
-      const compatibleProducerIndices = producerIndicesForRequirement(
+      const compatibleIndices = producerIndicesForRequirement(
         requiredRef,
         nodes,
-      ).filter((index) => index !== consumerIndex);
+      );
+      // Likewise a copy matching its own object only by compatibility needs
+      // nothing from its sibling copies.
+      const consumerFingerprint = copies.has(consumerIndex)
+        ? ifNotExistsStatements.get(consumerIndex)
+        : undefined;
+      const compatibleProducerIndices = compatibleIndices.filter(
+        (index) =>
+          index !== consumerIndex &&
+          !earlierCopies.has(index) &&
+          (consumerFingerprint === undefined ||
+            ifNotExistsStatements.get(index) !== consumerFingerprint),
+      );
       if (compatibleProducerIndices.length === 1) {
         const producerIndex = compatibleProducerIndices[0];
         if (typeof producerIndex !== "number") {

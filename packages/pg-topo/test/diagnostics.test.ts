@@ -302,6 +302,142 @@ describe("diagnostics", () => {
     expect(unresolved.length).toBe(0);
   });
 
+  test("repeated identical create if not exists statements are one object", async () => {
+    for (const [statement, consumer] of [
+      ["create schema if not exists app;", "create table app.t (id int);"],
+      [
+        "create extension if not exists hstore with schema public;",
+        "comment on extension hstore is 'kv';",
+      ],
+    ]) {
+      const result = await analyzeAndSort([
+        statement,
+        `-- another file\n${statement}`,
+        consumer,
+      ]);
+      expect(result.diagnostics).toEqual([]);
+    }
+  });
+
+  test("a plain create or a differing if not exists create still reports duplicates", async () => {
+    for (const statements of [
+      ["create schema app;", "create schema app;"],
+      ["create schema app;", "create schema if not exists app;"],
+      [
+        "create table if not exists t (a int);",
+        "create table if not exists t (b int);",
+      ],
+      [
+        "create schema if not exists app;",
+        "-- pg-topo:phase post_data\ncreate schema if not exists app;",
+      ],
+    ]) {
+      const result = await analyzeAndSort(statements);
+      expect(
+        result.diagnostics.filter(
+          (diagnostic) => diagnostic.code === "DUPLICATE_PRODUCER",
+        ),
+      ).toHaveLength(2);
+    }
+  });
+
+  test("a copy that matches itself by compatibility behaves like a single statement", async () => {
+    const copy =
+      "-- pg-topo:requires table:t\ncreate table if not exists app.t (id int);";
+    const other = "create table public.t (id int);";
+    const result = await analyzeAndSort([
+      "create schema app;",
+      copy,
+      copy,
+      other,
+    ]);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.ordered.map((node) => node.sql).slice(1)).toEqual([
+      other,
+      copy,
+      copy,
+    ]);
+    const selfOnly = await analyzeAndSort([
+      "-- pg-topo:requires table:t\ncreate table if not exists public.t (id int);",
+      "-- pg-topo:requires table:t\ncreate table if not exists public.t (id int);",
+    ]);
+    expect(selfOnly.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "UNRESOLVED_DEPENDENCY",
+      "UNRESOLVED_DEPENDENCY",
+    ]);
+  });
+
+  test("copies providing a routine are one object, and a conflicting declaration is still reported", async () => {
+    const copy = (signature: string) =>
+      `-- pg-topo:provides function:public.f(${signature})\ncreate extension if not exists hstore;`;
+    const declaration =
+      "create function public.f(variadic a text[]) returns text language sql as $$ select 'x' $$;";
+    for (const [statements, duplicates] of [
+      [
+        [
+          copy("variadic pg_catalog.text[]"),
+          copy("variadic pg_catalog.text[]"),
+        ],
+        0,
+      ],
+      [[copy("pg_catalog.text[]"), copy("pg_catalog.text[]"), declaration], 3],
+    ] as const) {
+      const result = await analyzeAndSort([...statements]);
+      expect(
+        result.diagnostics.filter(
+          (diagnostic) => diagnostic.code === "DUPLICATE_PRODUCER",
+        ),
+      ).toHaveLength(duplicates);
+    }
+  });
+
+  test("a copy with its own requires annotation stays apart, without a false cycle", async () => {
+    const result = await analyzeAndSort([
+      "create schema if not exists app;",
+      "-- pg-topo:requires table:app.t\ncreate schema if not exists app;",
+      "create table app.t (id int);",
+    ]);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "DUPLICATE_PRODUCER",
+      "DUPLICATE_PRODUCER",
+      "DUPLICATE_PRODUCER",
+    ]);
+  });
+
+  test("a repeated self-referencing create is one object, ordered before its consumers", async () => {
+    const createTable =
+      "create table if not exists t (id int primary key, parent int references t (id));";
+    const consumer = "create table c (t_id int references t (id));";
+    const result = await analyzeAndSort([consumer, createTable, createTable]);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.ordered.map((node) => node.sql)).toEqual([
+      createTable,
+      createTable,
+      consumer,
+    ]);
+  });
+
+  test("repeated copies add edges linear in copies and consumers", async () => {
+    for (const [copy, consumer] of [
+      ["create schema if not exists app;", "create table app.t (id int);"],
+      [
+        "create table if not exists public.t (id int);",
+        "-- pg-topo:requires table:t\ncreate view public.v as select 1;",
+      ],
+    ]) {
+      const result = await analyzeAndSort(
+        [0, 1, 2].map(
+          (index) => `${copy}\n${consumer.replace(/\b([tv]) /, `$1${index} `)}`,
+        ),
+      );
+      expect(result.diagnostics).toEqual([]);
+      expect(result.graph.edges).toHaveLength(5);
+      expect(result.ordered.map((node) => node.sql).slice(0, 3)).toEqual(
+        Array(3).fill(copy),
+      );
+    }
+  });
+
   test("overloads that differ by an array or output parameter do not collide", async () => {
     for (const sql of [
       [
