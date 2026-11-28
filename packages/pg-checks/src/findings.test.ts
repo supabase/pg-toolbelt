@@ -201,7 +201,7 @@ describe("parseFindings", () => {
             "kind": "statement",
             "label": "Use the caller's permissions",
             "sql": "alter view public.v set (security_invoker = on);",
-            "why": "public.v then reads its tables with the caller's permissions and RLS, so callers without access to those tables lose rows or get "permission denied"; grant them access to the underlying tables first.",
+            "why": "public.v then reads its tables with the caller's permissions and RLS, so callers need privileges on the underlying tables or get "permission denied". Grant only what the view exposed, and protect rows with RLS policies, or keep the view in a schema the API does not expose.",
           },
         ],
         "sensitive_columns_exposed": [

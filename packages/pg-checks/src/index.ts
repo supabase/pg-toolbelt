@@ -8,6 +8,7 @@ export {
   buildCheckBlock,
   buildCheckStatements,
   buildInTransactionWarnRead,
+  validateCheckInputs,
 } from "./check.ts";
 export {
   type CheckError,
@@ -26,6 +27,8 @@ export {
   type ResolvedPolicy,
   type Rule,
   type Severity,
+  closesCheckQuote,
+  parseObjectName,
   resolvePolicy,
   rulesAt,
 } from "./policy.ts";

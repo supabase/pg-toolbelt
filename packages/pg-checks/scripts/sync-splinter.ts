@@ -34,11 +34,12 @@ const { values } = parseArgs({
   },
 });
 const get = async (url: string) => {
-  // A token (CI) avoids the anonymous GitHub API rate limit.
+  // A token (CI) avoids the anonymous GitHub API rate limit; it goes to the
+  // API host only, never to raw.githubusercontent.com.
   const token = process.env["GITHUB_TOKEN"];
   const response = await fetch(
     url,
-    token === undefined
+    token === undefined || new URL(url).hostname !== "api.github.com"
       ? {}
       : { headers: { authorization: `Bearer ${token}` } },
   );

@@ -252,6 +252,19 @@ export function buildAfterCommitRead(
   };
 }
 
+/**
+ * Throws when the builders would reject `options` (bad `timeoutMs`, an
+ * exposed schema with a comma or `$sbc$`/`$sbcq$`) or an exclusion entry.
+ * Call it before anything destructive. It builds the broadest read, so it
+ * covers every builder; with all rules `off` nothing is built and nothing runs.
+ */
+export function validateCheckInputs(
+  policy: ResolvedPolicy,
+  options: CheckOptions,
+): void {
+  buildAfterCommitRead(policy, options);
+}
+
 /** Column of the one row {@link buildInTransactionWarnRead} returns. */
 export const WARN_READ_COLUMN = "sbc_findings";
 

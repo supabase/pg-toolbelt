@@ -16,10 +16,17 @@ import {
   parseCheckError,
   parseFindings,
   parseInTransactionWarnRead,
+  validateCheckInputs,
 } from "@supabase/pg-checks";
 
 const policy = resolvePolicy(config.db?.migrations?.checks); // throws PolicyError
 const exposedSchemas = config.api?.schemas ?? ["public"];
+
+// Preflight before anything destructive: throws for every input the builders reject
+// (bad timeoutMs, exposedSchemas with a comma or "$sbc$"/"$sbcq$"). resolvePolicy already
+// rejected bad exclusion entries; parseObjectName / closesCheckQuote are exported to
+// validate an entry with the same grammar.
+validateCheckInputs(policy, { exposedSchemas, timeoutMs: 2000 });
 
 // In the migration's transaction, after the file, before the history insert.
 // [] / "" when no rule is at "error".

@@ -107,7 +107,7 @@ export function fixesFor(
         statement(
           "Use the caller's permissions",
           `alter view ${object} set (security_invoker = on);`,
-          `${object} then reads its tables with the caller's permissions and RLS, so callers without access to those tables lose rows or get "permission denied"; grant them access to the underlying tables first.`,
+          `${object} then reads its tables with the caller's permissions and RLS, so callers need privileges on the underlying tables or get "permission denied". Grant only what the view exposed, and protect rows with RLS policies, or keep the view in a schema the API does not expose.`,
         ),
       ];
     case "rls_policy_always_true": {

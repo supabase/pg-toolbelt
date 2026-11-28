@@ -7,6 +7,7 @@ import {
   buildCheckStatements,
   buildInTransactionWarnRead,
   quoteLiteral,
+  validateCheckInputs,
 } from "./check.ts";
 import { RULES, type Rule, resolvePolicy } from "./policy.ts";
 import { RULE_SQL } from "./vendor/splinter.ts";
@@ -85,6 +86,16 @@ describe("buildCheckBlock", () => {
     );
     expect(handler).toBeGreaterThan(body.indexOf("jsonb_array_length"));
     expect(handler).toBeGreaterThan(body.lastIndexOf("prev_db_schemas"));
+  });
+
+  test("validateCheckInputs throws what the builders throw", () => {
+    expect(() => validateCheckInputs(allWarn, {})).not.toThrow();
+    expect(() => validateCheckInputs(allWarn, { timeoutMs: 0 })).toThrow(
+      /timeoutMs/,
+    );
+    expect(() =>
+      validateCheckInputs(allWarn, { exposedSchemas: ["a$sbc$"] }),
+    ).toThrow(/\$sbc/);
   });
 
   test("rejects a non-positive timeout and a schema splinter cannot parse", () => {
