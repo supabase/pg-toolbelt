@@ -1,0 +1,140 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { splitSplinter } from "../scripts/splinter-shape.ts";
+import {
+  PolicyError,
+  RULES,
+  parseObjectName,
+  resolvePolicy,
+} from "./policy.ts";
+import { RULE_SQL } from "./vendor/splinter.ts";
+
+describe("resolvePolicy", () => {
+  test("absent configuration resolves every rule to warn with no exclusions", () => {
+    const policy = resolvePolicy(undefined);
+    expect(Object.values(policy.severities)).toEqual(RULES.map(() => "warn"));
+    expect(policy.exclude).toEqual([]);
+  });
+
+  test("keeps explicit severities and defaults the rest to warn", () => {
+    const policy = resolvePolicy({
+      rls_disabled_in_public: "error",
+      function_search_path_mutable: "off",
+      exclude: {
+        rls_disabled_in_public: ["public.legacy", "app.audit_log"],
+        security_definer_view: ["public.v"],
+      },
+    });
+    expect(policy.severities.rls_disabled_in_public).toBe("error");
+    expect(policy.severities.function_search_path_mutable).toBe("off");
+    expect(policy.severities.security_definer_view).toBe("warn");
+    expect(policy.exclude).toEqual([
+      { rule: "rls_disabled_in_public", object: "public.legacy" },
+      { rule: "rls_disabled_in_public", object: "app.audit_log" },
+      { rule: "security_definer_view", object: "public.v" },
+    ]);
+  });
+
+  test("removes duplicate exclusions", () => {
+    const policy = resolvePolicy({
+      exclude: { rls_disabled_in_public: ["public.a", "public.a"] },
+    });
+    expect(policy.exclude).toEqual([
+      { rule: "rls_disabled_in_public", object: "public.a" },
+    ]);
+  });
+
+  test("rejects unknown rules, unknown severities and malformed exclusions together", () => {
+    let caught: unknown;
+    try {
+      resolvePolicy({
+        rls_disabled_in_publik: "error",
+        rls_enabled_no_policy: "level",
+        exclude: {
+          rls_disabled_in_public: [
+            "foo",
+            "x.",
+            " a.x",
+            "public.ok",
+            3,
+            "my schema.my table",
+          ],
+          rls_disabled_in_publik: ["public.x"],
+          security_definer_view: "public.v",
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(PolicyError);
+    expect((caught as PolicyError).issues).toEqual([
+      'unknown rule "rls_disabled_in_publik"',
+      'rule "rls_enabled_no_policy": severity must be "error", "warn" or "off", got "level"',
+      'exclude.rls_disabled_in_public[0]: expected "schema.name", got "foo"',
+      'exclude.rls_disabled_in_public[1]: expected "schema.name", got "x."',
+      'exclude.rls_disabled_in_public[2]: expected "schema.name", got " a.x"',
+      'exclude.rls_disabled_in_public[4]: expected "schema.name", got 3',
+      'exclude: unknown rule "rls_disabled_in_publik"',
+      "values under [db.migrations.checks.exclude] must be lists; severities go above it",
+    ]);
+  });
+
+  test("accepts double-quoted parts and rejects malformed quoting", () => {
+    const ok = ['"api.v2".users', 'api."v2.users"', '"W""N"."a""b"'];
+    const bad = [
+      '"api.v2.users',
+      'api."v2',
+      '"a"b.c',
+      'a"b.c',
+      'a.b"c',
+      '"".x',
+      'a.""',
+      '"a"x.b',
+    ];
+    const policy = resolvePolicy({ exclude: { security_definer_view: ok } });
+    expect(policy.exclude.map((e) => e.object)).toEqual(ok);
+    expect(parseObjectName('"W""N"."a""b"')).toEqual({
+      schema: 'W"N',
+      name: 'a"b',
+    });
+    expect(parseObjectName("a.b.c")).toEqual({ schema: "a", name: "b.c" });
+    for (const entry of bad) {
+      expect(() =>
+        resolvePolicy({ exclude: { security_definer_view: [entry] } }),
+      ).toThrow(/expected "schema.name"/);
+    }
+  });
+
+  test("rejects a non-object policy and a non-table exclude", () => {
+    expect(() => resolvePolicy("error")).toThrow(/policy must be an object/);
+    expect(() => resolvePolicy({ exclude: ["public.foo"] })).toThrow(
+      /exclude must be a table of rule names to lists/,
+    );
+    expect(() => resolvePolicy({ exclude: "public.foo" })).toThrow(
+      /exclude must be a table of rule names to lists/,
+    );
+    expect(() =>
+      resolvePolicy({ exclude: { security_definer_view: ["public.v$sbcq$"] } }),
+    ).toThrow(/expected "schema.name"/);
+    expect(
+      resolvePolicy({ exclude: { security_definer_view: ["public.v$sbc_x"] } })
+        .exclude,
+    ).toEqual([{ rule: "security_definer_view", object: "public.v$sbc_x" }]);
+  });
+});
+
+describe("RULES", () => {
+  test("every rule exists in the vendored splinter as a SECURITY rule that needs no preamble", () => {
+    const shape = splitSplinter(
+      readFileSync(join(import.meta.dir, "vendor", "splinter.sql"), "utf8"),
+    );
+    for (const rule of RULES) {
+      const found = shape.rules.find((r) => r.name === rule);
+      expect(found, rule).toBeDefined();
+      expect(found?.categories).toContain("SECURITY");
+      expect(found?.readsSplinterSettings).toBe(false);
+      expect(RULE_SQL[rule], rule).toBe(found?.sql);
+    }
+  });
+});
